@@ -21,16 +21,30 @@ export const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-export const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Base day names — index 0 = Sunday
+const DAY_NAMES_BASE = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// Build a 6-row matrix of dates for the calendar grid
-export function buildMonthMatrix(year, month) {
-  // month: 1-12
+// Default exported names start on Monday (most family-friendly)
+export const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// Return day-name labels rotated so the array starts on `weekStart`
+// (0 = Sun, 1 = Mon, 6 = Sat)
+export function getDayNames(weekStart = 1) {
+  const start = (weekStart + 7) % 7;
+  return [...Array(7)].map((_, i) => DAY_NAMES_BASE[(start + i) % 7]);
+}
+
+// Build a 6-row matrix of dates for the calendar grid.
+// `weekStart` controls which weekday the rows begin on.
+export function buildMonthMatrix(year, month, weekStart = 1) {
+  const start = (weekStart + 7) % 7;
   const first = new Date(year, month - 1, 1);
-  const startDay = first.getDay(); // 0=Sun
+  const firstDayOfWeek = first.getDay(); // 0 = Sun
+  // Days to subtract from the 1st so the first cell is on weekStart
+  const offset = (firstDayOfWeek - start + 7) % 7;
   const daysInMonth = new Date(year, month, 0).getDate();
   const matrix = [];
-  let dayCounter = 1 - startDay;
+  let dayCounter = 1 - offset;
   for (let r = 0; r < 6; r++) {
     const row = [];
     for (let c = 0; c < 7; c++) {

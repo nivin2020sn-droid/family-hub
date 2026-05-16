@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Plus,
   Settings2,
-  WifiOff,
   Layers,
   UserCog,
   Zap,
@@ -23,7 +22,7 @@ import {
   createEvent,
   deleteEvent,
 } from "@/lib/api";
-import { buildMonthMatrix, DAY_NAMES, MONTH_NAMES, todayIso, getContrastTextColor } from "@/lib/utils";
+import { buildMonthMatrix, getDayNames, MONTH_NAMES, todayIso, getContrastTextColor } from "@/lib/utils";
 import EventBar from "@/components/EventBar";
 import EventDialog from "@/components/EventDialog";
 import EventTypesDialog from "@/components/EventTypesDialog";
@@ -68,16 +67,37 @@ const TimePlan = () => {
   // Quick Fill Mode — when set, tapping a day adds/removes this event type
   const [quickFillTypeId, setQuickFillTypeId] = useState(null);
 
-  const [online, setOnline] = useState(navigator.onLine);
+  // Week start: 1=Mon (default), 0=Sun, 6=Sat — persisted to localStorage
+  const [weekStart, setWeekStart] = useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem("mfml_week_start"), 10);
+      if (v === 0 || v === 1 || v === 6) return v;
+    } catch {}
+    return 1;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("mfml_week_start", String(weekStart));
+    } catch {}
+  }, [weekStart]);
+
+  // Sync state: online | offline | syncing | synced
+  const [syncState, setSyncState] = useState(
+    typeof navigator !== "undefined" && navigator.onLine ? "online" : "offline"
+  );
+
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
 
   useEffect(() => {
     const onOnline = () => {
       setOnline(true);
+      setSyncState((s) => (s === "syncing" ? s : "online"));
       toast.success("Back online — syncing");
       loadEvents();
     };
     const onOffline = () => {
       setOnline(false);
+      setSyncState("offline");
       toast.message("You're offline. Showing cached data.");
     };
     window.addEventListener("online", onOnline);
@@ -110,12 +130,51 @@ const TimePlan = () => {
     setLoading(false);
   };
 
+  // Full sync — pull fresh data for users, types, and events
+  const handleSync = async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      toast.error("You're offline — can't sync");
+      setSyncState("offline");
+      return;
+    }
+    setSyncState("syncing");
+    try {
+      const [u, t, ev] = await Promise.all([
+        getUsers(),
+        getEventTypes(),
+        getEvents({ year, month }),
+      ]);
+      const byId = new Map(DEFAULT_USERS.map((x) => [x.id, x]));
+      (Array.isArray(u) ? u : []).forEach((x) => {
+        if (x && x.id) byId.set(x.id, { ...byId.get(x.id), ...x });
+      });
+      setUsers([byId.get("wife"), byId.get("husband")]);
+      setEventTypes(t);
+      setEvents(ev);
+      setSyncState("synced");
+      toast.success("All synced");
+      setTimeout(
+        () =>
+          setSyncState(
+            typeof navigator !== "undefined" && navigator.onLine ? "online" : "offline"
+          ),
+        2500
+      );
+    } catch {
+      setSyncState(
+        typeof navigator !== "undefined" && navigator.onLine ? "online" : "offline"
+      );
+      toast.error("Sync failed");
+    }
+  };
+
   useEffect(() => {
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year, month]);
 
-  const matrix = useMemo(() => buildMonthMatrix(year, month), [year, month]);
+  const matrix = useMemo(() => buildMonthMatrix(year, month, weekStart), [year, month, weekStart]);
+  const dayHeaders = useMemo(() => getDayNames(weekStart), [weekStart]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map();
@@ -249,20 +308,52 @@ const TimePlan = () => {
             <span className="hidden sm:inline">Dashboard</span>
           </button>
           <div className="flex items-center gap-1 sm:gap-2">
-            {!online && (
-              <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-[#7A7571] bg-[#F3F0EA] px-2 sm:px-3 py-1 sm:py-1.5 rounded-full">
-                <WifiOff className="w-3 h-3" strokeWidth={2} /> Offline
+            {/* Sync status indicator + Sync Now button */}
+            <button
+              onClick={handleSync}
+              disabled={syncState === "syncing"}
+              className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-[10px] sm:text-xs font-semibold transition-all active:scale-95 ${
+                syncState === "offline"
+                  ? "bg-red-50 text-red-700 border border-red-200"
+                  : syncState === "syncing"
+                  ? "bg-amber-50 text-amber-800 border border-amber-200"
+                  : syncState === "synced"
+                  ? "bg-blue-50 text-blue-700 border border-blue-200"
+                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+              }`}
+              data-testid="sync-status-btn"
+              aria-label="Sync now"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  syncState === "offline"
+                    ? "bg-red-500"
+                    : syncState === "syncing"
+                    ? "bg-amber-500 animate-pulse"
+                    : syncState === "synced"
+                    ? "bg-blue-500"
+                    : "bg-emerald-500"
+                }`}
+              />
+              <span className="hidden xs:inline sm:inline">
+                {syncState === "offline"
+                  ? "Offline"
+                  : syncState === "syncing"
+                  ? "Syncing…"
+                  : syncState === "synced"
+                  ? "Synced"
+                  : "Sync"}
               </span>
-            )}
+            </button>
             <Button
               variant="ghost"
               onClick={() => setProfilesDialogOpen(true)}
               className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA] h-10 w-10 sm:w-auto sm:px-4 p-0 sm:p-2"
               data-testid="manage-profiles-btn"
-              aria-label="Profiles"
+              aria-label="Settings"
             >
               <UserCog className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" strokeWidth={1.75} />
-              <span className="hidden sm:inline">Profiles</span>
+              <span className="hidden sm:inline">Settings</span>
             </Button>
             <Button
               variant="ghost"
@@ -380,9 +471,9 @@ const TimePlan = () => {
 
         {/* Day headers — single letter on mobile, full short name on larger screens */}
         <div className="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
-          {DAY_NAMES.map((d) => (
+          {dayHeaders.map((d, i) => (
             <div
-              key={d}
+              key={`${d}-${i}`}
               className="py-1 sm:py-2 text-center text-[10px] sm:text-[11px] font-semibold text-[#7A7571] uppercase tracking-[0.1em] sm:tracking-[0.15em]"
             >
               <span className="sm:hidden">{d[0]}</span>
@@ -652,6 +743,8 @@ const TimePlan = () => {
         open={profilesDialogOpen}
         onOpenChange={setProfilesDialogOpen}
         users={users}
+        weekStart={weekStart}
+        onWeekStartChange={setWeekStart}
         onChanged={async () => {
           const u = await getUsers();
           const byId = new Map(DEFAULT_USERS.map((x) => [x.id, x]));

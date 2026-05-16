@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { updateUser } from "@/lib/api";
 
-const ProfilesDialog = ({ open, onOpenChange, users, onChanged }) => {
+const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWeekStartChange }) => {
   const [names, setNames] = useState({});
   const [saving, setSaving] = useState(false);
 
@@ -55,37 +55,74 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged }) => {
       >
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle className="font-heading text-2xl font-medium tracking-tight text-[#2D2A26]">
-            Profile Names
+            Settings
           </DialogTitle>
           <DialogDescription className="text-sm text-[#7A7571]">
-            Customize how each account is shown across the app.
+            Customize your profile names and calendar preferences.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 py-4 space-y-4">
-          {users.map((u) => (
-            <div key={u.id} className="space-y-1.5">
-              <Label
-                htmlFor={`profile-${u.id}`}
-                className="text-xs font-semibold uppercase tracking-wider text-[#7A7571] flex items-center gap-2"
-              >
-                <span
-                  className="w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: u.color }}
+        <div className="px-6 py-4 space-y-5">
+          {/* Profile names */}
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7A7571]">
+              Profile Names
+            </p>
+            {users.map((u) => (
+              <div key={u.id} className="space-y-1.5">
+                <Label
+                  htmlFor={`profile-${u.id}`}
+                  className="text-xs font-semibold uppercase tracking-wider text-[#7A7571] flex items-center gap-2"
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: u.color }}
+                  />
+                  Profile {u.id === "wife" ? "1" : "2"}
+                </Label>
+                <Input
+                  id={`profile-${u.id}`}
+                  value={names[u.id] || ""}
+                  onChange={(e) =>
+                    setNames((prev) => ({ ...prev, [u.id]: e.target.value }))
+                  }
+                  className="rounded-xl border-[#E5E2DC] focus-visible:ring-[#2D2A26]"
+                  data-testid={`profile-name-input-${u.id}`}
                 />
-                Profile {u.id === "wife" ? "1" : "2"}
-              </Label>
-              <Input
-                id={`profile-${u.id}`}
-                value={names[u.id] || ""}
-                onChange={(e) =>
-                  setNames((prev) => ({ ...prev, [u.id]: e.target.value }))
-                }
-                className="rounded-xl border-[#E5E2DC] focus-visible:ring-[#2D2A26]"
-                data-testid={`profile-name-input-${u.id}`}
-              />
+              </div>
+            ))}
+          </div>
+
+          {/* Week Start */}
+          {typeof onWeekStartChange === "function" && (
+            <div className="space-y-2 pt-2 border-t border-[#E5E2DC]">
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7A7571] pt-3">
+                Week starts on
+              </p>
+              <div className="inline-flex w-full bg-[#F3F0EA] p-1 rounded-full">
+                {[
+                  { value: 1, label: "Monday" },
+                  { value: 0, label: "Sunday" },
+                  { value: 6, label: "Saturday" },
+                ].map((opt) => {
+                  const active = weekStart === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => onWeekStartChange(opt.value)}
+                      className={`flex-1 px-2 py-2 rounded-full text-xs font-semibold transition-all active:scale-95 ${
+                        active ? "bg-white shadow-sm text-[#2D2A26]" : "text-[#7A7571]"
+                      }`}
+                      data-testid={`week-start-${opt.value}`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          ))}
+          )}
         </div>
 
         <DialogFooter className="px-6 py-4 bg-[#FAF9F6] border-t border-[#E5E2DC] flex gap-2">

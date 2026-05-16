@@ -1,8 +1,11 @@
 import { cn, getContrastTextColor } from "@/lib/utils";
 
 /**
- * Event bar — compact rectangular bar used inside calendar day cells.
- * No ellipsis truncation — text either fits or is clipped cleanly.
+ * Event bar — used inside calendar day cells.
+ * - fill=true: bar uses `flex-1` to fill its share of the parent column,
+ *   so 1 event fills the whole half, 2 events split it, 3 split into three,
+ *   and so on. The abbreviation stays centered.
+ * - fill=false: compact inline bar with start time + title (popovers).
  */
 export const EventBar = ({ event, label, fill, onClick, testid, className }) => {
   const textColor = getContrastTextColor(event.color);
@@ -18,7 +21,7 @@ export const EventBar = ({ event, label, fill, onClick, testid, className }) => 
       className={cn(
         "w-full rounded-md cursor-pointer transition-all hover:brightness-95 overflow-hidden flex items-center justify-center",
         fill
-          ? "h-[16px] sm:h-[18px] px-1 leading-none"
+          ? "flex-1 min-h-[10px] px-1 leading-none"
           : "h-auto px-1.5 py-[2px] hover:scale-[1.02]",
         className
       )}
