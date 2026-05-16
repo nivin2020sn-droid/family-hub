@@ -118,13 +118,34 @@ const Dashboard = () => {
             accent="#F472B6"
             testid="home-budget-card"
           />
-          <ComingSoonCard
-            icon={StickyNote}
-            title="Wall Board"
-            description="A shared corkboard for sticky notes, shopping lists and little reminders."
-            accent="#60A5FA"
-            testid="wall-board-card"
-          />
+          <motion.button
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            whileHover={{ y: -4 }}
+            onClick={() => navigate("/wall-board")}
+            className="text-left relative overflow-hidden bg-[#F3F0EA]/60 rounded-3xl p-6 sm:p-8 flex flex-col justify-between min-h-[200px] sm:min-h-[280px] border border-[#E5E2DC]/70 group transition-all hover:shadow-[0_20px_50px_-20px_rgba(0,0,0,0.12)] active:scale-[0.99]"
+            data-testid="wall-board-card"
+          >
+            <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ background: "#60A5FA" }} />
+            <div className="relative z-10 flex flex-col gap-3 sm:gap-4">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white/70 backdrop-blur flex items-center justify-center shadow-sm">
+                <StickyNote strokeWidth={1.5} className="w-5 h-5 sm:w-6 sm:h-6 text-[#2D2A26]" />
+              </div>
+              <div>
+                <h3 className="font-heading text-xl sm:text-2xl font-medium text-[#2D2A26] tracking-tight">Wall Board</h3>
+                <p className="text-sm text-[#7A7571] mt-1.5 sm:mt-2 leading-relaxed">
+                  Family memories, goals, prayers and quick notes — all in one warm board.
+                </p>
+              </div>
+            </div>
+            <div className="relative z-10 flex items-center gap-2 mt-4 sm:mt-6">
+              <span className="inline-flex items-center gap-2 bg-white/85 backdrop-blur px-3 py-1.5 rounded-full text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-[#2D2A26] border border-[#E5E2DC]">
+                Open Board
+                <ArrowUpRight className="w-3 h-3" strokeWidth={2} />
+              </span>
+            </div>
+          </motion.button>
         </div>
 
         {/* Footer */}

@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Dashboard from "@/pages/Dashboard";
 import TimePlan from "@/pages/TimePlan";
+import WallBoard from "@/pages/WallBoard";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -27,6 +28,14 @@ function App() {
               element={
                 <RequireAuth>
                   <TimePlan />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/wall-board"
+              element={
+                <RequireAuth>
+                  <WallBoard />
                 </RequireAuth>
               }
             />
