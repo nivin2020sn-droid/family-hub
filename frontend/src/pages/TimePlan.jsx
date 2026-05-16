@@ -32,13 +32,20 @@ const HUSBAND_COLOR = "#60A5FA";
 const MAX_EVENTS_PER_HALF = 3;
 const MAX_EVENTS_SINGLE = 6;
 
+// Default users — always rendered so the calendar always shows both
+// profiles even if the API hasn't responded yet or returned partial data.
+const DEFAULT_USERS = [
+  { id: "wife", name: "Wife", role: "wife", color: WIFE_COLOR },
+  { id: "husband", name: "Husband", role: "husband", color: HUSBAND_COLOR },
+];
+
 const TimePlan = () => {
   const navigate = useNavigate();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
 
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState(DEFAULT_USERS);
   const [activeUserId, setActiveUserId] = useState("wife");
   const [merged, setMerged] = useState(false);
 
@@ -79,7 +86,13 @@ const TimePlan = () => {
   useEffect(() => {
     (async () => {
       const [u, t] = await Promise.all([getUsers(), getEventTypes()]);
-      setUsers(u);
+      // Merge API response with defaults so both profiles are ALWAYS present,
+      // even if the backend is slow / empty / returned only one.
+      const byId = new Map(DEFAULT_USERS.map((x) => [x.id, x]));
+      (Array.isArray(u) ? u : []).forEach((x) => {
+        if (x && x.id) byId.set(x.id, { ...byId.get(x.id), ...x });
+      });
+      setUsers([byId.get("wife"), byId.get("husband")]);
       setEventTypes(t);
     })();
   }, []);
@@ -503,7 +516,11 @@ const TimePlan = () => {
         users={users}
         onChanged={async () => {
           const u = await getUsers();
-          setUsers(u);
+          const byId = new Map(DEFAULT_USERS.map((x) => [x.id, x]));
+          (Array.isArray(u) ? u : []).forEach((x) => {
+            if (x && x.id) byId.set(x.id, { ...byId.get(x.id), ...x });
+          });
+          setUsers([byId.get("wife"), byId.get("husband")]);
         }}
       />
     </div>

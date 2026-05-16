@@ -108,10 +108,17 @@ async def seed_users():
         {"id": "wife", "name": "Wife", "role": "wife", "color": "#F472B6"},
         {"id": "husband", "name": "Husband", "role": "husband", "color": "#60A5FA"},
     ]
+    # Upsert ensures both users exist even if a previous startup failed midway.
+    # $setOnInsert preserves any custom name the user has saved.
     for u in default_users:
-        existing = await db.users.find_one({"id": u["id"]}, {"_id": 0})
-        if not existing:
-            await db.users.insert_one(u)
+        try:
+            await db.users.update_one(
+                {"id": u["id"]},
+                {"$setOnInsert": u},
+                upsert=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning("seed_users failed for %s: %s", u["id"], e)
 
 
 # ============= Routes =============
@@ -123,7 +130,22 @@ async def root():
 
 @api_router.get("/users", response_model=List[User])
 async def get_users():
+    # Ensure both default users exist (self-healing on every read).
+    defaults = [
+        {"id": "wife", "name": "Wife", "role": "wife", "color": "#F472B6"},
+        {"id": "husband", "name": "Husband", "role": "husband", "color": "#60A5FA"},
+    ]
+    for u in defaults:
+        try:
+            await db.users.update_one(
+                {"id": u["id"]}, {"$setOnInsert": u}, upsert=True
+            )
+        except Exception:
+            pass
     users = await db.users.find({}, {"_id": 0}).to_list(100)
+    # Sort wife first, then husband, then any others
+    order = {"wife": 0, "husband": 1}
+    users.sort(key=lambda x: order.get(x.get("id"), 99))
     return users
 
 
