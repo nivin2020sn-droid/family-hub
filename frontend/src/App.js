@@ -1,6 +1,5 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Dashboard from "@/pages/Dashboard";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import TimePlan from "@/pages/TimePlan";
 import WallBoard from "@/pages/WallBoard";
 import Login from "@/pages/Login";
@@ -19,7 +18,7 @@ function App() {
               path="/"
               element={
                 <RequireAuth>
-                  <Dashboard />
+                  <WallBoard />
                 </RequireAuth>
               }
             />
@@ -31,14 +30,9 @@ function App() {
                 </RequireAuth>
               }
             />
-            <Route
-              path="/wall-board"
-              element={
-                <RequireAuth>
-                  <WallBoard />
-                </RequireAuth>
-              }
-            />
+            {/* Legacy paths -> redirect to home */}
+            <Route path="/wall-board" element={<Navigate to="/" replace />} />
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ErrorBoundary>
