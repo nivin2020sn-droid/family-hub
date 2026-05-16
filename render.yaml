@@ -1,0 +1,66 @@
+# =============================================================================
+# Render Blueprint — My Family My Life
+# -----------------------------------------------------------------------------
+# Deploy with one click via https://render.com/deploy
+# Render will auto-detect this file and provision the services below.
+#
+# Before the first deploy, set the following env vars in the Render dashboard
+# (they are marked `sync: false` so they are NOT auto-synced from this file):
+#   1) my-family-my-life-api  → MONGO_URL   (MongoDB Atlas connection string)
+#   2) my-family-my-life-web  → REACT_APP_BACKEND_URL
+#        After the API service is live, copy its public URL
+#        (e.g. https://my-family-my-life-api.onrender.com) and paste it here.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend — FastAPI (Python)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: my-family-my-life-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DB_NAME
+        value: my_family_my_life
+      - key: CORS_ORIGINS
+        value: "*"
+      # Provided manually in Render dashboard (MongoDB Atlas URI)
+      - key: MONGO_URL
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Frontend — React (Create React App + Craco) served as a static site
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: my-family-my-life-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: yarn install --frozen-lockfile && yarn build
+    staticPublishPath: ./build
+    autoDeploy: true
+    pullRequestPreviewsEnabled: false
+    # SPA fallback so React Router handles client-side routes
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /service-worker.js
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /manifest.json
+        name: Cache-Control
+        value: public, max-age=3600
+    envVars:
+      # Set this to the backend service URL (e.g. https://my-family-my-life-api.onrender.com)
+      # after the API service has finished its first deploy.
+      - key: REACT_APP_BACKEND_URL
+        sync: false
