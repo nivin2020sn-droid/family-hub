@@ -34,6 +34,16 @@ export function getDayNames(weekStart = 1) {
   return [...Array(7)].map((_, i) => DAY_NAMES_BASE[(start + i) % 7]);
 }
 
+// Format a Date object as a LOCAL YYYY-MM-DD string. We avoid toISOString()
+// because it converts to UTC, which can shift the date by ±1 day for users
+// outside the UTC timezone.
+function toLocalIso(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 // Build a 6-row matrix of dates for the calendar grid.
 // `weekStart` controls which weekday the rows begin on.
 export function buildMonthMatrix(year, month, weekStart = 1) {
@@ -51,7 +61,7 @@ export function buildMonthMatrix(year, month, weekStart = 1) {
       const date = new Date(year, month - 1, dayCounter);
       row.push({
         date,
-        iso: date.toISOString().slice(0, 10),
+        iso: toLocalIso(date),
         inMonth: dayCounter >= 1 && dayCounter <= daysInMonth,
         day: date.getDate(),
       });
@@ -63,6 +73,5 @@ export function buildMonthMatrix(year, month, weekStart = 1) {
 }
 
 export function todayIso() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return toLocalIso(new Date());
 }

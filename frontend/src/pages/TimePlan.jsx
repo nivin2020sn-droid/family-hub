@@ -130,7 +130,8 @@ const TimePlan = () => {
     setLoading(false);
   };
 
-  // Full sync — pull fresh data for users, types, and events
+  // Full sync — pull fresh data and surface actual API errors so the user
+  // can diagnose backend / env-var issues on production.
   const handleSync = async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       toast.error("You're offline — can't sync");
@@ -139,18 +140,20 @@ const TimePlan = () => {
     }
     setSyncState("syncing");
     try {
-      const [u, t, ev] = await Promise.all([
-        getUsers(),
-        getEventTypes(),
-        getEvents({ year, month }),
+      // Direct API call so failures throw and we can show real status codes
+      const { api } = await import("@/lib/api");
+      const [usersRes, typesRes, eventsRes] = await Promise.all([
+        api.get("/users"),
+        api.get("/event-types"),
+        api.get("/events", { params: { year, month } }),
       ]);
       const byId = new Map(DEFAULT_USERS.map((x) => [x.id, x]));
-      (Array.isArray(u) ? u : []).forEach((x) => {
+      (Array.isArray(usersRes.data) ? usersRes.data : []).forEach((x) => {
         if (x && x.id) byId.set(x.id, { ...byId.get(x.id), ...x });
       });
       setUsers([byId.get("wife"), byId.get("husband")]);
-      setEventTypes(t);
-      setEvents(ev);
+      setEventTypes(Array.isArray(typesRes.data) ? typesRes.data : []);
+      setEvents(Array.isArray(eventsRes.data) ? eventsRes.data : []);
       setSyncState("synced");
       toast.success("All synced");
       setTimeout(
@@ -160,11 +163,14 @@ const TimePlan = () => {
           ),
         2500
       );
-    } catch {
+    } catch (err) {
       setSyncState(
         typeof navigator !== "undefined" && navigator.onLine ? "online" : "offline"
       );
-      toast.error("Sync failed");
+      const status = err?.response?.status;
+      const baseURL = err?.config?.baseURL || "(unknown)";
+      const detail = status ? `HTTP ${status}` : (err?.message || "network error");
+      toast.error(`Sync failed (${detail}) → ${baseURL}`, { duration: 8000 });
     }
   };
 
