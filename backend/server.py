@@ -137,6 +137,9 @@ class WallGoal(BaseModel):
     icon: Optional[str] = "Target"
     done: bool = False
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    completed_at: Optional[str] = None
+    archived_at: Optional[str] = None
 
 
 class WallGoalCreate(BaseModel):
@@ -149,6 +152,7 @@ class WallGoalUpdate(BaseModel):
     label: Optional[str] = None
     icon: Optional[str] = None
     done: Optional[bool] = None
+    archived: Optional[bool] = None  # convenience flag → sets/clears archived_at
 
 
 class WallCountdown(BaseModel):
@@ -454,8 +458,14 @@ async def delete_wall_photo(photo_id: str):
 
 # --- Goals
 @api_router.get("/wall/goals", response_model=List[WallGoal])
-async def list_wall_goals():
-    items = await db.wall_goals.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
+async def list_wall_goals(include_archived: bool = False):
+    query: dict = {} if include_archived else {"archived_at": None}
+    items = await db.wall_goals.find(query, {"_id": 0}).sort("created_at", 1).to_list(500)
+    # Back-fill any older docs created before timestamp fields existed.
+    for it in items:
+        it.setdefault("updated_at", it.get("created_at"))
+        it.setdefault("completed_at", None)
+        it.setdefault("archived_at", None)
     return items
 
 
@@ -468,18 +478,39 @@ async def create_wall_goal(payload: WallGoalCreate):
 
 @api_router.put("/wall/goals/{goal_id}", response_model=WallGoal)
 async def update_wall_goal(goal_id: str, payload: WallGoalUpdate):
-    update = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if not update:
-        existing = await db.wall_goals.find_one({"id": goal_id}, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, "Not found")
-        return existing
-    result = await db.wall_goals.find_one_and_update(
-        {"id": goal_id}, {"$set": update}, return_document=True, projection={"_id": 0}
-    )
-    if not result:
+    existing = await db.wall_goals.find_one({"id": goal_id}, {"_id": 0})
+    if not existing:
         raise HTTPException(404, "Not found")
-    return result
+
+    data = payload.model_dump(exclude_unset=True)
+    update: dict = {}
+    now = datetime.now(timezone.utc).isoformat()
+
+    if "label" in data:
+        update["label"] = data["label"]
+    if "icon" in data:
+        update["icon"] = data["icon"]
+    if "done" in data:
+        update["done"] = bool(data["done"])
+        # Stamp completed_at on transition to true; clear on transition to false.
+        if data["done"] and not existing.get("done"):
+            update["completed_at"] = now
+        elif not data["done"] and existing.get("done"):
+            update["completed_at"] = None
+    if "archived" in data:
+        if data["archived"]:
+            update["archived_at"] = now
+        else:
+            update["archived_at"] = None
+
+    update["updated_at"] = now
+
+    await db.wall_goals.update_one({"id": goal_id}, {"$set": update})
+    doc = await db.wall_goals.find_one({"id": goal_id}, {"_id": 0})
+    doc.setdefault("updated_at", doc.get("created_at"))
+    doc.setdefault("completed_at", None)
+    doc.setdefault("archived_at", None)
+    return doc
 
 
 @api_router.delete("/wall/goals/{goal_id}")

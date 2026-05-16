@@ -22,6 +22,10 @@ import {
   CalendarDays,
   Loader2,
   RefreshCw,
+  Archive,
+  ArchiveRestore,
+  History as HistoryIcon,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -75,6 +79,21 @@ function formatLongDate(isoDate) {
     });
   } catch {
     return isoDate;
+  }
+}
+
+function formatDateTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
   }
 }
 
@@ -697,6 +716,212 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
   );
 };
 
+// ---------- Goal history dialog ----------
+const HISTORY_FIELDS = [
+  { key: "created_at", label: "Created", icon: Plus },
+  { key: "updated_at", label: "Edited", icon: Pencil },
+  { key: "completed_at", label: "Completed", icon: Check },
+  { key: "archived_at", label: "Archived", icon: Archive },
+];
+
+const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
+  const [allGoals, setAllGoals] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const data = await wallGoals.listAll();
+      setAllGoals(data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      setSelectedId(null);
+      setAllGoals(wallGoals.cachedAll());
+      refresh();
+    }
+  }, [open]);
+
+  const active = allGoals.filter((g) => !g.archived_at);
+  const archived = allGoals.filter((g) => g.archived_at);
+  const selected = selectedId ? allGoals.find((g) => g.id === selectedId) : null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-md rounded-3xl border border-[#E5E2DC] bg-white p-0 overflow-hidden max-h-[85vh] flex flex-col"
+        data-testid="goal-history-dialog"
+      >
+        <DialogHeader className="px-6 pt-6 pb-3 border-b border-[#EFEBE4]">
+          <DialogTitle className="font-heading text-xl font-medium tracking-tight text-[#2D2A26] flex items-center gap-2">
+            <HistoryIcon className="w-4 h-4 text-[#16A34A]" />
+            Goal History
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[#7A7571]">
+            {selected
+              ? "Full history for this goal."
+              : "Tap a goal to see its full history."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="overflow-y-auto px-5 py-4 space-y-5 flex-1">
+          {loading && allGoals.length === 0 && (
+            <div className="flex items-center justify-center py-10 text-[#7A7571] text-sm gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+            </div>
+          )}
+
+          {selected ? (
+            <div data-testid="goal-history-detail">
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="text-xs font-semibold text-[#7A7571] hover:text-[#2D2A26] mb-3 inline-flex items-center gap-1"
+                data-testid="goal-history-back-btn"
+              >
+                ← Back to list
+              </button>
+              <div className="rounded-2xl bg-[#F3F0EA]/60 border border-[#E5E2DC] p-4">
+                <p className="text-sm font-semibold text-[#2D2A26] break-words">
+                  {selected.label}
+                </p>
+                {selected.archived_at && (
+                  <span className="inline-block mt-1.5 text-[10px] uppercase tracking-wider text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded-full">
+                    Archived
+                  </span>
+                )}
+              </div>
+              <ul className="mt-3 space-y-2">
+                {HISTORY_FIELDS.map(({ key, label, icon: Icon }) => {
+                  const value = formatDateTime(selected[key]);
+                  return (
+                    <li
+                      key={key}
+                      className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#EFEBE4]"
+                    >
+                      <Icon className="w-4 h-4 text-[#7A7571] mt-0.5" strokeWidth={1.8} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] uppercase tracking-[0.15em] text-[#7A7571] font-semibold">
+                          {label}
+                        </p>
+                        <p className="text-sm text-[#2D2A26] break-words">
+                          {value || <span className="text-[#A09B95] italic">—</span>}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : (
+            <>
+              {/* Active goals */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-2">
+                  Active ({active.length})
+                </p>
+                {active.length === 0 ? (
+                  <p className="text-xs text-[#A09B95] italic px-1">No active goals.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {active.map((g) => (
+                      <li key={g.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(g.id)}
+                          className="w-full text-left rounded-xl bg-white border border-[#EFEBE4] hover:bg-[#F3F0EA] active:scale-[0.99] transition px-3.5 py-2.5 flex items-center gap-2"
+                          data-testid={`goal-history-row-${g.id}`}
+                        >
+                          {g.done ? (
+                            <Check className="w-3.5 h-3.5 text-[#16A34A] flex-shrink-0" strokeWidth={3} />
+                          ) : (
+                            <span className="w-3.5 h-3.5 rounded-full border-2 border-[#E5E2DC] flex-shrink-0" />
+                          )}
+                          <span className="flex-1 text-sm text-[#2D2A26] break-words">{g.label}</span>
+                          <Clock className="w-3.5 h-3.5 text-[#A09B95]" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {/* Archived goals */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-2">
+                  Archived ({archived.length})
+                </p>
+                {archived.length === 0 ? (
+                  <p className="text-xs text-[#A09B95] italic px-1">Nothing archived yet.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {archived.map((g) => (
+                      <li
+                        key={g.id}
+                        className="rounded-xl bg-[#FAF9F6] border border-[#EFEBE4] px-3.5 py-2.5 flex items-center gap-2"
+                        data-testid={`goal-archived-row-${g.id}`}
+                      >
+                        <Archive className="w-3.5 h-3.5 text-[#A09B95] flex-shrink-0" strokeWidth={1.8} />
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(g.id)}
+                          className="flex-1 text-left text-sm text-[#3F3A36] break-words hover:underline"
+                        >
+                          {g.label}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await onRestore(g.id);
+                            await refresh();
+                          }}
+                          className="text-[10px] font-semibold uppercase tracking-wider text-[#16A34A] bg-[#E3F1E0] hover:bg-[#D1E7CD] px-2.5 py-1.5 rounded-full inline-flex items-center gap-1"
+                          data-testid={`goal-restore-btn-${g.id}`}
+                        >
+                          <ArchiveRestore className="w-3 h-3" strokeWidth={2} />
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await onDelete(g.id);
+                            await refresh();
+                          }}
+                          className="w-7 h-7 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#B91C1C] flex-shrink-0"
+                          aria-label="Delete permanently"
+                          data-testid={`goal-archived-delete-${g.id}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <DialogFooter className="px-6 py-3 border-t border-[#EFEBE4] bg-[#FAF9F6]">
+          <Button
+            variant="ghost"
+            className="rounded-full"
+            onClick={() => onOpenChange(false)}
+            data-testid="goal-history-close-btn"
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ---------- Settings dialog (bottom nav) ----------
 const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) => {
   const navigate = useNavigate();
@@ -805,6 +1030,7 @@ const WallBoard = () => {
   const [noteEditor, setNoteEditor] = useState({ open: false, item: null });
   const [feEditor, setFeEditor] = useState({ open: false, item: null });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [goalHistoryOpen, setGoalHistoryOpen] = useState(false);
   const photoInputRef = useRef(null);
 
   // Initial load from server
@@ -1147,7 +1373,7 @@ const WallBoard = () => {
             onAdd={() => setGoalEditor({ open: true, item: null })}
             testid="card-goals"
           >
-            {goals.length === 0 ? (
+            {goals.filter((g) => !g.archived_at).length === 0 ? (
               <EmptyState
                 text="No goals yet. Add the first one."
                 onAdd={() => setGoalEditor({ open: true, item: null })}
@@ -1155,47 +1381,77 @@ const WallBoard = () => {
               />
             ) : (
               <ul className="bg-white/70 rounded-2xl divide-y divide-[#EFEBE4] overflow-hidden">
-                {goals.map((g) => (
-                  <li key={g.id} className="flex items-center gap-3 px-3.5 py-2.5" data-testid={`goal-row-${g.id}`}>
-                    <button
-                      type="button"
-                      onClick={() => goalsCrud.update(g.id, { done: !g.done })}
-                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
-                        g.done ? "bg-[#16A34A]" : "border-2 border-[#E5E2DC] bg-white"
-                      }`}
-                      aria-label="Toggle"
-                      data-testid={`goal-toggle-${g.id}`}
+                {goals
+                  .filter((g) => !g.archived_at)
+                  .map((g) => (
+                    <li
+                      key={g.id}
+                      className="flex items-start gap-3 px-3.5 py-2.5"
+                      data-testid={`goal-row-${g.id}`}
                     >
-                      {g.done && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
-                    </button>
-                    <span
-                      className={`flex-1 text-sm truncate ${
-                        g.done ? "text-[#3F3A36] line-through opacity-70" : "text-[#3F3A36]"
-                      }`}
-                    >
-                      {g.label}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setGoalEditor({ open: true, item: g })}
-                      className="w-7 h-7 rounded-full hover:bg-[#F3F0EA] flex items-center justify-center text-[#7A7571]"
-                      aria-label="Edit goal"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => goalsCrud.remove(g.id)}
-                      className="w-7 h-7 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#B91C1C]"
-                      aria-label="Delete goal"
-                      data-testid={`goal-delete-${g.id}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </li>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => goalsCrud.update(g.id, { done: !g.done })}
+                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors flex-shrink-0 mt-0.5 ${
+                          g.done ? "bg-[#16A34A]" : "border-2 border-[#E5E2DC] bg-white"
+                        }`}
+                        aria-label="Toggle"
+                        data-testid={`goal-toggle-${g.id}`}
+                      >
+                        {g.done && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                      </button>
+                      <span
+                        className={`flex-1 min-w-0 text-sm break-words whitespace-pre-wrap py-0.5 ${
+                          g.done ? "text-[#3F3A36] line-through opacity-70" : "text-[#3F3A36]"
+                        }`}
+                        data-testid={`goal-label-${g.id}`}
+                      >
+                        {g.label}
+                      </span>
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setGoalEditor({ open: true, item: g })}
+                          className="w-7 h-7 rounded-full hover:bg-[#F3F0EA] flex items-center justify-center text-[#7A7571]"
+                          aria-label="Edit goal"
+                          data-testid={`goal-edit-${g.id}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => goalsCrud.update(g.id, { archived: true })}
+                          className="w-7 h-7 rounded-full hover:bg-[#FEF3C7] flex items-center justify-center text-[#92400E]"
+                          aria-label="Archive goal"
+                          data-testid={`goal-archive-${g.id}`}
+                        >
+                          <Archive className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => goalsCrud.remove(g.id)}
+                          className="w-7 h-7 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#B91C1C]"
+                          aria-label="Delete goal"
+                          data-testid={`goal-delete-${g.id}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
               </ul>
             )}
+
+            {/* History button — single button at the bottom of the entire card. */}
+            <button
+              type="button"
+              onClick={() => setGoalHistoryOpen(true)}
+              className="mt-3 w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-[#16A34A] hover:underline"
+              data-testid="goals-history-btn"
+            >
+              <HistoryIcon className="w-3.5 h-3.5" strokeWidth={2} />
+              History
+            </button>
           </SectionCard>
 
           {/* Countdown */}
@@ -1508,6 +1764,27 @@ const WallBoard = () => {
         onOpenChange={setSettingsOpen}
         onForceSync={forceSync}
         pendingCount={pending}
+      />
+      <GoalHistoryDialog
+        open={goalHistoryOpen}
+        onOpenChange={setGoalHistoryOpen}
+        onRestore={async (id) => {
+          await goalsCrud.update(id, { archived: false });
+          // Bring restored item back into the visible list immediately.
+          setGoals((prev) => {
+            const exists = prev.some((x) => x.id === id);
+            if (exists) {
+              return prev.map((x) => (x.id === id ? { ...x, archived_at: null } : x));
+            }
+            const restored = wallGoals.cachedAll().find((x) => x.id === id);
+            return restored ? [...prev, { ...restored, archived_at: null }] : prev;
+          });
+          toast.success("Goal restored");
+        }}
+        onDelete={async (id) => {
+          await goalsCrud.remove(id);
+          toast.success("Deleted permanently");
+        }}
       />
     </div>
   );

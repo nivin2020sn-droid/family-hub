@@ -195,6 +195,16 @@ export const wallSettings = {
 
 export const wallPhotos = makeCollection("photos");
 export const wallGoals = makeCollection("goals");
+// Goals can also be fetched with archived items included — used by the
+// History dialog. Backed by a separate cache key so it doesn't pollute the
+// main visible list.
+wallGoals.listAll = async function () {
+  const data = await get("/api/wall/goals?include_archived=true", "coll:goals:all");
+  return Array.isArray(data) ? data : [];
+};
+wallGoals.cachedAll = function () {
+  return readCache("coll:goals:all") || [];
+};
 export const wallCountdown = makeCollection("countdown");
 export const wallAchievements = makeCollection("achievements");
 export const wallNotes = makeCollection("notes");
