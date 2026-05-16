@@ -1,36 +1,61 @@
-/* Simple offline-first service worker for My Family My Life */
-const CACHE_NAME = "mfml-cache-v1";
-const PRECACHE_URLS = ["/", "/index.html", "/manifest.json"];
+/* My Family My Life — service worker
+   IMPORTANT: This SW is intentionally minimal. It uses NETWORK-FIRST for
+   HTML/JS/CSS so deployed builds are NEVER stale. It only caches static
+   media as a stale-while-revalidate. API calls go through the network and
+   fall back to cache only when offline.
+*/
+const CACHE_VERSION = "mfml-cache-v3";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).catch(() => {})
-  );
+  // Activate new SW immediately on install
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    (async () => {
+      // Clean ALL old caches so users always pick up new deploys
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))
+      );
+      await self.clients.claim();
+    })()
   );
-  self.clients.claim();
 });
+
+function isNavigation(req) {
+  return req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
+}
+
+function isCodeAsset(url) {
+  const p = url.pathname;
+  return p.endsWith(".js") || p.endsWith(".css") || p.endsWith(".map");
+}
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  // Only handle GET
   if (req.method !== "GET") return;
-  const url = new URL(req.url);
 
-  // Network-first for API calls
-  if (url.pathname.startsWith("/api/")) {
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return;
+  }
+
+  // Only handle same-origin requests
+  if (url.origin !== self.location.origin) return;
+
+  // NETWORK-FIRST for navigation requests, JS, CSS — never serve stale code
+  if (isNavigation(req) || isCodeAsset(url)) {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone)).catch(() => {});
+          if (res && res.status === 200) {
+            const clone = res.clone();
+            caches.open(CACHE_VERSION).then((c) => c.put(req, clone)).catch(() => {});
+          }
           return res;
         })
         .catch(() => caches.match(req))
@@ -38,14 +63,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Stale-while-revalidate for static assets
+  // Stale-while-revalidate for images / static media
   event.respondWith(
     caches.match(req).then((cached) => {
       const fetchPromise = fetch(req)
         .then((res) => {
           if (res && res.status === 200) {
             const clone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone)).catch(() => {});
+            caches.open(CACHE_VERSION).then((c) => c.put(req, clone)).catch(() => {});
           }
           return res;
         })
