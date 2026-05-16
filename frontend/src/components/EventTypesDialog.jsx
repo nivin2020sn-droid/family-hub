@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -80,9 +81,9 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
           <DialogTitle className="font-heading text-2xl font-medium tracking-tight text-[#2D2A26]">
             Event Categories
           </DialogTitle>
-          <p className="text-sm text-[#7A7571] mt-1">
+          <DialogDescription className="text-sm text-[#7A7571] mt-1">
             Create unlimited custom categories with your own colors.
-          </p>
+          </DialogDescription>
         </DialogHeader>
 
         {/* Form */}

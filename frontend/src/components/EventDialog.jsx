@@ -115,6 +115,9 @@ const EventDialog = ({
             <DialogTitle className="font-heading text-2xl font-medium tracking-tight text-[#2D2A26]">
               {editing ? "Edit Event" : "New Event"}
             </DialogTitle>
+            <DialogDescription className="text-sm text-[#7A7571]">
+              {editing ? "Update the details for this event." : "Add a new event to the family calendar."}
+            </DialogDescription>
           </DialogHeader>
 
           <div className="px-6 py-4 space-y-4">
