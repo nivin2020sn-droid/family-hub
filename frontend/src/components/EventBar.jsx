@@ -28,7 +28,7 @@ export const EventBar = ({ event, label, fill, onClick, testid, className }) => 
       <span
         className={cn(
           "truncate w-full text-center",
-          fill ? "text-[10px] sm:text-[11px] font-extrabold tracking-wide uppercase" : "font-semibold text-left"
+          fill ? "text-[11px] sm:text-xs font-extrabold tracking-wide uppercase leading-none" : "font-semibold text-left"
         )}
       >
         {display}
