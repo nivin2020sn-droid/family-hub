@@ -200,58 +200,62 @@ const TimePlan = () => {
 
   return (
     <div className="min-h-screen bg-[#FAF9F6]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-8 md:px-10 py-6 md:py-10">
+      <div className="max-w-7xl mx-auto px-3 sm:px-8 md:px-10 py-4 sm:py-6 md:py-10">
         {/* Top bar */}
-        <div className="flex items-center justify-between mb-6 md:mb-8 gap-3">
+        <div className="flex items-center justify-between mb-4 sm:mb-6 md:mb-8 gap-2">
           <button
             onClick={() => navigate("/")}
-            className="inline-flex items-center gap-2 text-sm text-[#7A7571] hover:text-[#2D2A26] transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-[#7A7571] hover:text-[#2D2A26] transition-colors active:opacity-60"
             data-testid="back-to-dashboard-btn"
           >
-            <ArrowLeft className="w-4 h-4" strokeWidth={2} />
-            Dashboard
+            <ArrowLeft className="w-5 h-5 sm:w-4 sm:h-4" strokeWidth={2} />
+            <span className="hidden sm:inline">Dashboard</span>
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             {!online && (
-              <span className="inline-flex items-center gap-1 text-xs text-[#7A7571] bg-[#F3F0EA] px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-[#7A7571] bg-[#F3F0EA] px-2 sm:px-3 py-1 sm:py-1.5 rounded-full">
                 <WifiOff className="w-3 h-3" strokeWidth={2} /> Offline
               </span>
             )}
             <Button
               variant="ghost"
               onClick={() => setProfilesDialogOpen(true)}
-              className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA]"
+              className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA] h-10 w-10 sm:w-auto sm:px-4 p-0 sm:p-2"
               data-testid="manage-profiles-btn"
+              aria-label="Profiles"
             >
-              <UserCog className="w-4 h-4 mr-2" strokeWidth={1.75} /> Profiles
+              <UserCog className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" strokeWidth={1.75} />
+              <span className="hidden sm:inline">Profiles</span>
             </Button>
             <Button
               variant="ghost"
               onClick={() => setTypesDialogOpen(true)}
-              className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA]"
+              className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA] h-10 w-10 sm:w-auto sm:px-4 p-0 sm:p-2"
               data-testid="manage-types-btn"
+              aria-label="Event Types"
             >
-              <Settings2 className="w-4 h-4 mr-2" strokeWidth={1.75} /> Event Types
+              <Settings2 className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" strokeWidth={1.75} />
+              <span className="hidden sm:inline">Event Types</span>
             </Button>
           </div>
         </div>
 
         {/* Header */}
-        <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between mb-6 md:mb-8">
+        <div className="flex flex-col gap-3 sm:gap-6 md:flex-row md:items-end md:justify-between mb-4 sm:mb-6 md:mb-8">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#7A7571] mb-3">
+            <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.2em] sm:tracking-[0.25em] text-[#7A7571] mb-1 sm:mb-3">
               Time Plan
             </p>
-            <h1 className="font-heading text-4xl sm:text-5xl font-light tracking-tight text-[#2D2A26] leading-none">
+            <h1 className="font-heading text-3xl sm:text-5xl font-light tracking-tight text-[#2D2A26] leading-none">
               {MONTH_NAMES[month - 1]}{" "}
               <span className="text-[#7A7571] font-light">{year}</span>
             </h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
             {/* User Switcher */}
             <div
-              className={`inline-flex items-center gap-1 bg-[#F3F0EA] p-1.5 rounded-full ${merged ? "opacity-50 pointer-events-none" : ""}`}
+              className={`flex-1 md:flex-none inline-flex items-center gap-1 bg-[#F3F0EA] p-1 sm:p-1.5 rounded-full ${merged ? "opacity-50 pointer-events-none" : ""}`}
               data-testid="user-switcher"
             >
               {users.map((u) => {
@@ -260,7 +264,7 @@ const TimePlan = () => {
                   <button
                     key={u.id}
                     onClick={() => setActiveUserId(u.id)}
-                    className={`px-5 py-2 rounded-full text-sm font-semibold transition-all flex items-center gap-2 ${
+                    className={`flex-1 md:flex-none px-3 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 sm:gap-2 active:scale-95 ${
                       isActive
                         ? "bg-white shadow-sm text-[#2D2A26]"
                         : "text-[#7A7571] hover:text-[#2D2A26]"
@@ -268,19 +272,19 @@ const TimePlan = () => {
                     data-testid={`user-pill-${u.id}`}
                   >
                     <span
-                      className="w-2 h-2 rounded-full"
+                      className="w-2 h-2 rounded-full flex-shrink-0"
                       style={{ backgroundColor: u.color }}
                     />
-                    {u.name}
+                    <span className="truncate max-w-[80px] sm:max-w-none">{u.name}</span>
                   </button>
                 );
               })}
             </div>
 
-            {/* Merge toggle */}
-            <div className="flex items-center gap-3 bg-white border border-[#E5E2DC] px-4 py-2 rounded-full shadow-sm">
+            {/* Merge toggle — compact on mobile (icon + switch only) */}
+            <div className="flex items-center gap-2 sm:gap-3 bg-white border border-[#E5E2DC] px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-sm flex-shrink-0">
               <Layers className="w-4 h-4 text-[#7A7571]" strokeWidth={1.75} />
-              <label htmlFor="merge-switch" className="text-sm font-medium text-[#2D2A26] cursor-pointer">
+              <label htmlFor="merge-switch" className="hidden sm:inline text-sm font-medium text-[#2D2A26] cursor-pointer">
                 Merge Calendars
               </label>
               <Switch
@@ -294,21 +298,22 @@ const TimePlan = () => {
         </div>
 
         {/* Month navigation */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <div className="flex items-center gap-0.5 sm:gap-1">
             <Button
               variant="ghost"
               size="icon"
               onClick={goPrev}
-              className="rounded-full hover:bg-[#F3F0EA]"
+              className="rounded-full hover:bg-[#F3F0EA] h-10 w-10"
               data-testid="prev-month-btn"
+              aria-label="Previous month"
             >
               <ChevronLeft className="w-5 h-5" />
             </Button>
             <Button
               variant="ghost"
               onClick={goToday}
-              className="rounded-full text-sm hover:bg-[#F3F0EA]"
+              className="rounded-full text-xs sm:text-sm hover:bg-[#F3F0EA] h-10 px-3"
               data-testid="today-btn"
             >
               Today
@@ -317,29 +322,33 @@ const TimePlan = () => {
               variant="ghost"
               size="icon"
               onClick={goNext}
-              className="rounded-full hover:bg-[#F3F0EA]"
+              className="rounded-full hover:bg-[#F3F0EA] h-10 w-10"
               data-testid="next-month-btn"
+              aria-label="Next month"
             >
               <ChevronRight className="w-5 h-5" />
             </Button>
           </div>
           <Button
             onClick={() => onAddEvent(todayStr, activeUserId)}
-            className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+            className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white h-10 px-4 sm:px-5 active:scale-95"
             data-testid="add-event-btn"
           >
-            <Plus className="w-4 h-4 mr-1.5" strokeWidth={2} /> New Event
+            <Plus className="w-4 h-4 sm:mr-1.5" strokeWidth={2} />
+            <span className="hidden sm:inline">New Event</span>
+            <span className="sm:hidden ml-1.5 text-sm">Add</span>
           </Button>
         </div>
 
-        {/* Day headers */}
-        <div className="grid grid-cols-7 mb-2">
+        {/* Day headers — single letter on mobile, full short name on larger screens */}
+        <div className="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
           {DAY_NAMES.map((d) => (
             <div
               key={d}
-              className="py-2 text-center text-[11px] font-semibold text-[#7A7571] uppercase tracking-[0.15em]"
+              className="py-1 sm:py-2 text-center text-[10px] sm:text-[11px] font-semibold text-[#7A7571] uppercase tracking-[0.1em] sm:tracking-[0.15em]"
             >
-              {d}
+              <span className="sm:hidden">{d[0]}</span>
+              <span className="hidden sm:inline">{d}</span>
             </div>
           ))}
         </div>
@@ -382,7 +391,7 @@ const TimePlan = () => {
               >
                 <PopoverTrigger asChild>
                   <div
-                    className={`relative h-24 sm:h-28 md:h-32 cursor-pointer transition-all rounded-[10px] overflow-hidden ${
+                    className={`relative h-[72px] sm:h-28 md:h-32 cursor-pointer transition-all rounded-[10px] overflow-hidden active:scale-[0.97] ${
                       dimmed ? "opacity-40" : ""
                     }`}
                     style={cellStyle}
@@ -404,7 +413,7 @@ const TimePlan = () => {
                       merged ? (
                         <div className="absolute inset-0 flex flex-col">
                           {/* Wife half */}
-                          <div className="flex-1 flex flex-col gap-[1px] min-h-0 overflow-hidden pt-5 sm:pt-[22px] px-[3px] pb-[2px]">
+                          <div className="flex-1 flex flex-col gap-[1px] min-h-0 overflow-hidden pt-[18px] sm:pt-[22px] px-[3px] pb-[2px]">
                             {wifeEvents.slice(0, MAX_EVENTS_PER_HALF).map((ev) => (
                               <EventBar
                                 key={ev.id}
@@ -439,7 +448,7 @@ const TimePlan = () => {
                           </div>
                         </div>
                       ) : (
-                        <div className="absolute inset-0 flex flex-col gap-[1px] pt-5 sm:pt-[22px] px-[3px] pb-[2px] overflow-hidden">
+                        <div className="absolute inset-0 flex flex-col gap-[1px] pt-[18px] sm:pt-[22px] px-[3px] pb-[2px] overflow-hidden">
                           {dayEvents.slice(0, MAX_EVENTS_SINGLE).map((ev) => (
                             <EventBar
                               key={ev.id}
