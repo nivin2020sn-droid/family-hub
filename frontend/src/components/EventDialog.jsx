@@ -99,7 +99,11 @@ const EventDialog = ({
       }
       onSaved && onSaved();
     } catch (err) {
-      toast.error("Failed to save event");
+      const detail =
+        err?.response?.status
+          ? `HTTP ${err.response.status}`
+          : err?.message || "network error";
+      toast.error(`Failed to save event (${detail})`);
     } finally {
       setSaving(false);
     }

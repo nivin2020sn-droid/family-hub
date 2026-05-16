@@ -288,8 +288,12 @@ const TimePlan = () => {
       }
       loadEvents();
       return true;
-    } catch {
-      toast.error("Quick fill failed");
+    } catch (err) {
+      const detail =
+        err?.response?.status
+          ? `HTTP ${err.response.status}`
+          : err?.message || "network error";
+      toast.error(`Save failed (${detail}). Check API connection.`);
       return false;
     }
   };
@@ -641,26 +645,26 @@ const TimePlan = () => {
         <div aria-hidden className="h-20 sm:h-24" />
       </div>
 
-      {/* Quick Fill bar — fixed bottom strip */}
-      {eventTypes.length > 0 && (
-        <div
-          className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E5E2DC] shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.08)]"
-          data-testid="quick-fill-bar"
-        >
-          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5">
-            <div className="flex items-center gap-2">
-              {/* Status pill */}
-              <div className="flex-shrink-0 flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
-                <Zap
-                  className={`w-3.5 h-3.5 ${quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}`}
-                  strokeWidth={2.25}
-                />
-                <span className={quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}>
-                  Quick Fill
-                </span>
-              </div>
+      {/* Quick Fill bar — fixed bottom strip (always visible) */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E5E2DC] shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.08)]"
+        data-testid="quick-fill-bar"
+      >
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5">
+          <div className="flex items-center gap-2">
+            {/* Status pill */}
+            <div className="flex-shrink-0 flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
+              <Zap
+                className={`w-3.5 h-3.5 ${quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}`}
+                strokeWidth={2.25}
+              />
+              <span className={quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}>
+                Quick Fill
+              </span>
+            </div>
 
-              {/* Scrollable list of type buttons */}
+            {/* Scrollable list of type buttons OR empty-state CTA */}
+            {eventTypes.length > 0 ? (
               <div
                 className="flex-1 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar"
                 style={{ scrollbarWidth: "none" }}
@@ -691,36 +695,45 @@ const TimePlan = () => {
                   );
                 })}
               </div>
-
-              {/* Active indicator + clear button */}
-              {quickFillTypeId && (
-                <button
-                  onClick={() => setQuickFillTypeId(null)}
-                  className="flex-shrink-0 h-9 w-9 rounded-lg bg-[#F3F0EA] flex items-center justify-center active:scale-95"
-                  aria-label="Turn off Quick Fill"
-                  data-testid="quick-fill-off-btn"
-                >
-                  <X className="w-4 h-4 text-[#2D2A26]" strokeWidth={2.25} />
-                </button>
-              )}
-            </div>
-
-            {/* Target indicator — visible when active */}
-            {quickFillTypeId && (
-              <p
-                className="mt-1.5 text-[10px] sm:text-[11px] text-[#7A7571] leading-none"
-                data-testid="quick-fill-target"
+            ) : (
+              <button
+                onClick={() => setTypesDialogOpen(true)}
+                className="flex-1 text-left text-[11px] sm:text-xs text-[#7A7571] active:opacity-70"
+                data-testid="quick-fill-empty-cta"
               >
-                Tap a day to add/remove for{" "}
-                <span className="font-semibold text-[#2D2A26]">
-                  {(users.find((u) => u.id === activeUserId) || {}).name || activeUserId}
-                </span>
-                . Tap the same day again to undo.
-              </p>
+                <span className="font-semibold text-[#2D2A26]">Create event types</span>
+                <span className="hidden sm:inline"> in Settings to enable Quick Fill</span>
+              </button>
+            )}
+
+            {/* Active indicator + clear button */}
+            {quickFillTypeId && (
+              <button
+                onClick={() => setQuickFillTypeId(null)}
+                className="flex-shrink-0 h-9 w-9 rounded-lg bg-[#F3F0EA] flex items-center justify-center active:scale-95"
+                aria-label="Turn off Quick Fill"
+                data-testid="quick-fill-off-btn"
+              >
+                <X className="w-4 h-4 text-[#2D2A26]" strokeWidth={2.25} />
+              </button>
             )}
           </div>
+
+          {/* Target indicator — visible when active */}
+          {quickFillTypeId && (
+            <p
+              className="mt-1.5 text-[10px] sm:text-[11px] text-[#7A7571] leading-none"
+              data-testid="quick-fill-target"
+            >
+              Tap a day to add/remove for{" "}
+              <span className="font-semibold text-[#2D2A26]">
+                {(users.find((u) => u.id === activeUserId) || {}).name || activeUserId}
+              </span>
+              . Tap the same day again to undo.
+            </p>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Dialogs */}
       <EventDialog
