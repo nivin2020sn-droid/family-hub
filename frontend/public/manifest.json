@@ -1,0 +1,17 @@
+{
+  "short_name": "My Family",
+  "name": "My Family My Life",
+  "description": "One App to Organize Your Entire Family Life",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#2D2A26",
+  "background_color": "#FAF9F6",
+  "orientation": "portrait-primary"
+}
