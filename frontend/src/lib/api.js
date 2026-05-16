@@ -39,6 +39,10 @@ export const getUsers = async () => {
     return readCache(CACHE_KEYS.users) || [];
   }
 };
+export const updateUser = async (id, payload) => {
+  const { data } = await api.put(`/users/${id}`, payload);
+  return data;
+};
 
 // ===== Event Types =====
 export const getEventTypes = async () => {

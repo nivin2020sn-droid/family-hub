@@ -21,12 +21,14 @@ import {
 
 const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
   const [name, setName] = useState("");
+  const [abbreviation, setAbbreviation] = useState("");
   const [color, setColor] = useState("#F472B6");
   const [description, setDescription] = useState("");
   const [editingId, setEditingId] = useState(null);
 
   const resetForm = () => {
     setName("");
+    setAbbreviation("");
     setColor("#F472B6");
     setDescription("");
     setEditingId(null);
@@ -39,11 +41,17 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
       return;
     }
     try {
+      const payload = {
+        name: name.trim(),
+        abbreviation: abbreviation.trim().toUpperCase(),
+        color,
+        description,
+      };
       if (editingId) {
-        await updateEventType(editingId, { name: name.trim(), color, description });
+        await updateEventType(editingId, payload);
         toast.success("Category updated");
       } else {
-        await createEventType({ name: name.trim(), color, description });
+        await createEventType(payload);
         toast.success("Category added");
       }
       resetForm();
@@ -56,6 +64,7 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
   const startEdit = (t) => {
     setEditingId(t.id);
     setName(t.name);
+    setAbbreviation(t.abbreviation || "");
     setColor(t.color);
     setDescription(t.description || "");
   };
@@ -114,6 +123,22 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
               />
             </div>
           </div>
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
+              Abbreviation
+            </Label>
+            <Input
+              value={abbreviation}
+              onChange={(e) => setAbbreviation(e.target.value.toUpperCase())}
+              placeholder="e.g. KVD, MJ, U"
+              maxLength={6}
+              className="mt-1.5 rounded-xl border-[#E5E2DC] uppercase tracking-widest font-bold"
+              data-testid="type-abbreviation-input"
+            />
+            <p className="text-[11px] text-[#7A7571] mt-1">
+              Short code shown inside event bars in the monthly view.
+            </p>
+          </div>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -171,7 +196,14 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
                     style={{ backgroundColor: t.color }}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#2D2A26] truncate">{t.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-[#2D2A26] truncate">{t.name}</p>
+                      {t.abbreviation && (
+                        <span className="text-[10px] font-extrabold tracking-widest uppercase px-1.5 py-0.5 rounded-md bg-[#2D2A26]/10 text-[#2D2A26]">
+                          {t.abbreviation}
+                        </span>
+                      )}
+                    </div>
                     {t.description && (
                       <p className="text-xs text-[#7A7571] truncate">{t.description}</p>
                     )}

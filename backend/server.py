@@ -41,6 +41,7 @@ class EventType(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     color: str
+    abbreviation: Optional[str] = ""
     description: Optional[str] = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -48,13 +49,19 @@ class EventType(BaseModel):
 class EventTypeCreate(BaseModel):
     name: str
     color: str
+    abbreviation: Optional[str] = ""
     description: Optional[str] = ""
 
 
 class EventTypeUpdate(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
+    abbreviation: Optional[str] = None
     description: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
 
 
 class Event(BaseModel):
@@ -118,6 +125,22 @@ async def root():
 async def get_users():
     users = await db.users.find({}, {"_id": 0}).to_list(100)
     return users
+
+
+@api_router.put("/users/{user_id}", response_model=User)
+async def update_user(user_id: str, payload: UserUpdate):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        existing = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, "Not found")
+        return existing
+    result = await db.users.find_one_and_update(
+        {"id": user_id}, {"$set": update}, return_document=True, projection={"_id": 0}
+    )
+    if not result:
+        raise HTTPException(404, "Not found")
+    return result
 
 
 # Event Types

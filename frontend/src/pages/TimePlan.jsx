@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -9,6 +8,7 @@ import {
   Settings2,
   WifiOff,
   Layers,
+  UserCog,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,12 @@ import EventBar from "@/components/EventBar";
 import EventDialog from "@/components/EventDialog";
 import EventTypesDialog from "@/components/EventTypesDialog";
 import DayDetailPopover from "@/components/DayDetailPopover";
+import ProfilesDialog from "@/components/ProfilesDialog";
 
-const MAX_VISIBLE_EVENTS_PER_HALF = 2;
+const WIFE_COLOR = "#F472B6";
+const HUSBAND_COLOR = "#60A5FA";
+const MAX_EVENTS_PER_HALF = 3;
+const MAX_EVENTS_SINGLE = 6;
 
 const TimePlan = () => {
   const navigate = useNavigate();
@@ -48,6 +52,7 @@ const TimePlan = () => {
   const [dialogDefaultUserId, setDialogDefaultUserId] = useState(null);
 
   const [typesDialogOpen, setTypesDialogOpen] = useState(false);
+  const [profilesDialogOpen, setProfilesDialogOpen] = useState(false);
   const [openDayIso, setOpenDayIso] = useState(null);
 
   const [online, setOnline] = useState(navigator.onLine);
@@ -103,6 +108,23 @@ const TimePlan = () => {
     map.forEach((arr) => arr.sort((a, b) => (a.start_time || "").localeCompare(b.start_time || "")));
     return map;
   }, [events]);
+
+  const typesMap = useMemo(() => {
+    const m = new Map();
+    eventTypes.forEach((t) => m.set(t.id, t));
+    return m;
+  }, [eventTypes]);
+
+  const getEventLabel = (ev) => {
+    if (ev.type_id && typesMap.has(ev.type_id)) {
+      const t = typesMap.get(ev.type_id);
+      if (t.abbreviation && t.abbreviation.trim()) return t.abbreviation;
+    }
+    return (ev.title || "").slice(0, 4).toUpperCase();
+  };
+
+  const activeUserColor =
+    activeUserId === "wife" ? WIFE_COLOR : HUSBAND_COLOR;
 
   const goPrev = () => {
     if (month === 1) {
@@ -182,6 +204,14 @@ const TimePlan = () => {
                 <WifiOff className="w-3 h-3" strokeWidth={2} /> Offline
               </span>
             )}
+            <Button
+              variant="ghost"
+              onClick={() => setProfilesDialogOpen(true)}
+              className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA]"
+              data-testid="manage-profiles-btn"
+            >
+              <UserCog className="w-4 h-4 mr-2" strokeWidth={1.75} /> Profiles
+            </Button>
             <Button
               variant="ghost"
               onClick={() => setTypesDialogOpen(true)}
@@ -321,83 +351,96 @@ const TimePlan = () => {
               >
                 <PopoverTrigger asChild>
                   <div
-                    className={`relative h-28 sm:h-36 md:h-40 bg-white p-1.5 cursor-pointer day-cell-transition hover:bg-[#FBFBF9] ${
+                    className={`relative h-28 sm:h-36 md:h-40 bg-white cursor-pointer day-cell-transition hover:bg-[#FBFBF9] ${
                       dimmed ? "opacity-40" : ""
                     }`}
                     data-testid={`day-cell-${cell.iso}`}
                   >
-                    {/* Date label */}
-                    <div className="flex items-start justify-between relative z-20">
-                      <span
-                        className={`inline-flex items-center justify-center text-xs font-semibold w-6 h-6 rounded-full ${
-                          isToday
-                            ? "bg-[#2D2A26] text-white"
-                            : "text-[#2D2A26]"
-                        }`}
-                      >
-                        {cell.day}
-                      </span>
-                    </div>
-
-                    {/* Merged split borders */}
-                    {merged && cell.inMonth && (
-                      <>
-                        <div className="absolute inset-1 pointer-events-none">
-                          <div className="absolute top-0 left-0 right-0 h-1/2 border-t-[2.5px] border-l-[2.5px] border-r-[2.5px] border-[#F472B6] rounded-t-lg" />
-                          <div className="absolute bottom-0 left-0 right-0 h-1/2 border-b-[2.5px] border-l-[2.5px] border-r-[2.5px] border-[#60A5FA] rounded-b-lg" />
-                        </div>
-                      </>
-                    )}
-
-                    {/* Events */}
-                    {merged ? (
-                      <div className="absolute inset-1.5 mt-7 flex flex-col">
-                        {/* Wife half */}
-                        <div className="flex-1 flex flex-col gap-[2px] overflow-hidden px-1 py-0.5">
-                          {wifeEvents.slice(0, MAX_VISIBLE_EVENTS_PER_HALF).map((ev) => (
-                            <EventBar
-                              key={ev.id}
-                              event={ev}
-                              testid={`event-bar-${ev.id}`}
-                            />
-                          ))}
-                          {wifeEvents.length > MAX_VISIBLE_EVENTS_PER_HALF && (
-                            <span className="text-[9px] font-semibold text-[#7A7571] px-1">
-                              +{wifeEvents.length - MAX_VISIBLE_EVENTS_PER_HALF} more
-                            </span>
-                          )}
-                        </div>
-                        {/* Husband half */}
-                        <div className="flex-1 flex flex-col gap-[2px] overflow-hidden px-1 py-0.5">
-                          {husbandEvents.slice(0, MAX_VISIBLE_EVENTS_PER_HALF).map((ev) => (
-                            <EventBar
-                              key={ev.id}
-                              event={ev}
-                              testid={`event-bar-${ev.id}`}
-                            />
-                          ))}
-                          {husbandEvents.length > MAX_VISIBLE_EVENTS_PER_HALF && (
-                            <span className="text-[9px] font-semibold text-[#7A7571] px-1">
-                              +{husbandEvents.length - MAX_VISIBLE_EVENTS_PER_HALF} more
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="absolute inset-1.5 mt-7 flex flex-col gap-[2px] overflow-hidden px-1">
-                        {dayEvents.slice(0, 4).map((ev) => (
-                          <EventBar
-                            key={ev.id}
-                            event={ev}
-                            testid={`event-bar-${ev.id}`}
+                    {/* Border overlay (single vs merged) */}
+                    {cell.inMonth && (
+                      <div className="absolute inset-1 pointer-events-none">
+                        {merged ? (
+                          <>
+                            <div className="absolute top-0 left-0 right-0 h-1/2 border-t-[2.5px] border-l-[2.5px] border-r-[2.5px] border-[#F472B6] rounded-t-lg" />
+                            <div className="absolute bottom-0 left-0 right-0 h-1/2 border-b-[2.5px] border-l-[2.5px] border-r-[2.5px] border-[#60A5FA] rounded-b-lg" />
+                          </>
+                        ) : (
+                          <div
+                            className="absolute inset-0 border-[2.5px] rounded-lg"
+                            style={{ borderColor: activeUserColor }}
                           />
-                        ))}
-                        {dayEvents.length > 4 && (
-                          <span className="text-[9px] font-semibold text-[#7A7571] px-1 mt-0.5">
-                            +{dayEvents.length - 4} more
-                          </span>
                         )}
                       </div>
+                    )}
+
+                    {/* Date label */}
+                    <span
+                      className={`absolute top-1 left-1.5 z-20 inline-flex items-center justify-center text-[10px] sm:text-xs font-bold w-5 h-5 sm:w-6 sm:h-6 rounded-full ${
+                        isToday
+                          ? "bg-[#2D2A26] text-white shadow-sm"
+                          : "bg-white text-[#2D2A26]"
+                      }`}
+                    >
+                      {cell.day}
+                    </span>
+
+                    {/* Events fill area */}
+                    {cell.inMonth && (
+                      merged ? (
+                        <div className="absolute inset-[6px] flex flex-col gap-[3px]">
+                          {/* Wife half */}
+                          <div className="flex-1 flex flex-col gap-[2px] min-h-0 p-[3px] pt-5 sm:pt-6">
+                            {wifeEvents.slice(0, MAX_EVENTS_PER_HALF).map((ev) => (
+                              <EventBar
+                                key={ev.id}
+                                event={ev}
+                                label={getEventLabel(ev)}
+                                fill
+                                testid={`event-bar-${ev.id}`}
+                              />
+                            ))}
+                            {wifeEvents.length > MAX_EVENTS_PER_HALF && (
+                              <span className="text-[9px] font-semibold text-[#7A7571] leading-none text-center">
+                                +{wifeEvents.length - MAX_EVENTS_PER_HALF}
+                              </span>
+                            )}
+                          </div>
+                          {/* Husband half */}
+                          <div className="flex-1 flex flex-col gap-[2px] min-h-0 p-[3px]">
+                            {husbandEvents.slice(0, MAX_EVENTS_PER_HALF).map((ev) => (
+                              <EventBar
+                                key={ev.id}
+                                event={ev}
+                                label={getEventLabel(ev)}
+                                fill
+                                testid={`event-bar-${ev.id}`}
+                              />
+                            ))}
+                            {husbandEvents.length > MAX_EVENTS_PER_HALF && (
+                              <span className="text-[9px] font-semibold text-[#7A7571] leading-none text-center">
+                                +{husbandEvents.length - MAX_EVENTS_PER_HALF}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="absolute inset-[6px] flex flex-col gap-[2px] p-[3px] pt-6">
+                          {dayEvents.slice(0, MAX_EVENTS_SINGLE).map((ev) => (
+                            <EventBar
+                              key={ev.id}
+                              event={ev}
+                              label={getEventLabel(ev)}
+                              fill
+                              testid={`event-bar-${ev.id}`}
+                            />
+                          ))}
+                          {dayEvents.length > MAX_EVENTS_SINGLE && (
+                            <span className="text-[9px] font-semibold text-[#7A7571] leading-none text-center">
+                              +{dayEvents.length - MAX_EVENTS_SINGLE} more
+                            </span>
+                          )}
+                        </div>
+                      )
                     )}
                   </div>
                 </PopoverTrigger>
@@ -451,6 +494,15 @@ const TimePlan = () => {
         onOpenChange={setTypesDialogOpen}
         types={eventTypes}
         onChanged={onTypesChanged}
+      />
+      <ProfilesDialog
+        open={profilesDialogOpen}
+        onOpenChange={setProfilesDialogOpen}
+        users={users}
+        onChanged={async () => {
+          const u = await getUsers();
+          setUsers(u);
+        }}
       />
     </div>
   );
