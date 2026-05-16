@@ -1,0 +1,114 @@
+{
+  "theme": "LIGHT",
+  "archetype": "1_ORGANIC_EARTHY",
+  "design_philosophy": {
+    "emotion": "Warmth, calm, organization, and elegant family life.",
+    "layout_strategy": "Spacious layout using large rounded cards with generous padding (p-8 to p-12). Soft, high-end shadows. Floating, cardless inner elements where possible.",
+    "anti_patterns": [
+      "No dark tech mode",
+      "No sharp edges",
+      "No overwhelming full-screen gradients",
+      "No default Inter font for headings"
+    ]
+  },
+  "colors": {
+    "background": "#FAF9F6",
+    "surface": "#FFFFFF",
+    "surface_secondary": "#F3F0EA",
+    "text_primary": "#2D2A26",
+    "text_secondary": "#7A7571",
+    "wife_pink": "#F472B6",
+    "husband_blue": "#60A5FA",
+    "border_subtle": "#E5E2DC"
+  },
+  "typography": {
+    "font_heading": "Outfit",
+    "font_body": "DM Sans",
+    "heading_h1": "text-4xl sm:text-5xl font-light tracking-tight text-[#2D2A26]",
+    "heading_h2": "text-2xl sm:text-3xl font-medium tracking-tight text-[#2D2A26]",
+    "heading_h3": "text-xl font-medium tracking-tight text-[#2D2A26]",
+    "body_text": "text-base leading-relaxed text-[#7A7571]",
+    "label": "text-xs font-semibold uppercase tracking-[0.2em] text-[#7A7571]"
+  },
+  "layout_and_spacing": {
+    "page_padding": "p-4 sm:p-8 md:p-12",
+    "card_padding": "p-6 sm:p-8",
+    "border_radius": {
+      "card": "rounded-3xl",
+      "button": "rounded-full",
+      "event_bar": "rounded-md",
+      "popover": "rounded-2xl"
+    },
+    "shadows": {
+      "soft_card": "shadow-[0_16px_40px_-16px_rgba(0,0,0,0.08)]",
+      "floating_popover": "shadow-[0_24px_64px_-24px_rgba(0,0,0,0.16)]",
+      "hover_lift": "shadow-[0_20px_50px_-20px_rgba(0,0,0,0.12)]"
+    }
+  },
+  "components": {
+    "dashboard_cards": {
+      "wrapper": "grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8",
+      "active_card": "col-span-1 lg:col-span-2 bg-white rounded-3xl shadow-[0_16px_40px_-16px_rgba(0,0,0,0.08)] p-6 sm:p-8 border border-[#E5E2DC]",
+      "coming_soon_card": "relative overflow-hidden bg-[#F3F0EA]/50 rounded-3xl p-8 flex flex-col items-center justify-center min-h-[240px] border border-[#E5E2DC]/50 transition-all hover:bg-[#F3F0EA]/80 group",
+      "coming_soon_overlay": "absolute inset-0 bg-white/40 backdrop-blur-[2px] flex items-center justify-center flex-col z-10"
+    },
+    "calendar_grid": {
+      "wrapper": "w-full border-collapse mt-6",
+      "header_row": "grid grid-cols-7 mb-2",
+      "header_cell": "py-2 text-center text-xs font-semibold text-[#7A7571] uppercase tracking-wider",
+      "grid_body": "grid grid-cols-7 auto-rows-fr gap-px bg-[#E5E2DC] border border-[#E5E2DC] rounded-xl overflow-hidden",
+      "day_cell": "relative h-28 sm:h-36 bg-white transition-colors hover:bg-[#FBFBF9] p-1 flex flex-col gap-1 cursor-pointer",
+      "merged_split_wrapper": "absolute inset-1 pointer-events-none",
+      "merged_split_wife": "absolute top-0 left-0 right-0 h-1/2 border-t-[3px] border-l-[3px] border-r-[3px] border-[#F472B6] rounded-t-lg",
+      "merged_split_husband": "absolute bottom-0 left-0 right-0 h-1/2 border-b-[3px] border-l-[3px] border-r-[3px] border-[#60A5FA] rounded-b-lg"
+    },
+    "event_bar": {
+      "base": "w-full text-[10px] sm:text-xs px-2 py-1 rounded-md truncate font-medium z-10 relative cursor-pointer transition-all hover:brightness-95 hover:scale-[1.02]",
+      "overflow_indicator": "text-[10px] font-semibold text-[#7A7571] px-1 mt-1 z-10 relative"
+    },
+    "popover_modal": {
+      "content": "z-50 bg-white/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_24px_64px_-24px_rgba(0,0,0,0.16)] p-6 min-w-[320px] max-w-sm"
+    },
+    "user_switcher": {
+      "container": "inline-flex items-center gap-1 bg-[#F3F0EA] p-1.5 rounded-full shadow-inner",
+      "pill_active": "px-6 py-2 bg-white rounded-full shadow-sm text-sm font-semibold text-[#2D2A26] transition-all",
+      "pill_inactive": "px-6 py-2 text-[#7A7571] text-sm font-medium hover:text-[#2D2A26] transition-all cursor-pointer"
+    },
+    "merge_toggle": {
+      "wrapper": "flex items-center gap-3 bg-white border border-[#E5E2DC] px-4 py-2 rounded-full shadow-sm"
+    }
+  },
+  "interactions_and_motion": {
+    "hover_effects": "Interactive elements should slightly lift (`-translate-y-[2px]`) and increase shadow opacity. Event bars should slightly scale up (`scale-[1.02]`).",
+    "calendar_merge": "Use framer-motion to animate the rendering of the pink/blue split borders (e.g., animate path length or scale/opacity).",
+    "popover_entrance": "Animate popover appearing from the clicked day cell with spring physics, or use a soft fade-in with slide-up (`initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}}`)."
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1740679953679-23433eaf3156?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwyfHxoYXBweSUyMGZhbWlseSUyMHdhcm0lMjBsaWZlc3R5bGUlMjBob21lfGVufDB8fHx8MTc3ODkwNjU2OHww&ixlib=rb-4.1.0&q=85",
+        "category": "hero",
+        "description": "Happy family warm lifestyle home - useful for empty states, welcome modal, or profile background."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1707135873984-ce7b0fc47b4c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w7NDk1Nzd8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwd2FybSUyMGhvbWUlMjBpbnRlcmlvciUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzc4OTA2NTY3fDA&ixlib=rb-4.1.0&q=85",
+        "category": "background",
+        "description": "Minimalist warm home interior - useful for login page background or app wrapper texture."
+      }
+    ],
+    "icons": {
+      "library": "lucide-react",
+      "style": "Stroke width 1.5, matching the warm #2D2A26 or #7A7571 colors."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install and use 'framer-motion' for all fluid transitions, especially for the 'Merge Calendars' toggle and the day-cell popovers.",
+    "Use Shadcn UI for the Popover, Dialog (for event creation), and Switch, but override their default styles to match the warm, spacious, rounded-3xl aesthetic defined here.",
+    "For the Merge Calendars view: Create the grid cell as a relative container. Insert two absolute divs inside it for the borders (one taking the top 50% with border-t/l/r pink-400 and rounded-t-lg, and one taking the bottom 50% with border-b/l/r blue-400 and rounded-b-lg). Set pointer-events-none on these border overlays. Inside the cell, use two 50%-height flex containers to list the wife's events at the top and the husband's events at the bottom.",
+    "Event colors: Allow users to pick any free color for their events. Ensure the text inside the event bar has sufficient contrast (use white or black depending on the background color luminance).",
+    "Day Detail Popover: Ensure this is a floating popover positioned near the clicked day, NOT a fixed bottom panel. It should list all events for that day with their time, title, category, notes, and owner.",
+    "Data Structure: Events should have {id, title, typeId, userId, color, date, startTime, endTime, description}. Event Types should be a separate CRUD managed list {id, name, color}.",
+    "Implement Progressive Web App (PWA) configuration (manifest.json, service worker for basic offline caching) as requested by the user.",
+    "Ensure 'data-testid' attributes are placed on all interactive elements (buttons, inputs, day cells, popover items)."
+  ]
+}
