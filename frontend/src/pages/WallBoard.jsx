@@ -41,6 +41,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { logout as authLogout } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import {
   wallSettings,
   wallPhotos,
@@ -197,6 +199,7 @@ const BottomNavItem = ({ icon: Icon, label, active, onClick, testid }) => (
 
 // ---------- Hero editor ----------
 const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
+  const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [photo, setPhoto] = useState(null);
@@ -219,7 +222,7 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
       const data = await fileToCompressedDataUrl(file, { maxDim: 1400, quality: 0.82 });
       setPhoto(data);
     } catch {
-      toast.error("Could not read image");
+      toast.error(t("settings.toast.cantReadImage"));
     } finally {
       setBusy(false);
     }
@@ -239,19 +242,19 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-3xl border border-[#E5E2DC] bg-white" data-testid="hero-editor">
         <DialogHeader>
-          <DialogTitle>Edit Hero Banner</DialogTitle>
+          <DialogTitle>{t("hero.editTitle")}</DialogTitle>
           <DialogDescription className="text-xs text-[#7A7571]">
-            Customize the family photo, title, and subtitle.
+            {t("hero.editDesc")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Family Photo</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.familyPhoto")}</Label>
             <div className="mt-2 rounded-2xl overflow-hidden bg-[#F3F0EA] aspect-[16/9] flex items-center justify-center relative">
               {photo ? (
                 <img src={photo} alt="" className="w-full h-full object-cover" />
               ) : (
-                <p className="text-xs text-[#7A7571]">No photo yet</p>
+                <p className="text-xs text-[#7A7571]">{t("hero.noPhoto")}</p>
               )}
             </div>
             <div className="flex gap-2 mt-2">
@@ -264,7 +267,7 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
                 disabled={busy}
                 data-testid="hero-pick-photo"
               >
-                {photo ? "Change photo" : "Upload photo"}
+                {photo ? t("hero.changePhoto") : t("hero.uploadPhoto")}
               </Button>
               {photo && (
                 <Button
@@ -274,35 +277,35 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
                   onClick={() => setPhoto(null)}
                   disabled={busy}
                 >
-                  Remove
+                  {t("hero.removePhoto")}
                 </Button>
               )}
             </div>
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Title</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.title")}</Label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="hero-title-input"
-              placeholder="Together We Build Beautiful Memories"
+              placeholder={t("hero.defaultTitle")}
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Subtitle</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.subtitle")}</Label>
             <Input
               value={subtitle}
               onChange={(e) => setSubtitle(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="hero-subtitle-input"
-              placeholder="Our Family, Our Dreams, Our Happiness"
+              placeholder={t("hero.defaultSubtitle")}
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -311,7 +314,7 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
             data-testid="hero-save-btn"
           >
             {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -321,6 +324,7 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
 
 // ---------- Message of the Day editor ----------
 const MessageEditor = ({ open, onOpenChange, settings, onSave }) => {
+  const { t } = useI18n();
   const [text, setText] = useState("");
   const [title, setTitle] = useState("Message of the Day");
   const [busy, setBusy] = useState(false);
@@ -328,9 +332,9 @@ const MessageEditor = ({ open, onOpenChange, settings, onSave }) => {
   useEffect(() => {
     if (open) {
       setText(settings.message_text || "");
-      setTitle(settings.message_title || "Message of the Day");
+      setTitle(settings.message_title || t("section.message"));
     }
-  }, [open, settings]);
+  }, [open, settings, t]);
 
   const handleSave = async () => {
     setBusy(true);
@@ -346,14 +350,14 @@ const MessageEditor = ({ open, onOpenChange, settings, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-3xl border border-[#E5E2DC] bg-white" data-testid="message-editor">
         <DialogHeader>
-          <DialogTitle>Message of the Day</DialogTitle>
+          <DialogTitle>{t("editor.message.title")}</DialogTitle>
           <DialogDescription className="text-xs text-[#7A7571]">
-            A short inspirational message for your family.
+            {t("editor.message.desc")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Title</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.title")}</Label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -362,20 +366,19 @@ const MessageEditor = ({ open, onOpenChange, settings, onSave }) => {
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Message</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.message.text")}</Label>
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={4}
               className="rounded-2xl mt-1.5"
               data-testid="message-text-input"
-              placeholder="Grateful for the blessing of family…"
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -384,7 +387,7 @@ const MessageEditor = ({ open, onOpenChange, settings, onSave }) => {
             data-testid="message-save-btn"
           >
             {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -394,6 +397,7 @@ const MessageEditor = ({ open, onOpenChange, settings, onSave }) => {
 
 // ---------- Goal editor ----------
 const GoalEditor = ({ open, onOpenChange, initial, onSave }) => {
+  const { t } = useI18n();
   const [label, setLabel] = useState("");
   useEffect(() => {
     if (open) setLabel(initial?.label || "");
@@ -402,19 +406,18 @@ const GoalEditor = ({ open, onOpenChange, initial, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white">
         <DialogHeader>
-          <DialogTitle>{initial ? "Edit Goal" : "New Goal"}</DialogTitle>
+          <DialogTitle>{initial ? t("editor.goal.edit") : t("editor.goal.new")}</DialogTitle>
         </DialogHeader>
         <Input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="Buy a new home"
           className="rounded-2xl"
           data-testid="goal-label-input"
           autoFocus
         />
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -422,7 +425,7 @@ const GoalEditor = ({ open, onOpenChange, initial, onSave }) => {
             disabled={!label.trim()}
             data-testid="goal-save-btn"
           >
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -432,6 +435,7 @@ const GoalEditor = ({ open, onOpenChange, initial, onSave }) => {
 
 // ---------- Countdown editor ----------
 const CountdownEditor = ({ open, onOpenChange, initial, onSave }) => {
+  const { t } = useI18n();
   const [label, setLabel] = useState("");
   const [date, setDate] = useState("");
   useEffect(() => {
@@ -444,21 +448,20 @@ const CountdownEditor = ({ open, onOpenChange, initial, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white">
         <DialogHeader>
-          <DialogTitle>{initial ? "Edit Countdown" : "New Countdown"}</DialogTitle>
+          <DialogTitle>{initial ? t("editor.cd.edit") : t("editor.cd.new")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Title</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.title")}</Label>
             <Input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="cd-label-input"
-              placeholder="Anniversary"
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Date</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.date")}</Label>
             <Input
               type="date"
               value={date}
@@ -470,7 +473,7 @@ const CountdownEditor = ({ open, onOpenChange, initial, onSave }) => {
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -478,7 +481,7 @@ const CountdownEditor = ({ open, onOpenChange, initial, onSave }) => {
             disabled={!label.trim() || !date}
             data-testid="cd-save-btn"
           >
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -488,6 +491,7 @@ const CountdownEditor = ({ open, onOpenChange, initial, onSave }) => {
 
 // ---------- Achievement editor ----------
 const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const [image, setImage] = useState(null);
@@ -508,7 +512,7 @@ const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
       const data = await fileToCompressedDataUrl(file, { maxDim: 600, quality: 0.78 });
       setImage(data);
     } catch {
-      toast.error("Could not read image");
+      toast.error(t("settings.toast.cantReadImage"));
     } finally {
       setBusy(false);
     }
@@ -517,7 +521,7 @@ const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white">
         <DialogHeader>
-          <DialogTitle>{initial ? "Edit Achievement" : "New Achievement"}</DialogTitle>
+          <DialogTitle>{initial ? t("editor.ach.edit") : t("editor.ach.new")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
@@ -537,7 +541,7 @@ const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
                 onClick={() => fileRef.current?.click()}
                 disabled={busy}
               >
-                {image ? "Change photo" : "Add photo (optional)"}
+                {image ? t("editor.ach.changePhoto") : t("editor.ach.addPhoto")}
               </Button>
               {image && (
                 <Button
@@ -546,35 +550,33 @@ const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
                   className="rounded-full text-xs text-[#B91C1C]"
                   onClick={() => setImage(null)}
                 >
-                  Remove photo
+                  {t("editor.ach.removePhoto")}
                 </Button>
               )}
             </div>
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Name</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.name")}</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="ach-name-input"
-              placeholder="Sarah"
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Note</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.note")}</Label>
             <Input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="ach-note-input"
-              placeholder="Top of her class in reading"
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -582,7 +584,7 @@ const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
             disabled={!name.trim() || busy}
             data-testid="ach-save-btn"
           >
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -592,6 +594,7 @@ const AchievementEditor = ({ open, onOpenChange, initial, onSave }) => {
 
 // ---------- Note editor ----------
 const NoteEditor = ({ open, onOpenChange, initial, onSave }) => {
+  const { t } = useI18n();
   const [text, setText] = useState("");
   const [color, setColor] = useState(NOTE_COLORS[0]);
   useEffect(() => {
@@ -604,18 +607,17 @@ const NoteEditor = ({ open, onOpenChange, initial, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white">
         <DialogHeader>
-          <DialogTitle>{initial ? "Edit Note" : "New Note"}</DialogTitle>
+          <DialogTitle>{initial ? t("editor.note.edit") : t("editor.note.new")}</DialogTitle>
         </DialogHeader>
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="rounded-2xl"
-          placeholder="Don't forget to buy milk"
           data-testid="note-text-input"
           autoFocus
         />
         <div>
-          <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Color</Label>
+          <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.color")}</Label>
           <div className="flex flex-wrap gap-2 mt-2">
             {NOTE_COLORS.map((c) => (
               <button
@@ -633,7 +635,7 @@ const NoteEditor = ({ open, onOpenChange, initial, onSave }) => {
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -641,7 +643,7 @@ const NoteEditor = ({ open, onOpenChange, initial, onSave }) => {
             disabled={!text.trim()}
             data-testid="note-save-btn"
           >
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -651,6 +653,7 @@ const NoteEditor = ({ open, onOpenChange, initial, onSave }) => {
 
 // ---------- Family event editor ----------
 const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
+  const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -665,21 +668,20 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white">
         <DialogHeader>
-          <DialogTitle>{initial ? "Edit Family Event" : "New Family Event"}</DialogTitle>
+          <DialogTitle>{initial ? t("editor.fe.edit") : t("editor.fe.new")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Title</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.title")}</Label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="fe-title-input"
-              placeholder="Grandma's visit"
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Date</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.date")}</Label>
             <Input
               type="date"
               value={date}
@@ -689,18 +691,18 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">Notes</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.notes")}</Label>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="rounded-2xl mt-1.5"
-              placeholder="Optional"
+              placeholder={t("editor.field.optional")}
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
@@ -708,7 +710,7 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
             disabled={!title.trim() || !date}
             data-testid="fe-save-btn"
           >
-            Save
+            {t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -717,14 +719,15 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
 };
 
 // ---------- Goal history dialog ----------
-const HISTORY_FIELDS = [
-  { key: "created_at", label: "Created", icon: Plus },
-  { key: "updated_at", label: "Edited", icon: Pencil },
-  { key: "completed_at", label: "Completed", icon: Check },
-  { key: "archived_at", label: "Archived", icon: Archive },
+const HISTORY_FIELD_KEYS = [
+  { key: "created_at", labelKey: "history.created", icon: Plus },
+  { key: "updated_at", labelKey: "history.edited", icon: Pencil },
+  { key: "completed_at", labelKey: "history.completed", icon: Check },
+  { key: "archived_at", labelKey: "history.archivedAt", icon: Archive },
 ];
 
 const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
+  const { t } = useI18n();
   const [allGoals, setAllGoals] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -760,19 +763,17 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
         <DialogHeader className="px-6 pt-6 pb-3 border-b border-[#EFEBE4]">
           <DialogTitle className="font-heading text-xl font-medium tracking-tight text-[#2D2A26] flex items-center gap-2">
             <HistoryIcon className="w-4 h-4 text-[#16A34A]" />
-            Goal History
+            {t("history.title")}
           </DialogTitle>
           <DialogDescription className="text-xs text-[#7A7571]">
-            {selected
-              ? "Full history for this goal."
-              : "Tap a goal to see its full history."}
+            {selected ? t("history.descDetail") : t("history.descList")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="overflow-y-auto px-5 py-4 space-y-5 flex-1">
           {loading && allGoals.length === 0 && (
             <div className="flex items-center justify-center py-10 text-[#7A7571] text-sm gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+              <Loader2 className="w-4 h-4 animate-spin" /> …
             </div>
           )}
 
@@ -784,7 +785,7 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
                 className="text-xs font-semibold text-[#7A7571] hover:text-[#2D2A26] mb-3 inline-flex items-center gap-1"
                 data-testid="goal-history-back-btn"
               >
-                ← Back to list
+                {t("history.back")}
               </button>
               <div className="rounded-2xl bg-[#F3F0EA]/60 border border-[#E5E2DC] p-4">
                 <p className="text-sm font-semibold text-[#2D2A26] break-words">
@@ -792,12 +793,12 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
                 </p>
                 {selected.archived_at && (
                   <span className="inline-block mt-1.5 text-[10px] uppercase tracking-wider text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded-full">
-                    Archived
+                    {t("history.archivedBadge")}
                   </span>
                 )}
               </div>
               <ul className="mt-3 space-y-2">
-                {HISTORY_FIELDS.map(({ key, label, icon: Icon }) => {
+                {HISTORY_FIELD_KEYS.map(({ key, labelKey, icon: Icon }) => {
                   const value = formatDateTime(selected[key]);
                   return (
                     <li
@@ -807,7 +808,7 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
                       <Icon className="w-4 h-4 text-[#7A7571] mt-0.5" strokeWidth={1.8} />
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] uppercase tracking-[0.15em] text-[#7A7571] font-semibold">
-                          {label}
+                          {t(labelKey)}
                         </p>
                         <p className="text-sm text-[#2D2A26] break-words">
                           {value || <span className="text-[#A09B95] italic">—</span>}
@@ -823,10 +824,10 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
               {/* Active goals */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-2">
-                  Active ({active.length})
+                  {t("history.active")} ({active.length})
                 </p>
                 {active.length === 0 ? (
-                  <p className="text-xs text-[#A09B95] italic px-1">No active goals.</p>
+                  <p className="text-xs text-[#A09B95] italic px-1">{t("history.noActive")}</p>
                 ) : (
                   <ul className="space-y-2">
                     {active.map((g) => (
@@ -854,10 +855,10 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
               {/* Archived goals */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-2">
-                  Archived ({archived.length})
+                  {t("history.archived")} ({archived.length})
                 </p>
                 {archived.length === 0 ? (
-                  <p className="text-xs text-[#A09B95] italic px-1">Nothing archived yet.</p>
+                  <p className="text-xs text-[#A09B95] italic px-1">{t("history.noArchived")}</p>
                 ) : (
                   <ul className="space-y-2">
                     {archived.map((g) => (
@@ -884,7 +885,7 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
                           data-testid={`goal-restore-btn-${g.id}`}
                         >
                           <ArchiveRestore className="w-3 h-3" strokeWidth={2} />
-                          Restore
+                          {t("btn.restore")}
                         </button>
                         <button
                           type="button"
@@ -893,7 +894,7 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
                             await refresh();
                           }}
                           className="w-7 h-7 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#B91C1C] flex-shrink-0"
-                          aria-label="Delete permanently"
+                          aria-label={t("btn.delete")}
                           data-testid={`goal-archived-delete-${g.id}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -914,7 +915,7 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
             onClick={() => onOpenChange(false)}
             data-testid="goal-history-close-btn"
           >
-            Close
+            {t("btn.close")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -925,6 +926,7 @@ const GoalHistoryDialog = ({ open, onOpenChange, onRestore, onDelete }) => {
 // ---------- Settings dialog (bottom nav) ----------
 const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [confirm, setConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const handleLogout = () => {
@@ -934,7 +936,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
     }
     authLogout();
     onOpenChange(false);
-    toast.success("Signed out");
+    toast.success(t("login.signedOut"));
     navigate("/login", { replace: true });
   };
   const handleSync = async () => {
@@ -953,13 +955,17 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
       >
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle className="font-heading text-xl font-medium tracking-tight text-[#2D2A26]">
-            Settings
+            {t("settings.title")}
           </DialogTitle>
           <DialogDescription className="text-sm text-[#7A7571]">
-            Manage this device's data and session.
+            {t("settings.desc")}
           </DialogDescription>
         </DialogHeader>
         <div className="px-6 py-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-[#E5E2DC] bg-[#F3F0EA]/40">
+            <span className="text-sm text-[#2D2A26]">{t("settings.language")}</span>
+            <LanguageSwitcher variant="full" />
+          </div>
           <button
             type="button"
             onClick={handleSync}
@@ -969,10 +975,10 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
           >
             <span className="flex items-center gap-2 text-sm text-[#2D2A26]">
               <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} strokeWidth={2} />
-              Sync now
+              {t("btn.syncNow")}
             </span>
             <span className="text-[10px] font-semibold uppercase tracking-wider text-[#7A7571]">
-              {pendingCount > 0 ? `${pendingCount} pending` : "Up to date"}
+              {pendingCount > 0 ? t("sync.pending", { n: pendingCount }) : t("sync.synced")}
             </span>
           </button>
           <Button
@@ -982,7 +988,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
             className="w-full rounded-2xl border-[#E5E2DC] text-[#2D2A26] hover:bg-[#F3F0EA]"
             data-testid="open-timeplan-settings-btn"
           >
-            Open Time Plan settings
+            {t("btn.openTimePlanSettings")}
           </Button>
         </div>
         <div className="px-6 pb-5 pt-1 border-t border-[#E5E2DC] bg-[#FAF9F6]">
@@ -997,7 +1003,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
             data-testid="wall-logout-btn"
           >
             <LogOut className="w-3.5 h-3.5" strokeWidth={2} />
-            {confirm ? "Tap again to confirm sign out" : "Sign out of this device"}
+            {confirm ? t("btn.signOutConfirm") : t("btn.signOut")}
           </button>
         </div>
       </DialogContent>
@@ -1009,6 +1015,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
 const WallBoard = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useI18n();
 
   const [settings, setSettings] = useState(() => wallSettings.cached());
   const [photos, setPhotos] = useState(() => wallPhotos.cached());
@@ -1064,12 +1071,12 @@ const WallBoard = () => {
     setSettings(next);
     const r = await wallSettings.save(patch);
     if (r.queued) {
-      toast.message("Saved locally — will sync when online");
+      toast.message(t("sync.savedLocally"));
       setPending(pendingSyncCount());
     } else if (r.ok) {
-      toast.success("Saved");
+      toast.success(t("sync.saved"));
     } else {
-      toast.error("Failed to save");
+      toast.error(t("sync.failed"));
     }
   };
 
@@ -1084,17 +1091,17 @@ const WallBoard = () => {
       setPhotos((prev) => [...prev, optimistic]);
       const r = await wallPhotos.create({ image: data }, optimistic);
       if (r.queued) {
-        toast.message("Photo saved locally — will sync when online");
+        toast.message(t("settings.toast.photoLocal"));
         setPending(pendingSyncCount());
       } else if (r.ok) {
-        toast.success("Photo added");
+        toast.success(t("settings.toast.photoAdded"));
         setPhotos(wallPhotos.cached());
       } else {
-        toast.error("Failed to upload photo");
+        toast.error(t("settings.toast.failed"));
         setPhotos((prev) => prev.filter((x) => x.id !== optimistic.id));
       }
     } catch {
-      toast.error("Could not read photo");
+      toast.error(t("settings.toast.cantReadPhoto"));
     }
   };
   const handlePhotoDelete = async (id) => {
@@ -1111,12 +1118,12 @@ const WallBoard = () => {
       setList((prev) => [...prev, optimistic]);
       const r = await collection.create(payload, optimistic);
       if (r.queued) {
-        toast.message("Saved locally — will sync when online");
+        toast.message(t("sync.savedLocally"));
         setPending(pendingSyncCount());
       } else if (r.ok) {
         setList(collection.cached());
       } else {
-        toast.error("Save failed");
+        toast.error(t("settings.toast.saveFailed"));
         setList((prev) => prev.filter((x) => x.id !== optimistic.id));
       }
     },
@@ -1142,9 +1149,9 @@ const WallBoard = () => {
   const forceSync = async () => {
     const { sent, failed } = await flushQueue();
     setPending(pendingSyncCount());
-    if (sent > 0) toast.success(`Synced ${sent} change${sent === 1 ? "" : "s"}`);
-    else if (failed > 0) toast.warning(`${failed} change${failed === 1 ? "" : "s"} still pending`);
-    else toast.info("Everything up to date");
+    if (sent > 0) toast.success(t("sync.synced.toast", { n: sent }));
+    else if (failed > 0) toast.warning(t("sync.pending.toast", { n: failed }));
+    else toast.info(t("sync.upToDate"));
     await refreshAll();
   };
 
@@ -1174,7 +1181,7 @@ const WallBoard = () => {
   }, [familyEvents]);
 
   const isActive = (path) => location.pathname === path;
-  const goSoon = (label) => toast.info(`${label} — Coming Soon`);
+  const goSoon = (label) => toast.info(t("settings.toast.comingSoon", { label }));
 
   // ----- Render -----
   return (
@@ -1202,18 +1209,21 @@ const WallBoard = () => {
               <p className="text-xs font-heading text-[#2D2A26] -mt-0.5">My Life</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={forceSync}
-            className="w-10 h-10 -mr-2 rounded-full flex items-center justify-center text-[#2D2A26] active:bg-[#F3F0EA] relative"
-            data-testid="wall-sync-btn"
-            aria-label="Sync"
-          >
-            <RefreshCw className="w-5 h-5" strokeWidth={1.8} />
-            {pending > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#E11D48]" />
-            )}
-          </button>
+          <div className="flex items-center gap-1 -mr-1">
+            <button
+              type="button"
+              onClick={forceSync}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[#2D2A26] active:bg-[#F3F0EA] relative"
+              data-testid="wall-sync-btn"
+              aria-label="Sync"
+            >
+              <RefreshCw className="w-5 h-5" strokeWidth={1.8} />
+              {pending > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#E11D48]" />
+              )}
+            </button>
+            <LanguageSwitcher />
+          </div>
         </div>
       </div>
 
@@ -1235,7 +1245,7 @@ const WallBoard = () => {
             />
           ) : (
             <div className="absolute inset-0 bg-gradient-to-br from-[#FCE7E9] via-[#F3F0EA] to-[#E0F0FB] flex items-center justify-center">
-              <p className="text-xs text-[#7A7571]">Tap edit to add a family photo</p>
+              <p className="text-xs text-[#7A7571]">{t("hero.tapToAdd")}</p>
             </div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
@@ -1250,11 +1260,11 @@ const WallBoard = () => {
           </button>
           <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5 text-white">
             <h2 className="font-heading text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-              {settings.hero_title || "Together We Build Beautiful Memories"}
+              {settings.hero_title || t("hero.defaultTitle")}
               <Heart className="w-4 h-4 fill-[#F472B6] text-[#F472B6]" />
             </h2>
             <p className="text-xs sm:text-sm text-white/90 mt-1.5 leading-relaxed">
-              {settings.hero_subtitle || "Our Family, Our Dreams, Our Happiness"}
+              {settings.hero_subtitle || t("hero.defaultSubtitle")}
             </p>
           </div>
         </motion.div>
@@ -1263,7 +1273,7 @@ const WallBoard = () => {
           {/* Message of the Day */}
           <SectionCard
             icon={Heart}
-            title={settings.message_title || "Message of the Day"}
+            title={settings.message_title || t("section.message")}
             accent="#FCE7E9"
             iconBg="#E11D48"
             onEdit={() => setMsgOpen(true)}
@@ -1279,9 +1289,9 @@ const WallBoard = () => {
               </div>
             ) : (
               <EmptyState
-                text="Write the first message for your family."
+                text={t("empty.message")}
                 onAdd={() => setMsgOpen(true)}
-                label="Add message"
+                label={t("empty.message.add")}
               />
             )}
           </SectionCard>
@@ -1289,7 +1299,7 @@ const WallBoard = () => {
           {/* Photo of the Day */}
           <SectionCard
             icon={ImageIcon}
-            title="Photo of the Day"
+            title={t("section.photo")}
             accent="#E0F0FB"
             iconBg="#2563EB"
             onAdd={() => photoInputRef.current?.click()}
@@ -1306,9 +1316,9 @@ const WallBoard = () => {
             />
             {photos.length === 0 ? (
               <EmptyState
-                text="No photos yet. Tap + to upload your first."
+                text={t("empty.photos")}
                 onAdd={() => photoInputRef.current?.click()}
-                label="Upload"
+                label={t("btn.upload")}
               />
             ) : (
               <div className="rounded-2xl overflow-hidden bg-white/70 relative">
@@ -1367,7 +1377,7 @@ const WallBoard = () => {
           {/* Our Goals */}
           <SectionCard
             icon={Target}
-            title="Our Goals"
+            title={t("section.goals")}
             accent="#E3F1E0"
             iconBg="#16A34A"
             onAdd={() => setGoalEditor({ open: true, item: null })}
@@ -1375,9 +1385,9 @@ const WallBoard = () => {
           >
             {goals.filter((g) => !g.archived_at).length === 0 ? (
               <EmptyState
-                text="No goals yet. Add the first one."
+                text={t("empty.goals")}
                 onAdd={() => setGoalEditor({ open: true, item: null })}
-                label="Add goal"
+                label={t("empty.goals.add")}
               />
             ) : (
               <ul className="bg-white/70 rounded-2xl divide-y divide-[#EFEBE4] overflow-hidden">
@@ -1450,14 +1460,14 @@ const WallBoard = () => {
               data-testid="goals-history-btn"
             >
               <HistoryIcon className="w-3.5 h-3.5" strokeWidth={2} />
-              History
+              {t("btn.history")}
             </button>
           </SectionCard>
 
           {/* Countdown */}
           <SectionCard
             icon={CalendarClock}
-            title="Countdown"
+            title={t("section.countdown")}
             accent="#FBEED9"
             iconBg="#D97706"
             onAdd={() => setCdEditor({ open: true, item: null })}
@@ -1465,9 +1475,9 @@ const WallBoard = () => {
           >
             {sortedCountdown.length === 0 ? (
               <EmptyState
-                text="Add upcoming milestones to count down to."
+                text={t("empty.countdown")}
                 onAdd={() => setCdEditor({ open: true, item: null })}
-                label="Add countdown"
+                label={t("empty.countdown.add")}
               />
             ) : (
               <ul className="bg-white/70 rounded-2xl divide-y divide-[#EFEBE4]">
@@ -1509,7 +1519,7 @@ const WallBoard = () => {
           {/* Family Events */}
           <SectionCard
             icon={CalendarHeart}
-            title="Family Events"
+            title={t("section.familyEvents")}
             accent="#FDE7F1"
             iconBg="#DB2777"
             onAdd={() => setFeEditor({ open: true, item: null })}
@@ -1517,9 +1527,9 @@ const WallBoard = () => {
           >
             {upcomingFamilyEvents.length === 0 ? (
               <EmptyState
-                text="No upcoming family events yet."
+                text={t("empty.familyEvents")}
                 onAdd={() => setFeEditor({ open: true, item: null })}
-                label="Add event"
+                label={t("empty.familyEvents.add")}
               />
             ) : (
               <ul className="bg-white/70 rounded-2xl divide-y divide-[#EFEBE4]">
@@ -1555,7 +1565,7 @@ const WallBoard = () => {
           {/* Quick Notes */}
           <SectionCard
             icon={StickyNote}
-            title="Quick Notes"
+            title={t("section.notes")}
             accent="#FBF1D8"
             iconBg="#CA8A04"
             onAdd={() => setNoteEditor({ open: true, item: null })}
@@ -1563,9 +1573,9 @@ const WallBoard = () => {
           >
             {notes.length === 0 ? (
               <EmptyState
-                text="Add quick notes — shopping, reminders…"
+                text={t("empty.notes")}
                 onAdd={() => setNoteEditor({ open: true, item: null })}
-                label="Add note"
+                label={t("empty.notes.add")}
               />
             ) : (
               <ul className="bg-white/70 rounded-2xl px-3.5 py-3 space-y-2.5">
@@ -1605,7 +1615,7 @@ const WallBoard = () => {
           {/* Achievements */}
           <SectionCard
             icon={Trophy}
-            title="Our Achievements"
+            title={t("section.achievements")}
             accent="#E6EEF8"
             iconBg="#2563EB"
             onAdd={() => setAchEditor({ open: true, item: null })}
@@ -1613,9 +1623,9 @@ const WallBoard = () => {
           >
             {achievements.length === 0 ? (
               <EmptyState
-                text="Celebrate milestones — add an achievement."
+                text={t("empty.achievements")}
                 onAdd={() => setAchEditor({ open: true, item: null })}
-                label="Add achievement"
+                label={t("empty.achievements.add")}
               />
             ) : (
               <div className="flex items-stretch gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
@@ -1658,7 +1668,7 @@ const WallBoard = () => {
         </div>
 
         <p className="text-center text-[10px] text-[#A09B95] tracking-wide mt-6 mb-2">
-          {pending > 0 ? `${pending} change${pending === 1 ? "" : "s"} waiting to sync` : "All changes synced"}
+          {pending > 0 ? t("sync.pendingFooter", { n: pending }) : t("sync.allSynced")}
         </p>
       </div>
 
@@ -1670,35 +1680,35 @@ const WallBoard = () => {
         <div className="max-w-md mx-auto flex items-stretch px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
           <BottomNavItem
             icon={HomeIcon}
-            label="Home"
+            label={t("nav.home")}
             active={isActive("/") || isActive("/wall-board")}
             onClick={() => navigate("/")}
             testid="nav-home"
           />
           <BottomNavItem
             icon={CalendarHeart}
-            label="Time Plan"
+            label={t("nav.timePlan")}
             active={isActive("/time-plan")}
             onClick={() => navigate("/time-plan")}
             testid="nav-time-plan"
           />
           <BottomNavItem
             icon={Wallet}
-            label="Home Budget"
+            label={t("nav.homeBudget")}
             active={false}
-            onClick={() => goSoon("Home Budget")}
+            onClick={() => goSoon(t("nav.homeBudget"))}
             testid="nav-home-budget"
           />
           <BottomNavItem
             icon={Heart}
-            label="Wall Board"
+            label={t("nav.wallBoard")}
             active={isActive("/") || isActive("/wall-board")}
             onClick={() => navigate("/")}
             testid="nav-wall-board"
           />
           <BottomNavItem
             icon={SettingsIcon}
-            label="Settings"
+            label={t("nav.settings")}
             active={false}
             onClick={() => setSettingsOpen(true)}
             testid="nav-settings"
@@ -1779,11 +1789,11 @@ const WallBoard = () => {
             const restored = wallGoals.cachedAll().find((x) => x.id === id);
             return restored ? [...prev, { ...restored, archived_at: null }] : prev;
           });
-          toast.success("Goal restored");
+          toast.success(t("history.restored"));
         }}
         onDelete={async (id) => {
           await goalsCrud.remove(id);
-          toast.success("Deleted permanently");
+          toast.success(t("history.deleted"));
         }}
       />
     </div>

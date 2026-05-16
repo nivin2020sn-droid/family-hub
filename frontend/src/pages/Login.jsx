@@ -6,15 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { login, isAuthenticated } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useI18n();
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showCode, setShowCode] = useState(false);
 
-  // If already authenticated, skip the login page entirely.
   if (isAuthenticated()) {
     const target = location.state?.from?.pathname || "/";
     return <Navigate to={target} replace />;
@@ -26,7 +28,7 @@ const Login = () => {
     setSubmitting(true);
     try {
       await login(code);
-      toast.success("Welcome home");
+      toast.success(t("login.welcomeToast"));
       const target = location.state?.from?.pathname || "/";
       navigate(target, { replace: true });
     } catch (err) {
@@ -38,20 +40,24 @@ const Login = () => {
 
   return (
     <div
-      className="min-h-screen bg-[#FAF9F6] flex items-center justify-center px-5 py-8"
+      className="min-h-screen bg-[#FAF9F6] flex items-center justify-center px-5 py-8 relative"
       data-testid="login-page"
     >
+      {/* Language switcher pinned at the top */}
+      <div className="absolute top-4 right-4 rtl:right-auto rtl:left-4">
+        <LanguageSwitcher variant="full" />
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="w-full max-w-sm"
       >
-        {/* Logo */}
         <div className="flex flex-col items-center text-center mb-8">
           <motion.img
             src="/logo512.png"
-            alt="My Family My Life"
+            alt={t("app.appName")}
             initial={{ scale: 0.92, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
@@ -59,14 +65,13 @@ const Login = () => {
             data-testid="login-logo"
           />
           <h1 className="font-heading text-2xl sm:text-3xl font-medium tracking-tight text-[#2D2A26] mt-6">
-            My Family My Life
+            {t("app.appName")}
           </h1>
           <p className="text-sm text-[#7A7571] mt-2 leading-relaxed max-w-xs">
-            A private space for your family. Enter your Family Code to unlock.
+            {t("login.welcome")}
           </p>
         </div>
 
-        {/* Form Card */}
         <motion.form
           onSubmit={handleSubmit}
           initial={{ opacity: 0, y: 12 }}
@@ -80,7 +85,7 @@ const Login = () => {
             className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] flex items-center gap-2 mb-2"
           >
             <KeyRound className="w-3.5 h-3.5" strokeWidth={2} />
-            Family Code
+            {t("login.familyCode")}
           </label>
           <div className="relative">
             <Input
@@ -92,19 +97,19 @@ const Login = () => {
               spellCheck={false}
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="Enter your code"
-              className="rounded-2xl border-[#E5E2DC] focus-visible:ring-[#2D2A26] h-12 text-base pr-16 tracking-widest"
+              placeholder={t("login.placeholder")}
+              className="rounded-2xl border-[#E5E2DC] focus-visible:ring-[#2D2A26] h-12 text-base pr-16 rtl:pr-3 rtl:pl-16 tracking-widest"
               data-testid="family-code-input"
               disabled={submitting}
             />
             <button
               type="button"
               onClick={() => setShowCode((s) => !s)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-wider text-[#7A7571] px-2 py-1 rounded-md hover:bg-[#F3F0EA] transition-colors"
+              className="absolute right-3 rtl:right-auto rtl:left-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-wider text-[#7A7571] px-2 py-1 rounded-md hover:bg-[#F3F0EA] transition-colors"
               data-testid="toggle-show-code"
               tabIndex={-1}
             >
-              {showCode ? "Hide" : "Show"}
+              {showCode ? t("login.hide") : t("login.show")}
             </button>
           </div>
 
@@ -116,24 +121,24 @@ const Login = () => {
           >
             {submitting ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Unlocking…
+                <Loader2 className="w-4 h-4 mr-2 rtl:mr-0 rtl:ml-2 animate-spin" />
+                {t("login.unlocking")}
               </>
             ) : (
               <>
-                <Lock className="w-4 h-4 mr-2" strokeWidth={2} />
-                Unlock
+                <Lock className="w-4 h-4 mr-2 rtl:mr-0 rtl:ml-2" strokeWidth={2} />
+                {t("login.unlock")}
               </>
             )}
           </Button>
 
           <p className="text-[11px] text-center text-[#A09B95] mt-4 leading-relaxed">
-            Your code is verified once. After that, the app works even offline.
+            {t("login.hint")}
           </p>
         </motion.form>
 
         <p className="text-[11px] text-center text-[#A09B95] mt-6 tracking-wide">
-          © My Family My Life · Built with care
+          © {t("app.appName")} · {t("app.tagline")}
         </p>
       </motion.div>
     </div>

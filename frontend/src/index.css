@@ -21,6 +21,16 @@ code {
     font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
 
+/* RTL support: ensures icons and text inside flex rows reverse direction
+   when the document is set to dir="rtl" (Arabic). */
+[dir="rtl"] body {
+    font-family: 'DM Sans', 'Tajawal', 'Cairo', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+[dir="rtl"] .font-heading {
+    font-family: 'Outfit', 'Tajawal', 'Cairo', sans-serif;
+}
+
+
 @layer base {
     :root {
         --background: 40 28% 97%;

@@ -6,38 +6,41 @@ import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
+import { I18nProvider } from "@/lib/i18n";
 
 function App() {
   return (
-    <div className="App">
-      <ErrorBoundary>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/"
-              element={
-                <RequireAuth>
-                  <WallBoard />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/time-plan"
-              element={
-                <RequireAuth>
-                  <TimePlan />
-                </RequireAuth>
-              }
-            />
-            {/* Legacy paths -> redirect to home */}
-            <Route path="/wall-board" element={<Navigate to="/" replace />} />
-            <Route path="/dashboard" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </ErrorBoundary>
-      <Toaster richColors position="top-center" />
-    </div>
+    <I18nProvider>
+      <div className="App">
+        <ErrorBoundary>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route
+                path="/"
+                element={
+                  <RequireAuth>
+                    <WallBoard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/time-plan"
+                element={
+                  <RequireAuth>
+                    <TimePlan />
+                  </RequireAuth>
+                }
+              />
+              {/* Legacy paths -> redirect to home */}
+              <Route path="/wall-board" element={<Navigate to="/" replace />} />
+              <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </ErrorBoundary>
+        <Toaster richColors position="top-center" />
+      </div>
+    </I18nProvider>
   );
 }
 
