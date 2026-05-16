@@ -413,7 +413,10 @@ async def get_wall_settings():
 
 @api_router.put("/wall/settings", response_model=WallSettings)
 async def update_wall_settings(payload: WallSettingsUpdate):
-    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Use exclude_unset so that explicit `null` values (e.g. clearing the hero
+    # photo) are persisted, while fields the client never mentioned stay
+    # untouched.
+    update = payload.model_dump(exclude_unset=True)
     if update:
         await db.wall_settings.update_one(
             {"id": WALL_SETTINGS_ID}, {"$set": update}, upsert=True
@@ -422,7 +425,8 @@ async def update_wall_settings(payload: WallSettingsUpdate):
     doc.pop("id", None)
     # Merge defaults to ensure all keys present
     merged = WallSettings().model_dump()
-    merged.update({k: v for k, v in doc.items() if v is not None})
+    for k, v in doc.items():
+        merged[k] = v
     return merged
 
 

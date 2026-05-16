@@ -37,7 +37,19 @@
 - Offline cache fallback in API client (localStorage)
 - Online/offline toast indicator
 - **Feb 2026 (latest)**: Replaced app branding — new "My Family My Life" illustrated logo applied to favicon.ico, logo192/512/1024.png, apple-touch-icon.png, og-image.png, manifest icons (with maskable purpose), and Dashboard header (replaces previous gradient "M" tile). Added OG/Twitter meta tags.
-- **Feb 2026 (latest)**: Added Wall Board (`/wall-board`) — mobile-first family board page modeled after user-provided reference. Hero with family photo + overlay text ("Together We Build Beautiful Memories" / "Our Family, Our Dreams, Our Happiness"). Cards (all placeholder data): Message of the Day, Photo of the Day, Our Goals (checkmarks), Countdown (days remaining), Verse & Prayer, Quick Notes (color dots), Our Achievements (horizontal avatar list). Sticky bottom navigation: Home, Time Plan, Home Budget (toast: coming soon), Wall Board, Settings (opens dialog with Sign-out). Dashboard's Wall Board card is now an active clickable button that navigates to `/wall-board`. Login, Time Plan, and Home Budget left untouched.
+- **Feb 2026 (latest)**: **Wall Board is now the real main Dashboard (`/`).** Old static Dashboard removed from routing; `/wall-board` and `/dashboard` redirect to `/`. All sections fully editable + persisted in MongoDB:
+  - Hero Banner (title, subtitle, photo — photo stored as resized base64 JPEG, max 1280px)
+  - Message of the Day (title + text)
+  - Photo of the Day (multi-photo carousel, add/delete)
+  - Our Goals (add/edit/delete + toggle done)
+  - Countdown (events with target dates, days-remaining auto-computed)
+  - Family Events (NEW section, upcoming events sorted by date)
+  - Quick Notes (text + color from 6-color palette)
+  - Our Achievements (name + note + optional photo, horizontal scroll)
+  - Verse & Prayer removed (not in user's section list)
+  - Offline-first architecture: `lib/wallApi.js` uses localStorage read-through cache + write-back outbox queue (`wall_outbox`). Every mutation is optimistic; failures queue and auto-replay on `window.online` event or manual "Sync now" button in Settings dialog. Backend `PUT /api/wall/settings` uses `exclude_unset=True` so explicit nulls (e.g. clearing hero photo) actually persist.
+  - 7 new MongoDB collections: `wall_settings`, `wall_photos`, `wall_goals`, `wall_countdown`, `wall_achievements`, `wall_notes`, `wall_family_events`.
+  - Tested: 19/19 backend pytest cases pass + frontend E2E (login → add to every section → refresh → verify persistence).
 
 ## Test Coverage
 - Backend: 18/18 pytest cases pass (CRUD + filtering + 404s + PWA assets)
