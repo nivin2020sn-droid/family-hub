@@ -37,6 +37,7 @@
 - Offline cache fallback in API client (localStorage)
 - Online/offline toast indicator
 - **Feb 2026 (latest)**: Replaced app branding — new "My Family My Life" illustrated logo applied to favicon.ico, logo192/512/1024.png, apple-touch-icon.png, og-image.png, manifest icons (with maskable purpose), and Dashboard header (replaces previous gradient "M" tile). Added OG/Twitter meta tags.
+- **Feb 2026 (latest)**: Added simple Family Code protection. New `POST /api/auth/verify` endpoint (compares submitted code against `FAMILY_CODE` env var, default `FAMILY2026`). New `/login` page with logo + single Family Code field + Unlock button. Auth flag stored in `localStorage.mfml_auth_ok`; verified once per device, no re-check after that → app remains fully usable offline. `RequireAuth` route guard wraps Dashboard and TimePlan. Discreet "Sign out of this device" button placed at the bottom of Settings dialog with a two-tap confirmation to prevent accidental taps.
 
 ## Test Coverage
 - Backend: 18/18 pytest cases pass (CRUD + filtering + 404s + PWA assets)

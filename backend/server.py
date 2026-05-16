@@ -128,6 +128,21 @@ async def root():
     return {"message": "My Family My Life API"}
 
 
+# ============= Auth: Family Code =============
+
+class FamilyCodeVerify(BaseModel):
+    code: str
+
+
+@api_router.post("/auth/verify")
+async def verify_family_code(payload: FamilyCodeVerify):
+    expected = os.environ.get("FAMILY_CODE", "FAMILY2026")
+    submitted = (payload.code or "").strip()
+    if not submitted or submitted != expected:
+        raise HTTPException(status_code=401, detail="Invalid family code")
+    return {"ok": True}
+
+
 @api_router.get("/users", response_model=List[User])
 async def get_users():
     # Ensure both default users exist (self-healing on every read).

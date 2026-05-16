@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -10,20 +11,36 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { updateUser } from "@/lib/api";
+import { logout as authLogout } from "@/lib/auth";
 
 const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWeekStartChange }) => {
+  const navigate = useNavigate();
   const [names, setNames] = useState({});
   const [saving, setSaving] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   useEffect(() => {
     if (open) {
       const initial = {};
       users.forEach((u) => (initial[u.id] = u.name));
       setNames(initial);
+      setConfirmLogout(false);
     }
   }, [open, users]);
+
+  const handleLogout = () => {
+    if (!confirmLogout) {
+      setConfirmLogout(true);
+      return;
+    }
+    authLogout();
+    onOpenChange(false);
+    toast.success("Signed out");
+    navigate("/login", { replace: true });
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -123,6 +140,24 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
               </div>
             </div>
           )}
+
+          {/* Sign out — placed at the bottom and styled muted so it is not
+              accidentally tapped. Requires a second confirming press. */}
+          <div className="pt-3 mt-1 border-t border-[#E5E2DC]">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium tracking-wide transition-colors ${
+                confirmLogout
+                  ? "bg-[#FEE2E2] text-[#B91C1C] hover:bg-[#FECACA]"
+                  : "text-[#A09B95] hover:text-[#7A7571] hover:bg-[#F3F0EA]"
+              }`}
+              data-testid="logout-btn"
+            >
+              <LogOut className="w-3.5 h-3.5" strokeWidth={2} />
+              {confirmLogout ? "Tap again to confirm sign out" : "Sign out of this device"}
+            </button>
+          </div>
         </div>
 
         <DialogFooter className="px-6 py-4 bg-[#FAF9F6] border-t border-[#E5E2DC] flex gap-2">
