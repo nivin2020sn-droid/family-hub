@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { createEvent, updateEvent } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 const DEFAULT_COLOR = "#F472B6";
 
@@ -33,6 +34,7 @@ const EventDialog = ({
   eventTypes,
   onSaved,
 }) => {
+  const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [userId, setUserId] = useState("wife");
@@ -75,7 +77,7 @@ const EventDialog = ({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim() || !date) {
-      toast.error("Title and date are required");
+      toast.error(t("evDlg.titleDateRequired"));
       return;
     }
     setSaving(true);
@@ -92,10 +94,10 @@ const EventDialog = ({
       };
       if (editing) {
         await updateEvent(editing.id, payload);
-        toast.success("Event updated");
+        toast.success(t("evDlg.eventUpdated"));
       } else {
         await createEvent(payload);
-        toast.success("Event created");
+        toast.success(t("evDlg.eventCreated"));
       }
       onSaved && onSaved();
     } catch (err) {
@@ -103,7 +105,7 @@ const EventDialog = ({
         err?.response?.status
           ? `HTTP ${err.response.status}`
           : err?.message || "network error";
-      toast.error(`Failed to save event (${detail})`);
+      toast.error(t("evDlg.saveFailed", { detail }));
     } finally {
       setSaving(false);
     }
@@ -118,23 +120,23 @@ const EventDialog = ({
         <form onSubmit={handleSubmit}>
           <DialogHeader className="px-6 pt-6 pb-2">
             <DialogTitle className="font-heading text-2xl font-medium tracking-tight text-[#2D2A26]">
-              {editing ? "Edit Event" : "New Event"}
+              {editing ? t("evDlg.editTitle") : t("evDlg.newTitle")}
             </DialogTitle>
             <DialogDescription className="text-sm text-[#7A7571]">
-              {editing ? "Update the details for this event." : "Add a new event to the family calendar."}
+              {editing ? t("evDlg.editDesc") : t("evDlg.newDesc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="px-6 py-4 space-y-4">
             <div>
               <Label htmlFor="ev-title" className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                Title
+                {t("evDlg.title")}
               </Label>
               <Input
                 id="ev-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Morning shift"
+                placeholder={t("evDlg.titlePlaceholder")}
                 className="mt-1.5 rounded-xl border-[#E5E2DC] focus-visible:ring-[#2D2A26]"
                 data-testid="event-title-input"
               />
@@ -142,7 +144,7 @@ const EventDialog = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">For</Label>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">{t("evDlg.for")}</Label>
                 <Select value={userId} onValueChange={setUserId}>
                   <SelectTrigger className="mt-1.5 rounded-xl border-[#E5E2DC]" data-testid="event-user-select">
                     <SelectValue />
@@ -160,13 +162,13 @@ const EventDialog = ({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">Category</Label>
+                <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">{t("evDlg.category")}</Label>
                 <Select value={typeId || "none"} onValueChange={(v) => handleTypeChange(v === "none" ? "" : v)}>
                   <SelectTrigger className="mt-1.5 rounded-xl border-[#E5E2DC]" data-testid="event-type-select">
-                    <SelectValue placeholder="None" />
+                    <SelectValue placeholder={t("evDlg.categoryNone")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No category</SelectItem>
+                    <SelectItem value="none">{t("evDlg.categoryNoCat")}</SelectItem>
                     {eventTypes.map((t) => (
                       <SelectItem key={t.id} value={t.id}>
                         <span className="inline-flex items-center gap-2">
@@ -182,7 +184,7 @@ const EventDialog = ({
 
             <div>
               <Label htmlFor="ev-date" className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                Date
+                {t("editor.field.date")}
               </Label>
               <Input
                 id="ev-date"
@@ -197,7 +199,7 @@ const EventDialog = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="ev-start" className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                  Start time
+                  {t("evDlg.startTime")}
                 </Label>
                 <Input
                   id="ev-start"
@@ -210,7 +212,7 @@ const EventDialog = ({
               </div>
               <div>
                 <Label htmlFor="ev-end" className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                  End time
+                  {t("evDlg.endTime")}
                 </Label>
                 <Input
                   id="ev-end"
@@ -224,7 +226,7 @@ const EventDialog = ({
             </div>
 
             <div>
-              <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">Color</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">{t("evDlg.color")}</Label>
               <div className="mt-1.5 flex items-center gap-3">
                 <input
                   type="color"
@@ -248,13 +250,13 @@ const EventDialog = ({
 
             <div>
               <Label htmlFor="ev-notes" className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                Notes
+                {t("evDlg.notes")}
               </Label>
               <Textarea
                 id="ev-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional details…"
+                placeholder={t("evDlg.notesPlaceholder")}
                 className="mt-1.5 rounded-xl border-[#E5E2DC] focus-visible:ring-[#2D2A26] resize-none"
                 rows={3}
                 data-testid="event-notes-input"
@@ -270,7 +272,7 @@ const EventDialog = ({
               className="rounded-full"
               data-testid="event-cancel-btn"
             >
-              Cancel
+              {t("btn.cancel")}
             </Button>
             <Button
               type="submit"
@@ -278,7 +280,7 @@ const EventDialog = ({
               className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
               data-testid="event-save-btn"
             >
-              {saving ? "Saving…" : editing ? "Save changes" : "Create event"}
+              {saving ? t("btn.saving") : editing ? t("btn.saveChanges") : t("evDlg.createBtn")}
             </Button>
           </DialogFooter>
         </form>

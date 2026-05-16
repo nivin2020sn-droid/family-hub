@@ -22,27 +22,44 @@ import {
   createEvent,
   deleteEvent,
 } from "@/lib/api";
-import { buildMonthMatrix, getDayNames, MONTH_NAMES, todayIso, getContrastTextColor } from "@/lib/utils";
+import { buildMonthMatrix, todayIso, getContrastTextColor } from "@/lib/utils";
 import EventBar from "@/components/EventBar";
 import EventDialog from "@/components/EventDialog";
 import EventTypesDialog from "@/components/EventTypesDialog";
 import DayDetailPopover from "@/components/DayDetailPopover";
 import ProfilesDialog from "@/components/ProfilesDialog";
+import { useI18n } from "@/lib/i18n";
 
 const WIFE_COLOR = "#F472B6";
 const HUSBAND_COLOR = "#60A5FA";
 const MAX_EVENTS_PER_HALF = 3;
 const MAX_EVENTS_SINGLE = 6;
 
-// Default users — always rendered so the calendar always shows both
-// profiles even if the API hasn't responded yet or returned partial data.
-const DEFAULT_USERS = [
-  { id: "wife", name: "Wife", role: "wife", color: WIFE_COLOR },
-  { id: "husband", name: "Husband", role: "husband", color: HUSBAND_COLOR },
-];
-
 const TimePlan = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
+
+  // Default users — always rendered so the calendar always shows both
+  // profiles even if the API hasn't responded yet or returned partial data.
+  // Names default to the translated user.wife / user.husband.
+  const DEFAULT_USERS = useMemo(
+    () => [
+      { id: "wife", name: t("user.wife"), role: "wife", color: WIFE_COLOR },
+      { id: "husband", name: t("user.husband"), role: "husband", color: HUSBAND_COLOR },
+    ],
+    [t]
+  );
+
+  // Localized month names (Jan..Dec) and short weekday names (Sun..Sat).
+  const MONTH_NAMES_LOCAL = useMemo(
+    () => Array.from({ length: 12 }, (_, i) => t(`month.${i + 1}`)),
+    [t]
+  );
+  const SHORT_DAY_BY_INDEX = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => t(`day.short.${i}`)),
+    [t]
+  );
+
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-12
@@ -92,13 +109,13 @@ const TimePlan = () => {
     const onOnline = () => {
       setOnline(true);
       setSyncState((s) => (s === "syncing" ? s : "online"));
-      toast.success("Back online — syncing");
+      toast.success(t("sync.backOnline"));
       loadEvents();
     };
     const onOffline = () => {
       setOnline(false);
       setSyncState("offline");
-      toast.message("You're offline. Showing cached data.");
+      toast.message(t("sync.youAreOffline"));
     };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -111,16 +128,15 @@ const TimePlan = () => {
 
   useEffect(() => {
     (async () => {
-      const [u, t] = await Promise.all([getUsers(), getEventTypes()]);
-      // Merge API response with defaults so both profiles are ALWAYS present,
-      // even if the backend is slow / empty / returned only one.
+      const [u, tp] = await Promise.all([getUsers(), getEventTypes()]);
       const byId = new Map(DEFAULT_USERS.map((x) => [x.id, x]));
       (Array.isArray(u) ? u : []).forEach((x) => {
         if (x && x.id) byId.set(x.id, { ...byId.get(x.id), ...x });
       });
       setUsers([byId.get("wife"), byId.get("husband")]);
-      setEventTypes(t);
+      setEventTypes(tp);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadEvents = async () => {
@@ -134,13 +150,12 @@ const TimePlan = () => {
   // can diagnose backend / env-var issues on production.
   const handleSync = async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      toast.error("You're offline — can't sync");
+      toast.error(t("sync.cantSyncOffline"));
       setSyncState("offline");
       return;
     }
     setSyncState("syncing");
     try {
-      // Direct API call so failures throw and we can show real status codes
       const { api } = await import("@/lib/api");
       const [usersRes, typesRes, eventsRes] = await Promise.all([
         api.get("/users"),
@@ -155,7 +170,7 @@ const TimePlan = () => {
       setEventTypes(Array.isArray(typesRes.data) ? typesRes.data : []);
       setEvents(Array.isArray(eventsRes.data) ? eventsRes.data : []);
       setSyncState("synced");
-      toast.success("All synced");
+      toast.success(t("sync.allSyncedToast"));
       setTimeout(
         () =>
           setSyncState(
@@ -170,7 +185,7 @@ const TimePlan = () => {
       const status = err?.response?.status;
       const baseURL = err?.config?.baseURL || "(unknown)";
       const detail = status ? `HTTP ${status}` : (err?.message || "network error");
-      toast.error(`Sync failed (${detail}) → ${baseURL}`, { duration: 8000 });
+      toast.error(t("sync.failedDetail", { detail, url: baseURL }), { duration: 8000 });
     }
   };
 
@@ -180,7 +195,11 @@ const TimePlan = () => {
   }, [year, month]);
 
   const matrix = useMemo(() => buildMonthMatrix(year, month, weekStart), [year, month, weekStart]);
-  const dayHeaders = useMemo(() => getDayNames(weekStart), [weekStart]);
+  // Build localized day headers, ordered according to the chosen week start.
+  const dayHeaders = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => SHORT_DAY_BY_INDEX[(i + weekStart) % 7]),
+    [weekStart, SHORT_DAY_BY_INDEX]
+  );
 
   const eventsByDate = useMemo(() => {
     const map = new Map();
@@ -195,14 +214,14 @@ const TimePlan = () => {
 
   const typesMap = useMemo(() => {
     const m = new Map();
-    eventTypes.forEach((t) => m.set(t.id, t));
+    eventTypes.forEach((tp) => m.set(tp.id, tp));
     return m;
   }, [eventTypes]);
 
   const getEventLabel = (ev) => {
     if (ev.type_id && typesMap.has(ev.type_id)) {
-      const t = typesMap.get(ev.type_id);
-      if (t.abbreviation && t.abbreviation.trim()) return t.abbreviation;
+      const tp = typesMap.get(ev.type_id);
+      if (tp.abbreviation && tp.abbreviation.trim()) return tp.abbreviation;
     }
     return (ev.title || "").slice(0, 4).toUpperCase();
   };
@@ -223,9 +242,9 @@ const TimePlan = () => {
     } else setMonth(month + 1);
   };
   const goToday = () => {
-    const t = new Date();
-    setYear(t.getFullYear());
-    setMonth(t.getMonth() + 1);
+    const now = new Date();
+    setYear(now.getFullYear());
+    setMonth(now.getMonth() + 1);
   };
 
   const onAddEvent = (dateIso, userId) => {
@@ -245,10 +264,10 @@ const TimePlan = () => {
   const onDeleteEvent = async (id) => {
     try {
       await deleteEvent(id);
-      toast.success("Event deleted");
+      toast.success(t("tp.eventDeleted"));
       loadEvents();
     } catch {
-      toast.error("Failed to delete");
+      toast.error(t("tp.failedToDelete"));
     }
   };
 
@@ -258,8 +277,8 @@ const TimePlan = () => {
   };
 
   const onTypesChanged = async () => {
-    const t = await getEventTypes();
-    setEventTypes(t);
+    const tp = await getEventTypes();
+    setEventTypes(tp);
   };
 
   const todayStr = todayIso();
@@ -273,24 +292,24 @@ const TimePlan = () => {
   // for the currently active user. Always targets activeUserId — never both.
   const handleQuickFill = async (dateIso) => {
     if (!quickFillTypeId) return false;
-    const t = typesMap.get(quickFillTypeId);
-    if (!t) return false;
+    const tp = typesMap.get(quickFillTypeId);
+    if (!tp) return false;
     const existing = (eventsByDate.get(dateIso) || []).find(
       (e) => e.user_id === activeUserId && e.type_id === quickFillTypeId
     );
     try {
       if (existing) {
         await deleteEvent(existing.id);
-        toast.message(`Removed ${t.abbreviation || t.name}`);
+        toast.message(t("tp.removedShort", { label: tp.abbreviation || tp.name }));
       } else {
         await createEvent({
-          title: t.name,
+          title: tp.name,
           user_id: activeUserId,
           type_id: quickFillTypeId,
-          color: t.color,
+          color: tp.color,
           date: dateIso,
         });
-        toast.success(`Added ${t.abbreviation || t.name}`);
+        toast.success(t("tp.addedShort", { label: tp.abbreviation || tp.name }));
       }
       loadEvents();
       return true;
@@ -299,7 +318,7 @@ const TimePlan = () => {
         err?.response?.status
           ? `HTTP ${err.response.status}`
           : err?.message || "network error";
-      toast.error(`Save failed (${detail}). Check API connection.`);
+      toast.error(t("tp.saveFailedShort", { detail }));
       return false;
     }
   };
@@ -315,7 +334,7 @@ const TimePlan = () => {
             data-testid="back-to-dashboard-btn"
           >
             <ArrowLeft className="w-5 h-5 sm:w-4 sm:h-4" strokeWidth={2} />
-            <span className="hidden sm:inline">Dashboard</span>
+            <span className="hidden sm:inline">{t("nav.dashboard")}</span>
           </button>
           <div className="flex items-center gap-1 sm:gap-2">
             {/* Sync status indicator + Sync Now button */}
@@ -332,7 +351,7 @@ const TimePlan = () => {
                   : "bg-emerald-50 text-emerald-700 border border-emerald-200"
               }`}
               data-testid="sync-status-btn"
-              aria-label="Sync now"
+              aria-label={t("btn.syncNow")}
             >
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -347,12 +366,12 @@ const TimePlan = () => {
               />
               <span className="hidden xs:inline sm:inline">
                 {syncState === "offline"
-                  ? "Offline"
+                  ? t("sync.offline")
                   : syncState === "syncing"
-                  ? "Syncing…"
+                  ? t("sync.syncing")
                   : syncState === "synced"
-                  ? "Synced"
-                  : "Sync"}
+                  ? t("sync.synced")
+                  : t("sync.sync")}
               </span>
             </button>
             <Button
@@ -360,20 +379,20 @@ const TimePlan = () => {
               onClick={() => setProfilesDialogOpen(true)}
               className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA] h-10 w-10 sm:w-auto sm:px-4 p-0 sm:p-2"
               data-testid="manage-profiles-btn"
-              aria-label="Settings"
+              aria-label={t("nav.settings")}
             >
-              <UserCog className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" strokeWidth={1.75} />
-              <span className="hidden sm:inline">Settings</span>
+              <UserCog className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2 rtl:sm:mr-0 rtl:sm:ml-2" strokeWidth={1.75} />
+              <span className="hidden sm:inline">{t("nav.settings")}</span>
             </Button>
             <Button
               variant="ghost"
               onClick={() => setTypesDialogOpen(true)}
               className="rounded-full text-[#2D2A26] hover:bg-[#F3F0EA] h-10 w-10 sm:w-auto sm:px-4 p-0 sm:p-2"
               data-testid="manage-types-btn"
-              aria-label="Event Types"
+              aria-label={t("tp.eventTypes")}
             >
-              <Settings2 className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2" strokeWidth={1.75} />
-              <span className="hidden sm:inline">Event Types</span>
+              <Settings2 className="w-5 h-5 sm:w-4 sm:h-4 sm:mr-2 rtl:sm:mr-0 rtl:sm:ml-2" strokeWidth={1.75} />
+              <span className="hidden sm:inline">{t("tp.eventTypes")}</span>
             </Button>
           </div>
         </div>
@@ -382,17 +401,15 @@ const TimePlan = () => {
         <div className="flex flex-col gap-3 sm:gap-6 md:flex-row md:items-end md:justify-between mb-4 sm:mb-6 md:mb-8">
           <div>
             <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.2em] sm:tracking-[0.25em] text-[#7A7571] mb-1 sm:mb-3">
-              Time Plan
+              {t("tp.title")}
             </p>
             <h1 className="font-heading text-3xl sm:text-5xl font-light tracking-tight text-[#2D2A26] leading-none">
-              {MONTH_NAMES[month - 1]}{" "}
+              {MONTH_NAMES_LOCAL[month - 1]}{" "}
               <span className="text-[#7A7571] font-light">{year}</span>
             </h1>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
-            {/* User Switcher — always enabled. In merge mode it picks the
-                ACTIVE target for Quick Fill / New Event. */}
             <div
               className="flex-1 md:flex-none inline-flex items-center gap-1 bg-[#F3F0EA] p-1 sm:p-1.5 rounded-full"
               data-testid="user-switcher"
@@ -420,11 +437,10 @@ const TimePlan = () => {
               })}
             </div>
 
-            {/* Merge toggle — compact on mobile (icon + switch only) */}
             <div className="flex items-center gap-2 sm:gap-3 bg-white border border-[#E5E2DC] px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-sm flex-shrink-0">
               <Layers className="w-4 h-4 text-[#7A7571]" strokeWidth={1.75} />
               <label htmlFor="merge-switch" className="hidden sm:inline text-sm font-medium text-[#2D2A26] cursor-pointer">
-                Merge Calendars
+                {t("tp.mergeCalendars")}
               </label>
               <Switch
                 id="merge-switch"
@@ -445,7 +461,7 @@ const TimePlan = () => {
               onClick={goPrev}
               className="rounded-full hover:bg-[#F3F0EA] h-10 w-10"
               data-testid="prev-month-btn"
-              aria-label="Previous month"
+              aria-label={t("tp.prevMonth")}
             >
               <ChevronLeft className="w-5 h-5" />
             </Button>
@@ -455,7 +471,7 @@ const TimePlan = () => {
               className="rounded-full text-xs sm:text-sm hover:bg-[#F3F0EA] h-10 px-3"
               data-testid="today-btn"
             >
-              Today
+              {t("tp.today")}
             </Button>
             <Button
               variant="ghost"
@@ -463,7 +479,7 @@ const TimePlan = () => {
               onClick={goNext}
               className="rounded-full hover:bg-[#F3F0EA] h-10 w-10"
               data-testid="next-month-btn"
-              aria-label="Next month"
+              aria-label={t("tp.nextMonth")}
             >
               <ChevronRight className="w-5 h-5" />
             </Button>
@@ -473,9 +489,9 @@ const TimePlan = () => {
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white h-10 px-4 sm:px-5 active:scale-95"
             data-testid="add-event-btn"
           >
-            <Plus className="w-4 h-4 sm:mr-1.5" strokeWidth={2} />
-            <span className="hidden sm:inline">New Event</span>
-            <span className="sm:hidden ml-1.5 text-sm">Add</span>
+            <Plus className="w-4 h-4 sm:mr-1.5 rtl:sm:mr-0 rtl:sm:ml-1.5" strokeWidth={2} />
+            <span className="hidden sm:inline">{t("tp.newEvent")}</span>
+            <span className="sm:hidden ml-1.5 rtl:ml-0 rtl:mr-1.5 text-sm">{t("btn.add")}</span>
           </Button>
         </div>
 
@@ -644,7 +660,7 @@ const TimePlan = () => {
         </div>
 
         {loading && (
-          <p className="text-xs text-[#7A7571] mt-4">Loading events…</p>
+          <p className="text-xs text-[#7A7571] mt-4">{t("tp.loadingEvents")}</p>
         )}
 
         {/* Spacer so calendar isn't covered by the fixed quick-fill bar */}
@@ -665,7 +681,7 @@ const TimePlan = () => {
                 strokeWidth={2.25}
               />
               <span className={quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}>
-                Quick Fill
+                {t("tp.quickFill")}
               </span>
             </div>
 
@@ -675,26 +691,26 @@ const TimePlan = () => {
                 className="flex-1 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar"
                 style={{ scrollbarWidth: "none" }}
               >
-                {eventTypes.map((t) => {
-                  const isActive = t.id === quickFillTypeId;
-                  const textColor = getContrastTextColor(t.color);
-                  const label = (t.abbreviation && t.abbreviation.trim())
-                    ? t.abbreviation
-                    : (t.name || "").slice(0, 4).toUpperCase();
+                {eventTypes.map((tp) => {
+                  const isActive = tp.id === quickFillTypeId;
+                  const textColor = getContrastTextColor(tp.color);
+                  const label = (tp.abbreviation && tp.abbreviation.trim())
+                    ? tp.abbreviation
+                    : (tp.name || "").slice(0, 4).toUpperCase();
                   return (
                     <button
-                      key={t.id}
+                      key={tp.id}
                       onClick={() =>
-                        setQuickFillTypeId(isActive ? null : t.id)
+                        setQuickFillTypeId(isActive ? null : tp.id)
                       }
                       className={`flex-shrink-0 h-9 min-w-[44px] px-2.5 rounded-lg text-[11px] sm:text-xs font-extrabold uppercase tracking-wide transition-all active:scale-95 ${
                         isActive
                           ? "ring-2 ring-offset-2 ring-[#2D2A26] ring-offset-white scale-105"
                           : "opacity-90 hover:opacity-100"
                       }`}
-                      style={{ backgroundColor: t.color, color: textColor }}
-                      title={t.name}
-                      data-testid={`quick-fill-type-${t.id}`}
+                      style={{ backgroundColor: tp.color, color: textColor }}
+                      title={tp.name}
+                      data-testid={`quick-fill-type-${tp.id}`}
                     >
                       {label}
                     </button>
@@ -707,8 +723,8 @@ const TimePlan = () => {
                 className="flex-1 text-left text-[11px] sm:text-xs text-[#7A7571] active:opacity-70"
                 data-testid="quick-fill-empty-cta"
               >
-                <span className="font-semibold text-[#2D2A26]">Create event types</span>
-                <span className="hidden sm:inline"> in Settings to enable Quick Fill</span>
+                <span className="font-semibold text-[#2D2A26]">{t("tp.createEventTypes")}</span>
+                <span className="hidden sm:inline">{t("tp.toEnableQuickFill")}</span>
               </button>
             )}
 
@@ -717,7 +733,7 @@ const TimePlan = () => {
               <button
                 onClick={() => setQuickFillTypeId(null)}
                 className="flex-shrink-0 h-9 w-9 rounded-lg bg-[#F3F0EA] flex items-center justify-center active:scale-95"
-                aria-label="Turn off Quick Fill"
+                aria-label={t("tp.turnOffQuickFill")}
                 data-testid="quick-fill-off-btn"
               >
                 <X className="w-4 h-4 text-[#2D2A26]" strokeWidth={2.25} />
@@ -731,11 +747,11 @@ const TimePlan = () => {
               className="mt-1.5 text-[10px] sm:text-[11px] text-[#7A7571] leading-none"
               data-testid="quick-fill-target"
             >
-              Tap a day to add/remove for{" "}
+              {t("tp.tapDayPrefix")}
               <span className="font-semibold text-[#2D2A26]">
                 {(users.find((u) => u.id === activeUserId) || {}).name || activeUserId}
               </span>
-              . Tap the same day again to undo.
+              {t("tp.tapDaySuffix")}
             </p>
           )}
         </div>

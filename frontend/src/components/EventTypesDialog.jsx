@@ -18,8 +18,10 @@ import {
   updateEventType,
   deleteEventType,
 } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [abbreviation, setAbbreviation] = useState("");
   const [color, setColor] = useState("#F472B6");
@@ -37,7 +39,7 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
-      toast.error("Name is required");
+      toast.error(t("tDlg.nameRequired"));
       return;
     }
     try {
@@ -49,34 +51,34 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
       };
       if (editingId) {
         await updateEventType(editingId, payload);
-        toast.success("Category updated");
+        toast.success(t("tDlg.updated"));
       } else {
         await createEventType(payload);
-        toast.success("Category added");
+        toast.success(t("tDlg.added"));
       }
       resetForm();
       onChanged && onChanged();
     } catch {
-      toast.error("Failed to save");
+      toast.error(t("tDlg.saveFailed"));
     }
   };
 
-  const startEdit = (t) => {
-    setEditingId(t.id);
-    setName(t.name);
-    setAbbreviation(t.abbreviation || "");
-    setColor(t.color);
-    setDescription(t.description || "");
+  const startEdit = (typeItem) => {
+    setEditingId(typeItem.id);
+    setName(typeItem.name);
+    setAbbreviation(typeItem.abbreviation || "");
+    setColor(typeItem.color);
+    setDescription(typeItem.description || "");
   };
 
   const handleDelete = async (id) => {
     try {
       await deleteEventType(id);
-      toast.success("Deleted");
+      toast.success(t("tDlg.deleted"));
       if (editingId === id) resetForm();
       onChanged && onChanged();
     } catch {
-      toast.error("Failed to delete");
+      toast.error(t("tDlg.deleteFailed"));
     }
   };
 
@@ -88,10 +90,10 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
       >
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle className="font-heading text-2xl font-medium tracking-tight text-[#2D2A26]">
-            Event Categories
+            {t("tDlg.title")}
           </DialogTitle>
           <DialogDescription className="text-sm text-[#7A7571] mt-1">
-            Create unlimited custom categories with your own colors.
+            {t("tDlg.desc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,19 +102,19 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
           <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
             <div>
               <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                Category name
+                {t("tDlg.categoryName")}
               </Label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Morning Shift"
+                placeholder={t("tDlg.categoryNamePlaceholder")}
                 className="mt-1.5 rounded-xl border-[#E5E2DC]"
                 data-testid="type-name-input"
               />
             </div>
             <div>
               <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-                Color
+                {t("editor.field.color")}
               </Label>
               <input
                 type="color"
@@ -125,24 +127,24 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
           </div>
           <div>
             <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">
-              Abbreviation
+              {t("tDlg.abbreviation")}
             </Label>
             <Input
               value={abbreviation}
               onChange={(e) => setAbbreviation(e.target.value.toUpperCase())}
-              placeholder="e.g. KVD, MJ, U"
+              placeholder={t("tDlg.abbreviationPlaceholder")}
               maxLength={6}
               className="mt-1.5 rounded-xl border-[#E5E2DC] uppercase tracking-widest font-bold"
               data-testid="type-abbreviation-input"
             />
             <p className="text-[11px] text-[#7A7571] mt-1">
-              Short code shown inside event bars in the monthly view.
+              {t("tDlg.abbreviationHelp")}
             </p>
           </div>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description"
+            placeholder={t("tDlg.descriptionPlaceholder")}
             rows={2}
             className="rounded-xl border-[#E5E2DC] resize-none"
             data-testid="type-description-input"
@@ -156,7 +158,7 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
                 className="rounded-full"
                 data-testid="type-cancel-edit-btn"
               >
-                <X className="w-4 h-4 mr-1" /> Cancel
+                <X className="w-4 h-4 mr-1" /> {t("btn.cancel")}
               </Button>
             )}
             <Button
@@ -166,11 +168,11 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
             >
               {editingId ? (
                 <>
-                  <Save className="w-4 h-4 mr-1.5" /> Save
+                  <Save className="w-4 h-4 mr-1.5" /> {t("btn.save")}
                 </>
               ) : (
                 <>
-                  <Plus className="w-4 h-4 mr-1.5" /> Add
+                  <Plus className="w-4 h-4 mr-1.5" /> {t("btn.add")}
                 </>
               )}
             </Button>
@@ -181,50 +183,50 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
         <div className="px-6 py-4 max-h-72 overflow-y-auto" data-testid="types-list">
           {types.length === 0 ? (
             <p className="text-sm text-[#7A7571] text-center py-6">
-              No categories yet. Add one above.
+              {t("tDlg.empty")}
             </p>
           ) : (
             <ul className="space-y-2">
-              {types.map((t) => (
+              {types.map((typeItem) => (
                 <li
-                  key={t.id}
+                  key={typeItem.id}
                   className="flex items-center gap-3 p-3 rounded-xl border border-[#E5E2DC] bg-[#FAF9F6] hover:bg-white transition-colors"
-                  data-testid={`type-item-${t.id}`}
+                  data-testid={`type-item-${typeItem.id}`}
                 >
                   <span
                     className="w-5 h-5 rounded-full border border-[#E5E2DC]"
-                    style={{ backgroundColor: t.color }}
+                    style={{ backgroundColor: typeItem.color }}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-[#2D2A26] truncate">{t.name}</p>
-                      {t.abbreviation && (
+                      <p className="text-sm font-semibold text-[#2D2A26] truncate">{typeItem.name}</p>
+                      {typeItem.abbreviation && (
                         <span className="text-[10px] font-extrabold tracking-widest uppercase px-1.5 py-0.5 rounded-md bg-[#2D2A26]/10 text-[#2D2A26]">
-                          {t.abbreviation}
+                          {typeItem.abbreviation}
                         </span>
                       )}
                     </div>
-                    {t.description && (
-                      <p className="text-xs text-[#7A7571] truncate">{t.description}</p>
+                    {typeItem.description && (
+                      <p className="text-xs text-[#7A7571] truncate">{typeItem.description}</p>
                     )}
                   </div>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => startEdit(t)}
+                    onClick={() => startEdit(typeItem)}
                     className="rounded-full text-xs"
-                    data-testid={`type-edit-${t.id}`}
+                    data-testid={`type-edit-${typeItem.id}`}
                   >
-                    Edit
+                    {t("btn.edit")}
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleDelete(t.id)}
+                    onClick={() => handleDelete(typeItem.id)}
                     className="rounded-full text-red-500 hover:text-red-600 hover:bg-red-50"
-                    data-testid={`type-delete-${t.id}`}
+                    data-testid={`type-delete-${typeItem.id}`}
                   >
                     <Trash2 className="w-4 h-4" strokeWidth={1.75} />
                   </Button>
@@ -241,7 +243,7 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
             className="rounded-full"
             data-testid="types-close-btn"
           >
-            Done
+            {t("btn.done")}
           </Button>
         </DialogFooter>
       </DialogContent>

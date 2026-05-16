@@ -1,11 +1,11 @@
 // Translation dictionaries for the app.
 //
-// Keep keys short and stable — we use a flat namespace and the English string
-// (where missing) as a graceful fallback inside `useT()`.
+// Every string visible to the user lives here. Keys use a flat namespace and
+// the English string acts as a graceful fallback inside `useT()`.
 
 export const TRANSLATIONS = {
   en: {
-    // Login
+    // ===== Login =====
     "login.welcome": "A private space for your family. Enter your Family Code to unlock.",
     "login.familyCode": "Family Code",
     "login.placeholder": "Enter your code",
@@ -16,19 +16,23 @@ export const TRANSLATIONS = {
     "login.signedOut": "Signed out",
     "login.show": "Show",
     "login.hide": "Hide",
+    "login.unableToUnlock": "Unable to unlock",
 
-    // App
+    // ===== App =====
     "app.tagline": "Built with care",
     "app.appName": "My Family My Life",
+    "app.brandLine1": "My Family",
+    "app.brandLine2": "My Life",
 
-    // Bottom nav
+    // ===== Bottom nav =====
     "nav.home": "Home",
     "nav.timePlan": "Time Plan",
     "nav.homeBudget": "Home Budget",
     "nav.wallBoard": "Wall Board",
     "nav.settings": "Settings",
+    "nav.dashboard": "Dashboard",
 
-    // Hero
+    // ===== Hero =====
     "hero.editTitle": "Edit Hero Banner",
     "hero.editDesc": "Customize the family photo, title, and subtitle.",
     "hero.title": "Title",
@@ -42,7 +46,7 @@ export const TRANSLATIONS = {
     "hero.defaultSubtitle": "Our Family, Our Dreams, Our Happiness",
     "hero.tapToAdd": "Tap edit to add a family photo",
 
-    // Sections
+    // ===== Sections =====
     "section.message": "Message of the Day",
     "section.photo": "Photo of the Day",
     "section.goals": "Our Goals",
@@ -51,8 +55,11 @@ export const TRANSLATIONS = {
     "section.notes": "Quick Notes",
     "section.achievements": "Our Achievements",
 
-    // Common buttons
+    // ===== Common buttons =====
     "btn.save": "Save",
+    "btn.saving": "Saving…",
+    "btn.saveChanges": "Save changes",
+    "btn.create": "Create",
     "btn.cancel": "Cancel",
     "btn.add": "Add",
     "btn.edit": "Edit",
@@ -61,6 +68,7 @@ export const TRANSLATIONS = {
     "btn.restore": "Restore",
     "btn.history": "History",
     "btn.close": "Close",
+    "btn.done": "Done",
     "btn.complete": "Complete",
     "btn.completed": "Completed",
     "btn.syncNow": "Sync now",
@@ -69,7 +77,7 @@ export const TRANSLATIONS = {
     "btn.signOut": "Sign out of this device",
     "btn.signOutConfirm": "Tap again to confirm sign out",
 
-    // Empty states
+    // ===== Empty states =====
     "empty.message": "Write the first message for your family.",
     "empty.message.add": "Add message",
     "empty.photos": "No photos yet. Tap + to upload your first.",
@@ -84,11 +92,13 @@ export const TRANSLATIONS = {
     "empty.achievements": "Celebrate milestones — add an achievement.",
     "empty.achievements.add": "Add achievement",
 
-    // Sync state
+    // ===== Sync state =====
     "sync.online": "Online",
     "sync.offline": "Offline",
-    "sync.syncing": "Syncing",
-    "sync.synced": "Up to date",
+    "sync.syncing": "Syncing…",
+    "sync.synced": "Synced",
+    "sync.sync": "Sync",
+    "sync.upToDateShort": "Up to date",
     "sync.pending": "{n} pending",
     "sync.allSynced": "All changes synced",
     "sync.pendingFooter": "{n} change(s) waiting to sync",
@@ -98,8 +108,13 @@ export const TRANSLATIONS = {
     "sync.pending.toast": "{n} change(s) still pending",
     "sync.failed": "Failed to save",
     "sync.saved": "Saved",
+    "sync.backOnline": "Back online — syncing",
+    "sync.youAreOffline": "You're offline. Showing cached data.",
+    "sync.cantSyncOffline": "You're offline — can't sync",
+    "sync.allSyncedToast": "All synced",
+    "sync.failedDetail": "Sync failed ({detail}) → {url}",
 
-    // Editors
+    // ===== Editors =====
     "editor.message.title": "Message of the Day",
     "editor.message.desc": "A short inspirational message for your family.",
     "editor.message.text": "Message",
@@ -123,7 +138,7 @@ export const TRANSLATIONS = {
     "editor.ach.changePhoto": "Change photo",
     "editor.ach.removePhoto": "Remove photo",
 
-    // Goal history
+    // ===== Goal history =====
     "history.title": "Goal History",
     "history.descList": "Tap a goal to see its full history.",
     "history.descDetail": "Full history for this goal.",
@@ -139,8 +154,9 @@ export const TRANSLATIONS = {
     "history.archivedBadge": "ARCHIVED",
     "history.restored": "Goal restored",
     "history.deleted": "Deleted permanently",
+    "history.deletePermanently": "Delete permanently",
 
-    // Settings dialog
+    // ===== Settings dialog =====
     "settings.title": "Settings",
     "settings.desc": "Manage this device's data and session.",
     "settings.language": "Language",
@@ -151,6 +167,117 @@ export const TRANSLATIONS = {
     "settings.toast.cantReadPhoto": "Could not read photo",
     "settings.toast.saveFailed": "Save failed",
     "settings.toast.comingSoon": "{label} — Coming Soon",
+
+    // ===== TimePlan =====
+    "tp.title": "Time Plan",
+    "tp.today": "Today",
+    "tp.newEvent": "New Event",
+    "tp.eventTypes": "Event Types",
+    "tp.mergeCalendars": "Merge Calendars",
+    "tp.prevMonth": "Previous month",
+    "tp.nextMonth": "Next month",
+    "tp.loadingEvents": "Loading events…",
+    "tp.quickFill": "Quick Fill",
+    "tp.turnOffQuickFill": "Turn off Quick Fill",
+    "tp.createEventTypes": "Create event types",
+    "tp.toEnableQuickFill": " in Settings to enable Quick Fill",
+    "tp.tapDayPrefix": "Tap a day to add/remove for ",
+    "tp.tapDaySuffix": ". Tap the same day again to undo.",
+    "tp.morePlus": "+{n} more",
+    "tp.eventDeleted": "Event deleted",
+    "tp.failedToDelete": "Failed to delete",
+    "tp.addedShort": "Added {label}",
+    "tp.removedShort": "Removed {label}",
+    "tp.saveFailedShort": "Save failed ({detail}). Check API connection.",
+
+    // ===== Day detail popover =====
+    "day.eventCount.one": "{n} event",
+    "day.eventCount.other": "{n} events",
+    "day.noEvents": "No events yet on this day.",
+    "day.allDay": "All day",
+    "day.addEvent": "Add event",
+
+    // ===== Event dialog =====
+    "evDlg.editTitle": "Edit Event",
+    "evDlg.newTitle": "New Event",
+    "evDlg.editDesc": "Update the details for this event.",
+    "evDlg.newDesc": "Add a new event to the family calendar.",
+    "evDlg.title": "Title",
+    "evDlg.titlePlaceholder": "e.g. Morning shift",
+    "evDlg.for": "For",
+    "evDlg.category": "Category",
+    "evDlg.categoryNone": "None",
+    "evDlg.categoryNoCat": "No category",
+    "evDlg.startTime": "Start time",
+    "evDlg.endTime": "End time",
+    "evDlg.color": "Color",
+    "evDlg.notes": "Notes",
+    "evDlg.notesPlaceholder": "Optional details…",
+    "evDlg.createBtn": "Create event",
+    "evDlg.titleDateRequired": "Title and date are required",
+    "evDlg.eventCreated": "Event created",
+    "evDlg.eventUpdated": "Event updated",
+    "evDlg.saveFailed": "Failed to save event ({detail})",
+
+    // ===== Event types dialog =====
+    "tDlg.title": "Event Categories",
+    "tDlg.desc": "Create unlimited custom categories with your own colors.",
+    "tDlg.categoryName": "Category name",
+    "tDlg.categoryNamePlaceholder": "e.g. Morning Shift",
+    "tDlg.abbreviation": "Abbreviation",
+    "tDlg.abbreviationPlaceholder": "e.g. KVD, MJ, U",
+    "tDlg.abbreviationHelp": "Short code shown inside event bars in the monthly view.",
+    "tDlg.descriptionPlaceholder": "Optional description",
+    "tDlg.empty": "No categories yet. Add one above.",
+    "tDlg.nameRequired": "Name is required",
+    "tDlg.added": "Category added",
+    "tDlg.updated": "Category updated",
+    "tDlg.deleted": "Deleted",
+    "tDlg.saveFailed": "Failed to save",
+    "tDlg.deleteFailed": "Failed to delete",
+
+    // ===== Profiles dialog =====
+    "profDlg.profileNames": "Profile Names",
+    "profDlg.weekStartsOn": "Week starts on",
+    "profDlg.profile": "Profile",
+    "profDlg.updated": "Profiles updated",
+    "profDlg.updateFailed": "Failed to update profiles",
+    "profDlg.customizeDesc": "Customize your profile names and calendar preferences.",
+    "weekday.monday": "Monday",
+    "weekday.sunday": "Sunday",
+    "weekday.saturday": "Saturday",
+
+    // ===== Default user names =====
+    "user.wife": "Wife",
+    "user.husband": "Husband",
+
+    // ===== Error boundary =====
+    "err.title": "Something went wrong",
+    "err.desc": "The page hit an unexpected error. Tap reset to clear the local cache and reload.",
+    "err.reset": "Reset & reload",
+
+    // ===== Months (long form) =====
+    "month.1": "January",
+    "month.2": "February",
+    "month.3": "March",
+    "month.4": "April",
+    "month.5": "May",
+    "month.6": "June",
+    "month.7": "July",
+    "month.8": "August",
+    "month.9": "September",
+    "month.10": "October",
+    "month.11": "November",
+    "month.12": "December",
+
+    // ===== Weekdays (short, index 0 = Sunday) =====
+    "day.short.0": "Sun",
+    "day.short.1": "Mon",
+    "day.short.2": "Tue",
+    "day.short.3": "Wed",
+    "day.short.4": "Thu",
+    "day.short.5": "Fri",
+    "day.short.6": "Sat",
   },
 
   ar: {
@@ -164,15 +291,19 @@ export const TRANSLATIONS = {
     "login.signedOut": "تم تسجيل الخروج",
     "login.show": "إظهار",
     "login.hide": "إخفاء",
+    "login.unableToUnlock": "تعذّر فتح التطبيق",
 
     "app.tagline": "صُمم بحب",
     "app.appName": "عائلتي حياتي",
+    "app.brandLine1": "عائلتي",
+    "app.brandLine2": "حياتي",
 
     "nav.home": "الرئيسية",
     "nav.timePlan": "خطة الوقت",
     "nav.homeBudget": "ميزانية المنزل",
     "nav.wallBoard": "لوحة الحائط",
     "nav.settings": "الإعدادات",
+    "nav.dashboard": "الرئيسية",
 
     "hero.editTitle": "تعديل الواجهة",
     "hero.editDesc": "خصّص صورة العائلة والعنوان والعنوان الفرعي.",
@@ -196,6 +327,9 @@ export const TRANSLATIONS = {
     "section.achievements": "إنجازاتنا",
 
     "btn.save": "حفظ",
+    "btn.saving": "جارٍ الحفظ…",
+    "btn.saveChanges": "حفظ التغييرات",
+    "btn.create": "إنشاء",
     "btn.cancel": "إلغاء",
     "btn.add": "إضافة",
     "btn.edit": "تعديل",
@@ -204,6 +338,7 @@ export const TRANSLATIONS = {
     "btn.restore": "استرجاع",
     "btn.history": "السجل",
     "btn.close": "إغلاق",
+    "btn.done": "تم",
     "btn.complete": "إكمال",
     "btn.completed": "مكتمل",
     "btn.syncNow": "مزامنة الآن",
@@ -228,8 +363,10 @@ export const TRANSLATIONS = {
 
     "sync.online": "متصل",
     "sync.offline": "غير متصل",
-    "sync.syncing": "جارٍ المزامنة",
-    "sync.synced": "محدّث",
+    "sync.syncing": "جارٍ المزامنة…",
+    "sync.synced": "تمت المزامنة",
+    "sync.sync": "مزامنة",
+    "sync.upToDateShort": "محدّث",
     "sync.pending": "{n} في الانتظار",
     "sync.allSynced": "جميع التغييرات تمت مزامنتها",
     "sync.pendingFooter": "{n} تغيير في انتظار المزامنة",
@@ -239,6 +376,11 @@ export const TRANSLATIONS = {
     "sync.pending.toast": "{n} تغيير لا يزال في الانتظار",
     "sync.failed": "فشل الحفظ",
     "sync.saved": "تم الحفظ",
+    "sync.backOnline": "عاد الاتصال — جارٍ المزامنة",
+    "sync.youAreOffline": "أنت غير متصل. يتم عرض بيانات مؤقتة.",
+    "sync.cantSyncOffline": "أنت غير متصل — لا يمكن المزامنة",
+    "sync.allSyncedToast": "اكتملت المزامنة",
+    "sync.failedDetail": "فشلت المزامنة ({detail}) → {url}",
 
     "editor.message.title": "رسالة اليوم",
     "editor.message.desc": "رسالة قصيرة مُلهمة لعائلتك.",
@@ -278,6 +420,7 @@ export const TRANSLATIONS = {
     "history.archivedBadge": "مؤرشف",
     "history.restored": "تم استرجاع الهدف",
     "history.deleted": "تم الحذف نهائياً",
+    "history.deletePermanently": "حذف نهائي",
 
     "settings.title": "الإعدادات",
     "settings.desc": "إدارة بيانات هذا الجهاز والجلسة.",
@@ -289,6 +432,108 @@ export const TRANSLATIONS = {
     "settings.toast.cantReadPhoto": "تعذّر قراءة الصورة",
     "settings.toast.saveFailed": "فشل الحفظ",
     "settings.toast.comingSoon": "{label} — قريباً",
+
+    "tp.title": "خطة الوقت",
+    "tp.today": "اليوم",
+    "tp.newEvent": "حدث جديد",
+    "tp.eventTypes": "فئات الأحداث",
+    "tp.mergeCalendars": "دمج التقويمين",
+    "tp.prevMonth": "الشهر السابق",
+    "tp.nextMonth": "الشهر التالي",
+    "tp.loadingEvents": "جارٍ تحميل الأحداث…",
+    "tp.quickFill": "تعبئة سريعة",
+    "tp.turnOffQuickFill": "إيقاف التعبئة السريعة",
+    "tp.createEventTypes": "أنشئ فئات الأحداث",
+    "tp.toEnableQuickFill": " من الإعدادات لتفعيل التعبئة السريعة",
+    "tp.tapDayPrefix": "اضغط على يوم للإضافة/الإزالة لـ ",
+    "tp.tapDaySuffix": ". اضغط على نفس اليوم مرة أخرى للتراجع.",
+    "tp.morePlus": "+{n} المزيد",
+    "tp.eventDeleted": "تم حذف الحدث",
+    "tp.failedToDelete": "فشل الحذف",
+    "tp.addedShort": "تمت إضافة {label}",
+    "tp.removedShort": "تمت إزالة {label}",
+    "tp.saveFailedShort": "فشل الحفظ ({detail}). تحقق من اتصال API.",
+
+    "day.eventCount.one": "{n} حدث",
+    "day.eventCount.other": "{n} أحداث",
+    "day.noEvents": "لا توجد أحداث في هذا اليوم بعد.",
+    "day.allDay": "طوال اليوم",
+    "day.addEvent": "إضافة حدث",
+
+    "evDlg.editTitle": "تعديل الحدث",
+    "evDlg.newTitle": "حدث جديد",
+    "evDlg.editDesc": "حدّث تفاصيل هذا الحدث.",
+    "evDlg.newDesc": "أضف حدثاً جديداً إلى تقويم العائلة.",
+    "evDlg.title": "العنوان",
+    "evDlg.titlePlaceholder": "مثال: ورديّة صباحية",
+    "evDlg.for": "لـ",
+    "evDlg.category": "الفئة",
+    "evDlg.categoryNone": "بدون",
+    "evDlg.categoryNoCat": "بدون فئة",
+    "evDlg.startTime": "وقت البداية",
+    "evDlg.endTime": "وقت النهاية",
+    "evDlg.color": "اللون",
+    "evDlg.notes": "ملاحظات",
+    "evDlg.notesPlaceholder": "تفاصيل اختيارية…",
+    "evDlg.createBtn": "إنشاء الحدث",
+    "evDlg.titleDateRequired": "العنوان والتاريخ مطلوبان",
+    "evDlg.eventCreated": "تم إنشاء الحدث",
+    "evDlg.eventUpdated": "تم تحديث الحدث",
+    "evDlg.saveFailed": "فشل حفظ الحدث ({detail})",
+
+    "tDlg.title": "فئات الأحداث",
+    "tDlg.desc": "أنشئ عدداً غير محدود من الفئات بألوانك الخاصة.",
+    "tDlg.categoryName": "اسم الفئة",
+    "tDlg.categoryNamePlaceholder": "مثال: ورديّة صباحية",
+    "tDlg.abbreviation": "اختصار",
+    "tDlg.abbreviationPlaceholder": "مثال: KVD، MJ، U",
+    "tDlg.abbreviationHelp": "رمز قصير يظهر داخل أشرطة الأحداث في عرض الشهر.",
+    "tDlg.descriptionPlaceholder": "وصف اختياري",
+    "tDlg.empty": "لا توجد فئات بعد. أضف واحدة بالأعلى.",
+    "tDlg.nameRequired": "الاسم مطلوب",
+    "tDlg.added": "تمت إضافة الفئة",
+    "tDlg.updated": "تم تحديث الفئة",
+    "tDlg.deleted": "تم الحذف",
+    "tDlg.saveFailed": "فشل الحفظ",
+    "tDlg.deleteFailed": "فشل الحذف",
+
+    "profDlg.profileNames": "أسماء الملفات الشخصية",
+    "profDlg.weekStartsOn": "بداية الأسبوع",
+    "profDlg.profile": "ملف",
+    "profDlg.updated": "تم تحديث الملفات",
+    "profDlg.updateFailed": "فشل تحديث الملفات",
+    "profDlg.customizeDesc": "خصّص أسماء الملفات وتفضيلات التقويم.",
+    "weekday.monday": "الإثنين",
+    "weekday.sunday": "الأحد",
+    "weekday.saturday": "السبت",
+
+    "user.wife": "الزوجة",
+    "user.husband": "الزوج",
+
+    "err.title": "حدث خطأ ما",
+    "err.desc": "واجهت الصفحة خطأ غير متوقع. اضغط إعادة لمسح الذاكرة المؤقتة وإعادة التحميل.",
+    "err.reset": "إعادة وتحميل",
+
+    "month.1": "يناير",
+    "month.2": "فبراير",
+    "month.3": "مارس",
+    "month.4": "أبريل",
+    "month.5": "مايو",
+    "month.6": "يونيو",
+    "month.7": "يوليو",
+    "month.8": "أغسطس",
+    "month.9": "سبتمبر",
+    "month.10": "أكتوبر",
+    "month.11": "نوفمبر",
+    "month.12": "ديسمبر",
+
+    "day.short.0": "أحد",
+    "day.short.1": "اثن",
+    "day.short.2": "ثلا",
+    "day.short.3": "أرب",
+    "day.short.4": "خمي",
+    "day.short.5": "جمع",
+    "day.short.6": "سبت",
   },
 
   de: {
@@ -302,15 +547,19 @@ export const TRANSLATIONS = {
     "login.signedOut": "Abgemeldet",
     "login.show": "Zeigen",
     "login.hide": "Verbergen",
+    "login.unableToUnlock": "Entsperren nicht möglich",
 
     "app.tagline": "Mit Liebe gebaut",
     "app.appName": "My Family My Life",
+    "app.brandLine1": "My Family",
+    "app.brandLine2": "My Life",
 
     "nav.home": "Start",
     "nav.timePlan": "Zeitplan",
     "nav.homeBudget": "Haushaltsbudget",
     "nav.wallBoard": "Pinnwand",
     "nav.settings": "Einstellungen",
+    "nav.dashboard": "Übersicht",
 
     "hero.editTitle": "Hero-Banner bearbeiten",
     "hero.editDesc": "Passe Familienfoto, Titel und Untertitel an.",
@@ -334,6 +583,9 @@ export const TRANSLATIONS = {
     "section.achievements": "Unsere Erfolge",
 
     "btn.save": "Speichern",
+    "btn.saving": "Wird gespeichert…",
+    "btn.saveChanges": "Änderungen speichern",
+    "btn.create": "Erstellen",
     "btn.cancel": "Abbrechen",
     "btn.add": "Hinzufügen",
     "btn.edit": "Bearbeiten",
@@ -342,6 +594,7 @@ export const TRANSLATIONS = {
     "btn.restore": "Wiederherstellen",
     "btn.history": "Verlauf",
     "btn.close": "Schließen",
+    "btn.done": "Fertig",
     "btn.complete": "Abschließen",
     "btn.completed": "Erledigt",
     "btn.syncNow": "Jetzt synchronisieren",
@@ -366,8 +619,10 @@ export const TRANSLATIONS = {
 
     "sync.online": "Online",
     "sync.offline": "Offline",
-    "sync.syncing": "Synchronisierung",
-    "sync.synced": "Aktuell",
+    "sync.syncing": "Synchronisierung…",
+    "sync.synced": "Synchronisiert",
+    "sync.sync": "Synchronisieren",
+    "sync.upToDateShort": "Aktuell",
     "sync.pending": "{n} ausstehend",
     "sync.allSynced": "Alle Änderungen synchronisiert",
     "sync.pendingFooter": "{n} Änderung(en) warten auf Synchronisierung",
@@ -377,6 +632,11 @@ export const TRANSLATIONS = {
     "sync.pending.toast": "{n} Änderung(en) noch ausstehend",
     "sync.failed": "Speichern fehlgeschlagen",
     "sync.saved": "Gespeichert",
+    "sync.backOnline": "Wieder online — synchronisiere",
+    "sync.youAreOffline": "Du bist offline. Zeige zwischengespeicherte Daten.",
+    "sync.cantSyncOffline": "Du bist offline — kann nicht synchronisieren",
+    "sync.allSyncedToast": "Alles synchronisiert",
+    "sync.failedDetail": "Synchronisierung fehlgeschlagen ({detail}) → {url}",
 
     "editor.message.title": "Botschaft des Tages",
     "editor.message.desc": "Eine kurze inspirierende Botschaft für deine Familie.",
@@ -416,6 +676,7 @@ export const TRANSLATIONS = {
     "history.archivedBadge": "ARCHIVIERT",
     "history.restored": "Ziel wiederhergestellt",
     "history.deleted": "Endgültig gelöscht",
+    "history.deletePermanently": "Endgültig löschen",
 
     "settings.title": "Einstellungen",
     "settings.desc": "Daten und Sitzung dieses Geräts verwalten.",
@@ -427,11 +688,113 @@ export const TRANSLATIONS = {
     "settings.toast.cantReadPhoto": "Foto konnte nicht gelesen werden",
     "settings.toast.saveFailed": "Speichern fehlgeschlagen",
     "settings.toast.comingSoon": "{label} — Demnächst",
+
+    "tp.title": "Zeitplan",
+    "tp.today": "Heute",
+    "tp.newEvent": "Neues Ereignis",
+    "tp.eventTypes": "Ereignistypen",
+    "tp.mergeCalendars": "Kalender zusammenführen",
+    "tp.prevMonth": "Vorheriger Monat",
+    "tp.nextMonth": "Nächster Monat",
+    "tp.loadingEvents": "Ereignisse werden geladen…",
+    "tp.quickFill": "Schnellfüllen",
+    "tp.turnOffQuickFill": "Schnellfüllen ausschalten",
+    "tp.createEventTypes": "Ereignistypen erstellen",
+    "tp.toEnableQuickFill": " in den Einstellungen, um Schnellfüllen zu aktivieren",
+    "tp.tapDayPrefix": "Tippe auf einen Tag zum Hinzufügen/Entfernen für ",
+    "tp.tapDaySuffix": ". Tippe denselben Tag erneut zum Rückgängig machen.",
+    "tp.morePlus": "+{n} weitere",
+    "tp.eventDeleted": "Ereignis gelöscht",
+    "tp.failedToDelete": "Löschen fehlgeschlagen",
+    "tp.addedShort": "{label} hinzugefügt",
+    "tp.removedShort": "{label} entfernt",
+    "tp.saveFailedShort": "Speichern fehlgeschlagen ({detail}). API-Verbindung prüfen.",
+
+    "day.eventCount.one": "{n} Ereignis",
+    "day.eventCount.other": "{n} Ereignisse",
+    "day.noEvents": "Noch keine Ereignisse an diesem Tag.",
+    "day.allDay": "Ganztägig",
+    "day.addEvent": "Ereignis hinzufügen",
+
+    "evDlg.editTitle": "Ereignis bearbeiten",
+    "evDlg.newTitle": "Neues Ereignis",
+    "evDlg.editDesc": "Details für dieses Ereignis aktualisieren.",
+    "evDlg.newDesc": "Ein neues Ereignis zum Familienkalender hinzufügen.",
+    "evDlg.title": "Titel",
+    "evDlg.titlePlaceholder": "z. B. Frühschicht",
+    "evDlg.for": "Für",
+    "evDlg.category": "Kategorie",
+    "evDlg.categoryNone": "Keine",
+    "evDlg.categoryNoCat": "Keine Kategorie",
+    "evDlg.startTime": "Startzeit",
+    "evDlg.endTime": "Endzeit",
+    "evDlg.color": "Farbe",
+    "evDlg.notes": "Notizen",
+    "evDlg.notesPlaceholder": "Optionale Details…",
+    "evDlg.createBtn": "Ereignis erstellen",
+    "evDlg.titleDateRequired": "Titel und Datum sind erforderlich",
+    "evDlg.eventCreated": "Ereignis erstellt",
+    "evDlg.eventUpdated": "Ereignis aktualisiert",
+    "evDlg.saveFailed": "Ereignis konnte nicht gespeichert werden ({detail})",
+
+    "tDlg.title": "Ereigniskategorien",
+    "tDlg.desc": "Erstelle unbegrenzte eigene Kategorien mit deinen Farben.",
+    "tDlg.categoryName": "Kategoriename",
+    "tDlg.categoryNamePlaceholder": "z. B. Frühschicht",
+    "tDlg.abbreviation": "Abkürzung",
+    "tDlg.abbreviationPlaceholder": "z. B. KVD, MJ, U",
+    "tDlg.abbreviationHelp": "Kurzcode, der in Ereignisbalken in der Monatsansicht angezeigt wird.",
+    "tDlg.descriptionPlaceholder": "Optionale Beschreibung",
+    "tDlg.empty": "Noch keine Kategorien. Füge oben eine hinzu.",
+    "tDlg.nameRequired": "Name ist erforderlich",
+    "tDlg.added": "Kategorie hinzugefügt",
+    "tDlg.updated": "Kategorie aktualisiert",
+    "tDlg.deleted": "Gelöscht",
+    "tDlg.saveFailed": "Speichern fehlgeschlagen",
+    "tDlg.deleteFailed": "Löschen fehlgeschlagen",
+
+    "profDlg.profileNames": "Profilnamen",
+    "profDlg.weekStartsOn": "Woche beginnt am",
+    "profDlg.profile": "Profil",
+    "profDlg.updated": "Profile aktualisiert",
+    "profDlg.updateFailed": "Profile konnten nicht aktualisiert werden",
+    "profDlg.customizeDesc": "Passe Profilnamen und Kalendereinstellungen an.",
+    "weekday.monday": "Montag",
+    "weekday.sunday": "Sonntag",
+    "weekday.saturday": "Samstag",
+
+    "user.wife": "Ehefrau",
+    "user.husband": "Ehemann",
+
+    "err.title": "Etwas ist schiefgelaufen",
+    "err.desc": "Die Seite ist auf einen unerwarteten Fehler gestoßen. Tippe auf Zurücksetzen, um den lokalen Cache zu leeren und neu zu laden.",
+    "err.reset": "Zurücksetzen & neu laden",
+
+    "month.1": "Januar",
+    "month.2": "Februar",
+    "month.3": "März",
+    "month.4": "April",
+    "month.5": "Mai",
+    "month.6": "Juni",
+    "month.7": "Juli",
+    "month.8": "August",
+    "month.9": "September",
+    "month.10": "Oktober",
+    "month.11": "November",
+    "month.12": "Dezember",
+
+    "day.short.0": "So",
+    "day.short.1": "Mo",
+    "day.short.2": "Di",
+    "day.short.3": "Mi",
+    "day.short.4": "Do",
+    "day.short.5": "Fr",
+    "day.short.6": "Sa",
   },
 };
 
 export const LANGUAGES = [
-  { code: "en", label: "English", native: "English", flag: "🇬🇧", dir: "ltr" },
-  { code: "ar", label: "Arabic", native: "العربية", flag: "🇸🇦", dir: "rtl" },
-  { code: "de", label: "German", native: "Deutsch", flag: "🇩🇪", dir: "ltr" },
+  { code: "en", label: "English", native: "English", flag: "🇬🇧", dir: "ltr", locale: "en-US" },
+  { code: "ar", label: "Arabic", native: "العربية", flag: "🇸🇦", dir: "rtl", locale: "ar" },
+  { code: "de", label: "German", native: "Deutsch", flag: "🇩🇪", dir: "ltr", locale: "de-DE" },
 ];

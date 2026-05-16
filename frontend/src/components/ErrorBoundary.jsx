@@ -1,4 +1,19 @@
 import React from "react";
+import { TRANSLATIONS } from "@/lib/translations";
+
+// Class boundary can't use hooks. Resolve the active language synchronously
+// from localStorage (the same source the I18nProvider uses).
+function tFromStorage(key) {
+  let lang = "en";
+  try {
+    const v = localStorage.getItem("mfml_lang");
+    if (v && TRANSLATIONS[v]) lang = v;
+  } catch {
+    /* ignore */
+  }
+  const dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
+  return dict[key] || TRANSLATIONS.en[key] || key;
+}
 
 /**
  * Global error boundary — replaces a crashing route with a visible message
@@ -53,10 +68,10 @@ class ErrorBoundary extends React.Component {
         >
           <div style={{ maxWidth: 480, textAlign: "center" }}>
             <h1 style={{ fontFamily: "Outfit, sans-serif", fontSize: 28, marginBottom: 12 }}>
-              Something went wrong
+              {tFromStorage("err.title")}
             </h1>
             <p style={{ color: "#7A7571", marginBottom: 20, lineHeight: 1.5 }}>
-              The page hit an unexpected error. Tap reset to clear the local cache and reload.
+              {tFromStorage("err.desc")}
             </p>
             <pre
               style={{
@@ -87,7 +102,7 @@ class ErrorBoundary extends React.Component {
                 cursor: "pointer",
               }}
             >
-              Reset & reload
+              {tFromStorage("err.reset")}
             </button>
           </div>
         </div>

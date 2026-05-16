@@ -1,11 +1,7 @@
 import { Plus, Pencil, Trash2, Clock, Tag, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getContrastTextColor, MONTH_NAMES } from "@/lib/utils";
-
-const formatDate = (iso) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return `${MONTH_NAMES[m - 1]} ${d}, ${y}`;
-};
+import { getContrastTextColor } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 const DayDetailPopover = ({
   dateIso,
@@ -18,14 +14,35 @@ const DayDetailPopover = ({
   onEditEvent,
   onDeleteEvent,
 }) => {
+  const { t, locale } = useI18n();
   const getUser = (uid) => users.find((u) => u.id === uid);
-  const getType = (tid) => eventTypes.find((t) => t.id === tid);
+  const getType = (tid) => eventTypes.find((tp) => tp.id === tid);
+
+  // Localized "Month D, YYYY" — falls back gracefully on unknown locales.
+  const formatDate = (iso) => {
+    try {
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString(locale || "en-US", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  const wifeName = (getUser("wife") || {}).name || t("user.wife");
+  const husbandName = (getUser("husband") || {}).name || t("user.husband");
+
+  const eventCountLabel =
+    events.length === 1 ? t("day.eventCount.one", { n: 1 }) : t("day.eventCount.other", { n: events.length });
 
   return (
     <div className="flex flex-col" data-testid={`day-popover-${dateIso}`}>
       <div className="px-5 pt-5 pb-3 border-b border-[#E5E2DC]">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#7A7571]">
-          {events.length} event{events.length !== 1 ? "s" : ""}
+          {eventCountLabel}
         </p>
         <h3 className="font-heading text-xl font-medium text-[#2D2A26] mt-0.5">
           {formatDate(dateIso)}
@@ -35,13 +52,13 @@ const DayDetailPopover = ({
       <div className="max-h-72 overflow-y-auto px-3 py-2">
         {events.length === 0 ? (
           <p className="text-sm text-[#7A7571] text-center py-6">
-            No events yet on this day.
+            {t("day.noEvents")}
           </p>
         ) : (
           <ul className="space-y-2">
             {events.map((ev) => {
               const u = getUser(ev.user_id);
-              const t = getType(ev.type_id);
+              const tp = getType(ev.type_id);
               const textColor = getContrastTextColor(ev.color);
               return (
                 <li
@@ -54,7 +71,7 @@ const DayDetailPopover = ({
                       className="mt-1 inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide"
                       style={{ backgroundColor: ev.color, color: textColor }}
                     >
-                      {ev.start_time || "All day"}
+                      {ev.start_time || t("day.allDay")}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm text-[#2D2A26] truncate">{ev.title}</p>
@@ -65,10 +82,10 @@ const DayDetailPopover = ({
                             {ev.start_time}–{ev.end_time}
                           </span>
                         )}
-                        {t && (
+                        {tp && (
                           <span className="inline-flex items-center gap-1">
                             <Tag className="w-3 h-3" strokeWidth={2} />
-                            {t.name}
+                            {tp.name}
                           </span>
                         )}
                         {u && (
@@ -95,6 +112,7 @@ const DayDetailPopover = ({
                         className="w-7 h-7 rounded-full"
                         onClick={() => onEditEvent(ev)}
                         data-testid={`edit-event-${ev.id}`}
+                        aria-label={t("btn.edit")}
                       >
                         <Pencil className="w-3.5 h-3.5" strokeWidth={1.75} />
                       </Button>
@@ -104,6 +122,7 @@ const DayDetailPopover = ({
                         className="w-7 h-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50"
                         onClick={() => onDeleteEvent(ev.id)}
                         data-testid={`delete-event-${ev.id}`}
+                        aria-label={t("btn.delete")}
                       >
                         <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
                       </Button>
@@ -125,7 +144,7 @@ const DayDetailPopover = ({
               className="flex-1 rounded-full text-xs bg-white border border-[#F472B6] text-[#F472B6] hover:bg-[#F472B6]/10"
               data-testid="add-wife-event-btn"
             >
-              <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> Wife
+              <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {wifeName}
             </Button>
             <Button
               size="sm"
@@ -133,7 +152,7 @@ const DayDetailPopover = ({
               className="flex-1 rounded-full text-xs bg-white border border-[#60A5FA] text-[#60A5FA] hover:bg-[#60A5FA]/10"
               data-testid="add-husband-event-btn"
             >
-              <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> Husband
+              <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {husbandName}
             </Button>
           </>
         ) : (
@@ -143,7 +162,7 @@ const DayDetailPopover = ({
             className="flex-1 rounded-full text-xs bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
             data-testid="add-event-from-day-btn"
           >
-            <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> Add event
+            <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {t("day.addEvent")}
           </Button>
         )}
       </div>

@@ -57,7 +57,10 @@ export const I18nProvider = ({ children }) => {
   );
 
   const value = useMemo(
-    () => ({ lang, setLang, t, languages: LANGUAGES, dir: (LANGUAGES.find((l) => l.code === lang) || LANGUAGES[0]).dir }),
+    () => {
+      const cfg = LANGUAGES.find((l) => l.code === lang) || LANGUAGES[0];
+      return { lang, setLang, t, languages: LANGUAGES, dir: cfg.dir, locale: cfg.locale };
+    },
     [lang, setLang, t]
   );
 

@@ -15,9 +15,11 @@ import { LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { updateUser } from "@/lib/api";
 import { logout as authLogout } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
 
 const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWeekStartChange }) => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [names, setNames] = useState({});
   const [saving, setSaving] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -38,7 +40,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
     }
     authLogout();
     onOpenChange(false);
-    toast.success("Signed out");
+    toast.success(t("login.signedOut"));
     navigate("/login", { replace: true });
   };
 
@@ -54,11 +56,11 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
           return null;
         })
       );
-      toast.success("Profiles updated");
+      toast.success(t("profDlg.updated"));
       onChanged && onChanged();
       onOpenChange(false);
     } catch {
-      toast.error("Failed to update profiles");
+      toast.error(t("profDlg.updateFailed"));
     } finally {
       setSaving(false);
     }
@@ -72,10 +74,10 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
       >
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle className="font-heading text-2xl font-medium tracking-tight text-[#2D2A26]">
-            Settings
+            {t("settings.title")}
           </DialogTitle>
           <DialogDescription className="text-sm text-[#7A7571]">
-            Customize your profile names and calendar preferences.
+            {t("profDlg.customizeDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -83,7 +85,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
           {/* Profile names */}
           <div className="space-y-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7A7571]">
-              Profile Names
+              {t("profDlg.profileNames")}
             </p>
             {users.map((u) => (
               <div key={u.id} className="space-y-1.5">
@@ -95,7 +97,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
                     className="w-2.5 h-2.5 rounded-full"
                     style={{ backgroundColor: u.color }}
                   />
-                  Profile {u.id === "wife" ? "1" : "2"}
+                  {t("profDlg.profile")} {u.id === "wife" ? "1" : "2"}
                 </Label>
                 <Input
                   id={`profile-${u.id}`}
@@ -114,13 +116,13 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
           {typeof onWeekStartChange === "function" && (
             <div className="space-y-2 pt-2 border-t border-[#E5E2DC]">
               <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7A7571] pt-3">
-                Week starts on
+                {t("profDlg.weekStartsOn")}
               </p>
               <div className="inline-flex w-full bg-[#F3F0EA] p-1 rounded-full">
                 {[
-                  { value: 1, label: "Monday" },
-                  { value: 0, label: "Sunday" },
-                  { value: 6, label: "Saturday" },
+                  { value: 1, labelKey: "weekday.monday" },
+                  { value: 0, labelKey: "weekday.sunday" },
+                  { value: 6, labelKey: "weekday.saturday" },
                 ].map((opt) => {
                   const active = weekStart === opt.value;
                   return (
@@ -133,7 +135,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
                       }`}
                       data-testid={`week-start-${opt.value}`}
                     >
-                      {opt.label}
+                      {t(opt.labelKey)}
                     </button>
                   );
                 })}
@@ -155,7 +157,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
               data-testid="logout-btn"
             >
               <LogOut className="w-3.5 h-3.5" strokeWidth={2} />
-              {confirmLogout ? "Tap again to confirm sign out" : "Sign out of this device"}
+              {confirmLogout ? t("btn.signOutConfirm") : t("btn.signOut")}
             </button>
           </div>
         </div>
@@ -168,7 +170,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
             className="rounded-full"
             data-testid="profiles-cancel-btn"
           >
-            Cancel
+            {t("btn.cancel")}
           </Button>
           <Button
             type="button"
@@ -177,7 +179,7 @@ const ProfilesDialog = ({ open, onOpenChange, users, onChanged, weekStart, onWee
             className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
             data-testid="profiles-save-btn"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("btn.saving") : t("btn.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
