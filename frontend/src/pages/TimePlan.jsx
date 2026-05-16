@@ -351,12 +351,12 @@ const TimePlan = () => {
               >
                 <PopoverTrigger asChild>
                   <div
-                    className={`relative h-24 sm:h-32 md:h-36 bg-white cursor-pointer day-cell-transition hover:bg-[#FBFBF9] rounded-md overflow-hidden ${
-                      dimmed ? "opacity-40 border border-[#E5E2DC]" : ""
+                    className={`relative h-24 sm:h-32 md:h-36 bg-white cursor-pointer day-cell-transition hover:bg-[#FBFBF9] rounded-md ${
+                      dimmed ? "opacity-40" : ""
                     }`}
                     style={
                       cell.inMonth && !merged
-                        ? { border: `1.5px solid ${activeUserColor}` }
+                        ? { border: `1px solid ${activeUserColor}` }
                         : undefined
                     }
                     data-testid={`day-cell-${cell.iso}`}
@@ -364,28 +364,28 @@ const TimePlan = () => {
                     {/* Merged: split colored borders sitting at the cell edge */}
                     {merged && cell.inMonth && (
                       <div className="absolute inset-0 pointer-events-none">
-                        <div className="absolute inset-x-0 top-0 h-1/2 border-t-[1.5px] border-l-[1.5px] border-r-[1.5px] border-[#F472B6] rounded-t-md" />
-                        <div className="absolute inset-x-0 bottom-0 h-1/2 border-b-[1.5px] border-l-[1.5px] border-r-[1.5px] border-[#60A5FA] rounded-b-md" />
+                        <div className="absolute inset-x-0 top-0 h-1/2 border-t border-l border-r border-[#F472B6] rounded-t-md" />
+                        <div className="absolute inset-x-0 bottom-0 h-1/2 border-b border-l border-r border-[#60A5FA] rounded-b-md" />
                       </div>
                     )}
 
                     {/* Date label */}
                     <span
-                      className={`absolute top-0.5 left-0.5 z-20 inline-flex items-center justify-center text-[10px] sm:text-xs font-bold w-5 h-5 sm:w-[22px] sm:h-[22px] rounded-md ${
+                      className={`absolute top-1 left-1 z-20 inline-flex items-center justify-center text-[11px] sm:text-xs font-bold w-5 h-5 sm:w-[22px] sm:h-[22px] rounded-full ${
                         isToday
                           ? "bg-[#2D2A26] text-white shadow-sm"
-                          : "bg-white/90 text-[#2D2A26]"
+                          : "bg-transparent text-[#2D2A26]"
                       }`}
                     >
                       {cell.day}
                     </span>
 
-                    {/* Events fill nearly entire cell */}
+                    {/* Events stack from top below the date */}
                     {cell.inMonth && (
                       merged ? (
-                        <div className="absolute inset-[3px] flex flex-col gap-[2px]">
+                        <div className="absolute inset-[3px] flex flex-col">
                           {/* Wife half */}
-                          <div className="flex-1 flex flex-col gap-[2px] min-h-0 pt-5 sm:pt-6 px-[2px] pb-[2px]">
+                          <div className="flex-1 flex flex-col gap-[2px] min-h-0 overflow-hidden pt-6 sm:pt-7 px-1 pb-1">
                             {wifeEvents.slice(0, MAX_EVENTS_PER_HALF).map((ev) => (
                               <EventBar
                                 key={ev.id}
@@ -396,13 +396,13 @@ const TimePlan = () => {
                               />
                             ))}
                             {wifeEvents.length > MAX_EVENTS_PER_HALF && (
-                              <span className="text-[10px] font-semibold text-[#7A7571] leading-none text-center">
-                                +{wifeEvents.length - MAX_EVENTS_PER_HALF}
+                              <span className="text-[10px] font-semibold text-[#7A7571] leading-none px-1">
+                                +{wifeEvents.length - MAX_EVENTS_PER_HALF} more
                               </span>
                             )}
                           </div>
                           {/* Husband half */}
-                          <div className="flex-1 flex flex-col gap-[2px] min-h-0 px-[2px] py-[2px]">
+                          <div className="flex-1 flex flex-col gap-[2px] min-h-0 overflow-hidden px-1 py-1">
                             {husbandEvents.slice(0, MAX_EVENTS_PER_HALF).map((ev) => (
                               <EventBar
                                 key={ev.id}
@@ -413,14 +413,14 @@ const TimePlan = () => {
                               />
                             ))}
                             {husbandEvents.length > MAX_EVENTS_PER_HALF && (
-                              <span className="text-[10px] font-semibold text-[#7A7571] leading-none text-center">
-                                +{husbandEvents.length - MAX_EVENTS_PER_HALF}
+                              <span className="text-[10px] font-semibold text-[#7A7571] leading-none px-1">
+                                +{husbandEvents.length - MAX_EVENTS_PER_HALF} more
                               </span>
                             )}
                           </div>
                         </div>
                       ) : (
-                        <div className="absolute inset-[3px] flex flex-col gap-[2px] pt-5 sm:pt-6 px-[2px] pb-[2px]">
+                        <div className="absolute inset-[3px] flex flex-col gap-[2px] pt-6 sm:pt-7 px-1 pb-1 overflow-hidden">
                           {dayEvents.slice(0, MAX_EVENTS_SINGLE).map((ev) => (
                             <EventBar
                               key={ev.id}
@@ -431,7 +431,7 @@ const TimePlan = () => {
                             />
                           ))}
                           {dayEvents.length > MAX_EVENTS_SINGLE && (
-                            <span className="text-[10px] font-semibold text-[#7A7571] leading-none text-center">
+                            <span className="text-[10px] font-semibold text-[#7A7571] leading-none px-1">
                               +{dayEvents.length - MAX_EVENTS_SINGLE} more
                             </span>
                           )}
