@@ -43,7 +43,7 @@ services:
     name: my-family-my-life-web
     runtime: static
     rootDir: frontend
-    buildCommand: yarn install --frozen-lockfile && yarn build
+    buildCommand: npm install --legacy-peer-deps && npm run build
     staticPublishPath: ./build
     autoDeploy: true
     pullRequestPreviewsEnabled: false
