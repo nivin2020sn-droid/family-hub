@@ -36,6 +36,7 @@
 - PWA: manifest.json, service-worker.js, register-on-load
 - Offline cache fallback in API client (localStorage)
 - Online/offline toast indicator
+- **Feb 2026 (latest)**: Replaced app branding — new "My Family My Life" illustrated logo applied to favicon.ico, logo192/512/1024.png, apple-touch-icon.png, og-image.png, manifest icons (with maskable purpose), and Dashboard header (replaces previous gradient "M" tile). Added OG/Twitter meta tags.
 
 ## Test Coverage
 - Backend: 18/18 pytest cases pass (CRUD + filtering + 404s + PWA assets)

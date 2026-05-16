@@ -44,9 +44,12 @@ const Dashboard = () => {
           className="flex items-center justify-between mb-8 sm:mb-12"
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#F472B6] to-[#60A5FA] flex items-center justify-center shadow-md">
-              <span className="text-white font-heading font-bold text-lg">M</span>
-            </div>
+            <img
+              src="/logo192.png"
+              alt="My Family My Life"
+              className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover shadow-md ring-1 ring-[#E5E2DC]"
+              data-testid="app-logo"
+            />
             <div>
               <p className="font-heading text-base font-semibold text-[#2D2A26] leading-none">My Family My Life</p>
               <p className="text-xs text-[#7A7571] mt-1 tracking-wide">Family Hub</p>
