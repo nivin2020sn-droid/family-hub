@@ -9,6 +9,8 @@ import {
   WifiOff,
   Layers,
   UserCog,
+  Zap,
+  X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -18,9 +20,10 @@ import {
   getUsers,
   getEvents,
   getEventTypes,
+  createEvent,
   deleteEvent,
 } from "@/lib/api";
-import { buildMonthMatrix, DAY_NAMES, MONTH_NAMES, todayIso } from "@/lib/utils";
+import { buildMonthMatrix, DAY_NAMES, MONTH_NAMES, todayIso, getContrastTextColor } from "@/lib/utils";
 import EventBar from "@/components/EventBar";
 import EventDialog from "@/components/EventDialog";
 import EventTypesDialog from "@/components/EventTypesDialog";
@@ -61,6 +64,9 @@ const TimePlan = () => {
   const [typesDialogOpen, setTypesDialogOpen] = useState(false);
   const [profilesDialogOpen, setProfilesDialogOpen] = useState(false);
   const [openDayIso, setOpenDayIso] = useState(null);
+
+  // Quick Fill Mode — when set, tapping a day adds/removes this event type
+  const [quickFillTypeId, setQuickFillTypeId] = useState(null);
 
   const [online, setOnline] = useState(navigator.onLine);
 
@@ -198,6 +204,37 @@ const TimePlan = () => {
     return merged ? all : all.filter((e) => e.user_id === activeUserId);
   };
 
+  // Quick Fill: add (or remove if duplicate) the selected event type on a day
+  // for the currently active user. Always targets activeUserId — never both.
+  const handleQuickFill = async (dateIso) => {
+    if (!quickFillTypeId) return false;
+    const t = typesMap.get(quickFillTypeId);
+    if (!t) return false;
+    const existing = (eventsByDate.get(dateIso) || []).find(
+      (e) => e.user_id === activeUserId && e.type_id === quickFillTypeId
+    );
+    try {
+      if (existing) {
+        await deleteEvent(existing.id);
+        toast.message(`Removed ${t.abbreviation || t.name}`);
+      } else {
+        await createEvent({
+          title: t.name,
+          user_id: activeUserId,
+          type_id: quickFillTypeId,
+          color: t.color,
+          date: dateIso,
+        });
+        toast.success(`Added ${t.abbreviation || t.name}`);
+      }
+      loadEvents();
+      return true;
+    } catch {
+      toast.error("Quick fill failed");
+      return false;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#FAF9F6]">
       <div className="max-w-7xl mx-auto px-3 sm:px-8 md:px-10 py-4 sm:py-6 md:py-10">
@@ -253,9 +290,10 @@ const TimePlan = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
-            {/* User Switcher */}
+            {/* User Switcher — always enabled. In merge mode it picks the
+                ACTIVE target for Quick Fill / New Event. */}
             <div
-              className={`flex-1 md:flex-none inline-flex items-center gap-1 bg-[#F3F0EA] p-1 sm:p-1.5 rounded-full ${merged ? "opacity-50 pointer-events-none" : ""}`}
+              className="flex-1 md:flex-none inline-flex items-center gap-1 bg-[#F3F0EA] p-1 sm:p-1.5 rounded-full"
               data-testid="user-switcher"
             >
               {users.map((u) => {
@@ -387,7 +425,14 @@ const TimePlan = () => {
               <Popover
                 key={idx}
                 open={openDayIso === cell.iso}
-                onOpenChange={(o) => setOpenDayIso(o ? cell.iso : null)}
+                onOpenChange={(o) => {
+                  if (o && quickFillTypeId && cell.inMonth) {
+                    // Quick Fill takes priority — do not open the popover
+                    handleQuickFill(cell.iso);
+                    return;
+                  }
+                  setOpenDayIso(o ? cell.iso : null);
+                }}
               >
                 <PopoverTrigger asChild>
                   <div
@@ -500,7 +545,91 @@ const TimePlan = () => {
         {loading && (
           <p className="text-xs text-[#7A7571] mt-4">Loading events…</p>
         )}
+
+        {/* Spacer so calendar isn't covered by the fixed quick-fill bar */}
+        <div aria-hidden className="h-20 sm:h-24" />
       </div>
+
+      {/* Quick Fill bar — fixed bottom strip */}
+      {eventTypes.length > 0 && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E5E2DC] shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.08)]"
+          data-testid="quick-fill-bar"
+        >
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5">
+            <div className="flex items-center gap-2">
+              {/* Status pill */}
+              <div className="flex-shrink-0 flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider">
+                <Zap
+                  className={`w-3.5 h-3.5 ${quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}`}
+                  strokeWidth={2.25}
+                />
+                <span className={quickFillTypeId ? "text-[#2D2A26]" : "text-[#7A7571]"}>
+                  Quick Fill
+                </span>
+              </div>
+
+              {/* Scrollable list of type buttons */}
+              <div
+                className="flex-1 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar"
+                style={{ scrollbarWidth: "none" }}
+              >
+                {eventTypes.map((t) => {
+                  const isActive = t.id === quickFillTypeId;
+                  const textColor = getContrastTextColor(t.color);
+                  const label = (t.abbreviation && t.abbreviation.trim())
+                    ? t.abbreviation
+                    : (t.name || "").slice(0, 4).toUpperCase();
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() =>
+                        setQuickFillTypeId(isActive ? null : t.id)
+                      }
+                      className={`flex-shrink-0 h-9 min-w-[44px] px-2.5 rounded-lg text-[11px] sm:text-xs font-extrabold uppercase tracking-wide transition-all active:scale-95 ${
+                        isActive
+                          ? "ring-2 ring-offset-2 ring-[#2D2A26] ring-offset-white scale-105"
+                          : "opacity-90 hover:opacity-100"
+                      }`}
+                      style={{ backgroundColor: t.color, color: textColor }}
+                      title={t.name}
+                      data-testid={`quick-fill-type-${t.id}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Active indicator + clear button */}
+              {quickFillTypeId && (
+                <button
+                  onClick={() => setQuickFillTypeId(null)}
+                  className="flex-shrink-0 h-9 w-9 rounded-lg bg-[#F3F0EA] flex items-center justify-center active:scale-95"
+                  aria-label="Turn off Quick Fill"
+                  data-testid="quick-fill-off-btn"
+                >
+                  <X className="w-4 h-4 text-[#2D2A26]" strokeWidth={2.25} />
+                </button>
+              )}
+            </div>
+
+            {/* Target indicator — visible when active */}
+            {quickFillTypeId && (
+              <p
+                className="mt-1.5 text-[10px] sm:text-[11px] text-[#7A7571] leading-none"
+                data-testid="quick-fill-target"
+              >
+                Tap a day to add/remove for{" "}
+                <span className="font-semibold text-[#2D2A26]">
+                  {(users.find((u) => u.id === activeUserId) || {}).name || activeUserId}
+                </span>
+                . Tap the same day again to undo.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Dialogs */}
       <EventDialog

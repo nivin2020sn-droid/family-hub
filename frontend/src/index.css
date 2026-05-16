@@ -71,6 +71,15 @@ code {
     background: #C9C5BD;
 }
 
+/* Hide scrollbar utility — used by the Quick Fill bar */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 /* Smooth transitions for layout */
 .day-cell-transition {
     transition: background-color 0.2s ease, box-shadow 0.2s ease;
