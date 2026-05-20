@@ -67,5 +67,24 @@
 - **P3** iCal export / Google Calendar sync
 - **P3** Native iOS/Android wrappers (Capacitor)
 
+## Implemented (Feb 2026 — Where is my family?)
+- New Wall Board section **"Where is my family?"** mounted right under the Hero banner.
+- **Backend** — added 3 endpoints + 2 MongoDB collections (`family_members`, `location_points`):
+  - `POST /api/location/update` — receives a location ping. Validates `familyCode` against the `FAMILY_CODE` env var (401 on mismatch). Auto-creates the member on first ping (no manual setup), upserts last-known position, and appends an immutable point to history.
+  - `GET /api/location/latest` — returns the latest known position for every tracked member.
+  - `GET /api/location/history?memberId=&date=YYYY-MM-DD` — returns the day's polyline. Falls back to last 24h when no date is given; rejects malformed dates with 400.
+  - Stored fields: latitude, longitude, accuracy, speed, battery, timestamp, networkStatus, connectionType, trackingStatus, deviceId, profileImage.
+- **Frontend** — `components/FamilyMapCard.jsx`:
+  - Leaflet + OpenStreetMap tile layer (no API key). Leaflet CSS imported in `index.css`.
+  - Custom DivIcon avatar markers (per-member stable color, profile image or initials, online/offline dot).
+  - Auto-fit bounds when members move; manual refresh button; 30s polling + online-event refresh.
+  - Compact MemberCard list below the map showing time-ago, battery (low-battery red icon), network state, connection type. Tap avatar to center on map; tap History to open the dialog.
+  - **History dialog** with member + date pickers, draws a polyline with start (A green) and end (B red) markers, plus clickable circle markers per point.
+  - **Read-only**: the web app never broadcasts its own location; a future standalone Android Sender app will push to `POST /api/location/update`.
+- **Auth**: shared Family Code is used to authorize POSTs (per user choice). No per-device token yet.
+- **i18n**: 36 new `fmap.*` keys × 3 locales (EN/AR/DE) covering every label, unit, time-ago bucket, and history dialog string.
+- **Empty state**: map renders with neutral fallback view + clear message "No one is sharing their location yet" until the first ping arrives.
+- **Tests**: backend smoke-tested via curl (POST valid/invalid code, GET latest, GET history with date / bad date / cleanup); frontend smoke-tested via screenshot showing the empty-state card with rendered OSM tiles.
+
 ## Next Tasks
-- After user review: choose between deepening Time Plan (recurring, drag-drop) or starting Home Budget MVP.
+- After user review: choose between deepening Time Plan (recurring, drag-drop), starting Home Budget MVP, or building the standalone Android Sender app to start feeding real location data into the new endpoints.
