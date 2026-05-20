@@ -43,6 +43,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { logout as authLogout } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import FamilyMapCard from "@/components/FamilyMapCard";
 import {
   wallSettings,
   wallPhotos,
@@ -1270,6 +1271,9 @@ const WallBoard = () => {
         </motion.div>
 
         <div className="mt-5 grid grid-cols-1 gap-3.5">
+          {/* Where is my family? (live map) — placed right under the hero. */}
+          <FamilyMapCard />
+
           {/* Message of the Day */}
           <SectionCard
             icon={Heart}

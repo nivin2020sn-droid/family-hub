@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 ROOT_DIR = Path(__file__).parent
@@ -230,6 +230,55 @@ class WallFamilyEventUpdate(BaseModel):
     title: Optional[str] = None
     date: Optional[str] = None
     notes: Optional[str] = None
+
+
+# ============= Family Location Models =============
+
+class LocationUpdate(BaseModel):
+    """Payload sent by the Android sender app on every location ping."""
+    model_config = ConfigDict(extra="ignore")
+    familyCode: str
+    memberId: str
+    memberName: Optional[str] = None
+    profileImage: Optional[str] = None
+    deviceId: Optional[str] = None
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+    speed: Optional[float] = None
+    battery: Optional[float] = None
+    timestamp: Optional[str] = None  # ISO string; server falls back to now()
+    trackingStatus: Optional[str] = None  # e.g. "active", "paused"
+    networkStatus: Optional[str] = None   # "online" | "offline"
+    connectionType: Optional[str] = None  # "wifi" | "mobile" | "unknown"
+
+
+class FamilyMemberOut(BaseModel):
+    id: str
+    name: Optional[str] = None
+    profileImage: Optional[str] = None
+    deviceId: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
+    speed: Optional[float] = None
+    battery: Optional[float] = None
+    lastUpdate: Optional[str] = None
+    trackingStatus: Optional[str] = None
+    networkStatus: Optional[str] = None
+    connectionType: Optional[str] = None
+
+
+class LocationPointOut(BaseModel):
+    memberId: str
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+    speed: Optional[float] = None
+    battery: Optional[float] = None
+    timestamp: str
+    networkStatus: Optional[str] = None
+    connectionType: Optional[str] = None
 
 
 # ============= Startup: seed users =============
@@ -671,6 +720,112 @@ async def delete_wall_family_event(ev_id: str):
     if res.deleted_count == 0:
         raise HTTPException(404, "Not found")
     return {"ok": True}
+
+
+# ============= Family Location Routes =============
+
+@api_router.post("/location/update")
+async def location_update(payload: LocationUpdate):
+    """Receive a location ping from any device.
+
+    - Validates the family code against the FAMILY_CODE env var.
+    - Upserts a `family_members` document keyed by `memberId` (creates one
+      automatically on the first valid ping).
+    - Appends an immutable point to `location_points` for the history view.
+    """
+    expected_code = os.environ.get("FAMILY_CODE", "FAMILY2026")
+    if (payload.familyCode or "").strip() != expected_code:
+        raise HTTPException(status_code=401, detail="Invalid family code")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    timestamp = (payload.timestamp or "").strip() or now_iso
+
+    member_update = {
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "accuracy": payload.accuracy,
+        "speed": payload.speed,
+        "battery": payload.battery,
+        "lastUpdate": timestamp,
+        "trackingStatus": payload.trackingStatus,
+        "networkStatus": payload.networkStatus,
+        "connectionType": payload.connectionType,
+        "deviceId": payload.deviceId,
+    }
+    # Only overwrite name / image if the sender provided one — otherwise we
+    # keep whatever was set previously.
+    if payload.memberName:
+        member_update["name"] = payload.memberName
+    if payload.profileImage:
+        member_update["profileImage"] = payload.profileImage
+
+    await db.family_members.update_one(
+        {"id": payload.memberId},
+        {
+            "$set": member_update,
+            "$setOnInsert": {"id": payload.memberId, "createdAt": now_iso},
+        },
+        upsert=True,
+    )
+
+    point = {
+        "memberId": payload.memberId,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "accuracy": payload.accuracy,
+        "speed": payload.speed,
+        "battery": payload.battery,
+        "timestamp": timestamp,
+        "networkStatus": payload.networkStatus,
+        "connectionType": payload.connectionType,
+    }
+    await db.location_points.insert_one(point)
+
+    return {"ok": True}
+
+
+@api_router.get("/location/latest", response_model=List[FamilyMemberOut])
+async def location_latest():
+    """Return the latest known position for every tracked family member."""
+    items = await db.family_members.find({}, {"_id": 0}).sort("name", 1).to_list(200)
+    return items
+
+
+@api_router.get("/location/history", response_model=List[LocationPointOut])
+async def location_history(
+    memberId: str,
+    date: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
+    """Return the movement history for a single member.
+
+    The caller can pass either a `date` (YYYY-MM-DD, UTC) for a 24h window, or
+    an explicit `start` / `end` ISO range. If nothing is passed, returns the
+    last 24h.
+    """
+    if date:
+        try:
+            start_dt = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid date format, expected YYYY-MM-DD") from exc
+        end_dt = start_dt + timedelta(days=1)
+        start_iso, end_iso = start_dt.isoformat(), end_dt.isoformat()
+    elif start and end:
+        start_iso, end_iso = start, end
+    else:
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(days=1)
+        start_iso, end_iso = start_dt.isoformat(), end_dt.isoformat()
+
+    cursor = db.location_points.find(
+        {
+            "memberId": memberId,
+            "timestamp": {"$gte": start_iso, "$lt": end_iso},
+        },
+        {"_id": 0},
+    ).sort("timestamp", 1)
+    return await cursor.to_list(5000)
 
 
 # Include the router in the main app
