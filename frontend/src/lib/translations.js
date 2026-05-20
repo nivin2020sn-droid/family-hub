@@ -317,6 +317,12 @@ export const TRANSLATIONS = {
     "fmap.refresh": "Refresh",
     "fmap.openOnMap": "Center on map",
     "fmap.deviceId": "Device",
+    "fmap.layer.title": "Map style",
+    "fmap.layer.standard": "Standard",
+    "fmap.layer.satellite": "Satellite",
+    "fmap.layer.terrain": "Terrain",
+    "fmap.layer.hybrid": "Hybrid",
+    "fmap.layer.dark": "Dark",
   },
 
   ar: {
@@ -611,6 +617,12 @@ export const TRANSLATIONS = {
     "fmap.refresh": "تحديث",
     "fmap.openOnMap": "توسيط على الخريطة",
     "fmap.deviceId": "الجهاز",
+    "fmap.layer.title": "نمط الخريطة",
+    "fmap.layer.standard": "عادي",
+    "fmap.layer.satellite": "قمر صناعي",
+    "fmap.layer.terrain": "تضاريس",
+    "fmap.layer.hybrid": "هجين",
+    "fmap.layer.dark": "داكن",
   },
 
   de: {
@@ -905,6 +917,12 @@ export const TRANSLATIONS = {
     "fmap.refresh": "Aktualisieren",
     "fmap.openOnMap": "Auf Karte zentrieren",
     "fmap.deviceId": "Gerät",
+    "fmap.layer.title": "Kartenstil",
+    "fmap.layer.standard": "Standard",
+    "fmap.layer.satellite": "Satellit",
+    "fmap.layer.terrain": "Gelände",
+    "fmap.layer.hybrid": "Hybrid",
+    "fmap.layer.dark": "Dunkel",
   },
 };
 
