@@ -323,6 +323,15 @@ export const TRANSLATIONS = {
     "fmap.layer.terrain": "Terrain",
     "fmap.layer.hybrid": "Hybrid",
     "fmap.layer.dark": "Dark",
+    "fmap.fullMap": "Full Map",
+    "fmap.fullMap.title": "Family Map",
+    "fmap.fullMap.empty": "No one is sharing their location yet.",
+    "fmap.address": "Address",
+    "fmap.address.loading": "Finding address…",
+    "fmap.address.unknown": "Address unavailable",
+    "fmap.coords": "Coordinates",
+    "fmap.details": "Details",
+    "fmap.details.title": "Member details",
   },
 
   ar: {
@@ -623,6 +632,15 @@ export const TRANSLATIONS = {
     "fmap.layer.terrain": "تضاريس",
     "fmap.layer.hybrid": "هجين",
     "fmap.layer.dark": "داكن",
+    "fmap.fullMap": "خريطة كاملة",
+    "fmap.fullMap.title": "خريطة العائلة",
+    "fmap.fullMap.empty": "لا أحد يشارك موقعه بعد.",
+    "fmap.address": "العنوان",
+    "fmap.address.loading": "جارٍ البحث عن العنوان…",
+    "fmap.address.unknown": "العنوان غير متاح",
+    "fmap.coords": "الإحداثيات",
+    "fmap.details": "التفاصيل",
+    "fmap.details.title": "تفاصيل الفرد",
   },
 
   de: {
@@ -923,6 +941,15 @@ export const TRANSLATIONS = {
     "fmap.layer.terrain": "Gelände",
     "fmap.layer.hybrid": "Hybrid",
     "fmap.layer.dark": "Dunkel",
+    "fmap.fullMap": "Vollkarte",
+    "fmap.fullMap.title": "Familienkarte",
+    "fmap.fullMap.empty": "Niemand teilt derzeit seinen Standort.",
+    "fmap.address": "Adresse",
+    "fmap.address.loading": "Adresse wird gesucht…",
+    "fmap.address.unknown": "Adresse nicht verfügbar",
+    "fmap.coords": "Koordinaten",
+    "fmap.details": "Details",
+    "fmap.details.title": "Mitgliedsdetails",
   },
 };
 

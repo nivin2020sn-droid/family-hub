@@ -34,6 +34,8 @@ import {
   Satellite,
   Globe2,
   Moon,
+  Maximize2,
+  Navigation,
 } from "lucide-react";
 // lucide-react does not export HistoryIcon under that alias on every version
 // — fall back to History.
@@ -164,6 +166,101 @@ function connectionLabel(value, t) {
   if (value === "mobile") return t("fmap.conn.mobile");
   if (value === "unknown") return t("fmap.conn.unknown");
   return value || t("fmap.conn.unknown");
+}
+
+// ---------- coords + reverse geocoding ----------
+function formatCoords(lat, lng) {
+  if (typeof lat !== "number" || typeof lng !== "number") return "—";
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+// Round to 4 decimals (~11m) — good enough granularity for "what address am I at"
+// without hammering Nominatim every single ping (which only moves a few meters).
+function coordCacheKey(lat, lng) {
+  return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+}
+
+const ADDRESS_CACHE_KEY = "family_geocode_cache";
+function readAddressCache() {
+  try {
+    return JSON.parse(localStorage.getItem(ADDRESS_CACHE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+function writeAddressCache(c) {
+  try {
+    localStorage.setItem(ADDRESS_CACHE_KEY, JSON.stringify(c));
+  } catch {
+    /* quota */
+  }
+}
+
+// Global serial queue + 1.1s pause between calls — respects Nominatim's
+// public usage policy of <= 1 req/sec.
+let nominatimChain = Promise.resolve();
+function reverseGeocode(lat, lng, locale) {
+  const key = coordCacheKey(lat, lng);
+  const cache = readAddressCache();
+  if (cache[key] !== undefined) return Promise.resolve(cache[key]);
+
+  const lang = (locale || "en").split("-")[0];
+  const task = nominatimChain.then(async () => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=16&accept-language=${lang}`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!res.ok) throw new Error("geocode failed");
+      const data = await res.json();
+      const addr = data.address || {};
+      // Build a friendly short address (road + suburb + city + country) and
+      // fall back to display_name.
+      const parts = [];
+      const street = [addr.road || addr.pedestrian || addr.path, addr.house_number]
+        .filter(Boolean)
+        .join(" ");
+      if (street) parts.push(street);
+      const locality =
+        addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city;
+      if (locality) parts.push(locality);
+      if (addr.country) parts.push(addr.country);
+      const display = parts.length > 0 ? parts.join(", ") : data.display_name || "";
+      const next = readAddressCache();
+      next[key] = display;
+      // Cap the cache to ~600 entries to avoid unbounded growth.
+      const ks = Object.keys(next);
+      if (ks.length > 600) {
+        const trimmed = {};
+        ks.slice(-500).forEach((k) => (trimmed[k] = next[k]));
+        writeAddressCache(trimmed);
+      } else {
+        writeAddressCache(next);
+      }
+      await new Promise((r) => setTimeout(r, 1100));
+      return display;
+    } catch {
+      // Soft failure — cache null briefly so we don't spam-retry on every render.
+      await new Promise((r) => setTimeout(r, 1100));
+      return null;
+    }
+  });
+  nominatimChain = task.catch(() => {});
+  return task;
+}
+
+// ---------- local-day → UTC ISO range ----------
+// Returns { start, end } ISO strings representing midnight..midnight in the
+// user's LOCAL timezone, converted to UTC. This is the correct way to ask the
+// backend "all points logged during my local Tuesday" without losing 1-3 hours
+// of data on either end depending on the user's offset.
+function localDayRange(yyyymmdd) {
+  if (!yyyymmdd) return null;
+  const [y, m, d] = yyyymmdd.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+  return { start: start.toISOString(), end: end.toISOString() };
 }
 
 // ---------- map layers ----------
@@ -465,7 +562,13 @@ const FamilyHistoryDialog = ({ open, onOpenChange, members, initialMember }) => 
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const data = await fetchHistory(memberId, date);
+      // Always query by local-day UTC range so points logged near midnight
+      // in the user's local timezone don't get dropped by a naive UTC date
+      // filter on the backend.
+      const range = localDayRange(date);
+      const data = range
+        ? await fetchHistory(memberId, range)
+        : await fetchHistory(memberId, { date });
       if (!cancelled) {
         setPoints(data);
         setSelectedPoint(null);
@@ -644,6 +747,256 @@ const PointPopup = ({ label, point, locale, t }) => (
   </div>
 );
 
+// ---------- Member marker popup (shows address) ----------
+const MemberMarkerPopup = ({ member, address, t }) => {
+  const online = member.networkStatus === "online";
+  return (
+    <div className="text-xs leading-relaxed min-w-[200px] max-w-[240px]">
+      <p className="font-semibold text-[#2D2A26] text-sm">{member.name || member.id}</p>
+      {address === "__loading__" ? (
+        <p className="text-[#7A7571] italic mt-1">{t("fmap.address.loading")}</p>
+      ) : address ? (
+        <p className="text-[#2D2A26] mt-1 leading-snug">{address}</p>
+      ) : address === null ? (
+        <p className="text-[#7A7571] italic mt-1">{t("fmap.address.unknown")}</p>
+      ) : null}
+      <p className="text-[10px] text-[#7A7571] mt-1.5 font-mono tracking-tight">
+        {formatCoords(member.latitude, member.longitude)}
+      </p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 border-t border-[#EFEBE4] pt-1.5">
+        <span className="text-[#7A7571]">{t("fmap.lastUpdate")}</span>
+        <span className="text-[#2D2A26]">{timeAgo(member.lastUpdate, t)}</span>
+        {typeof member.battery === "number" && (
+          <>
+            <span className="text-[#7A7571]">{t("fmap.battery")}</span>
+            <span className="text-[#2D2A26]">
+              {t("fmap.unit.percent", { n: Math.round(member.battery) })}
+            </span>
+          </>
+        )}
+        <span className="text-[#7A7571]">{t("fmap.network")}</span>
+        <span className={online ? "text-emerald-700 font-medium" : "text-[#7A7571]"}>
+          {networkLabel(member.networkStatus, t)}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Member detail dialog (opened from card body) ----------
+const MemberDetailDialog = ({ open, onOpenChange, member, address, t, locale, onHistory }) => {
+  if (!member) return null;
+  const online = member.networkStatus === "online";
+  const battery = typeof member.battery === "number" ? Math.round(member.battery) : null;
+  const accent = colorFromId(member.id);
+
+  const Row = ({ label, value, mono = false }) => (
+    <div className="flex items-start justify-between gap-3 py-2 border-b border-[#EFEBE4] last:border-b-0">
+      <span className="text-[11px] uppercase tracking-wider text-[#7A7571] font-medium">{label}</span>
+      <span
+        className={`text-xs text-[#2D2A26] text-right break-words max-w-[60%] ${mono ? "font-mono tracking-tight" : ""}`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white p-0 overflow-hidden"
+        data-testid="family-member-detail-dialog"
+      >
+        <div className="px-5 pt-5 pb-4 flex items-center gap-3 border-b border-[#EFEBE4]">
+          <div
+            className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-white shadow-sm relative flex-shrink-0"
+            style={{ backgroundColor: accent }}
+          >
+            {member.profileImage ? (
+              <img src={member.profileImage} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center text-white text-base font-bold">
+                {avatarInitials(member.name || member.id)}
+              </span>
+            )}
+            <span
+              className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${
+                online ? "bg-emerald-500" : "bg-[#A09B95]"
+              }`}
+            />
+          </div>
+          <div className="min-w-0">
+            <DialogTitle className="font-heading text-lg font-semibold text-[#2D2A26] truncate">
+              {member.name || member.id}
+            </DialogTitle>
+            <DialogDescription className="text-[11px] text-[#7A7571]">
+              {timeAgo(member.lastUpdate, t)}
+            </DialogDescription>
+          </div>
+        </div>
+
+        <div className="px-5 py-3">
+          <Row
+            label={t("fmap.address")}
+            value={
+              address === "__loading__"
+                ? t("fmap.address.loading")
+                : address || t("fmap.address.unknown")
+            }
+          />
+          <Row
+            label={t("fmap.coords")}
+            value={formatCoords(member.latitude, member.longitude)}
+            mono
+          />
+          <Row
+            label={t("fmap.battery")}
+            value={battery !== null ? t("fmap.unit.percent", { n: battery }) : "—"}
+          />
+          <Row label={t("fmap.network")} value={networkLabel(member.networkStatus, t)} />
+          <Row label={t("fmap.connection")} value={connectionLabel(member.connectionType, t)} />
+          {typeof member.accuracy === "number" && (
+            <Row
+              label={t("fmap.accuracy")}
+              value={t("fmap.unit.meters", { n: Math.round(member.accuracy) })}
+            />
+          )}
+          {member.trackingStatus && (
+            <Row
+              label={t("fmap.tracking")}
+              value={
+                member.trackingStatus === "active"
+                  ? t("fmap.tracking.active")
+                  : member.trackingStatus === "paused"
+                  ? t("fmap.tracking.paused")
+                  : member.trackingStatus
+              }
+            />
+          )}
+        </div>
+
+        <DialogFooter className="px-5 py-3 border-t border-[#EFEBE4] bg-[#FAF9F6] gap-2 sm:gap-2">
+          <Button
+            variant="ghost"
+            className="rounded-full text-[#16A34A] hover:bg-[#E3F1E0] hover:text-[#16A34A]"
+            onClick={() => {
+              onOpenChange(false);
+              onHistory && onHistory(member);
+            }}
+            data-testid="detail-history-btn"
+          >
+            <HistoryLucide className="w-4 h-4 mr-1.5" />
+            {t("btn.history")}
+          </Button>
+          <Button
+            variant="ghost"
+            className="rounded-full"
+            onClick={() => onOpenChange(false)}
+            data-testid="detail-close-btn"
+          >
+            {t("btn.close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ---------- Full-screen map dialog ----------
+const FullMapDialog = ({ open, onOpenChange, members, addresses, layerKey, onLayerChange, t, onMemberClick }) => {
+  const positioned = useMemo(
+    () => members.filter((m) => typeof m.latitude === "number" && typeof m.longitude === "number"),
+    [members]
+  );
+  const bounds = useMemo(
+    () => positioned.map((m) => [m.latitude, m.longitude]),
+    [positioned]
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="p-0 overflow-hidden border-0 bg-white w-screen max-w-[100vw] h-[100dvh] sm:h-[100dvh] sm:max-w-[100vw] rounded-none flex flex-col"
+        data-testid="family-full-map-dialog"
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>{t("fmap.fullMap.title")}</DialogTitle>
+          <DialogDescription>{t("section.familyMap")}</DialogDescription>
+        </DialogHeader>
+
+        {/* Floating header bar */}
+        <div className="absolute top-0 inset-x-0 z-[500] px-3 pt-3 pb-2 flex items-center gap-2 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-2 bg-white/95 backdrop-blur px-3 py-2 rounded-full shadow-[0_4px_16px_-4px_rgba(0,0,0,0.18)]">
+            <MapPin className="w-4 h-4 text-[#2563EB]" strokeWidth={2} />
+            <span className="text-sm font-semibold text-[#2D2A26] tracking-tight">
+              {t("fmap.fullMap.title")}
+            </span>
+          </div>
+          <div className="flex-1" />
+          <div className="pointer-events-auto">
+            <MapTypeSelector value={layerKey} onChange={onLayerChange} t={t} />
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="pointer-events-auto w-10 h-10 rounded-full bg-white/95 backdrop-blur flex items-center justify-center text-[#2D2A26] shadow-[0_4px_16px_-4px_rgba(0,0,0,0.18)] active:scale-95 transition"
+            aria-label={t("btn.close")}
+            data-testid="full-map-close-btn"
+          >
+            <X className="w-4 h-4" strokeWidth={2.2} />
+          </button>
+        </div>
+
+        {/* Map */}
+        <div className="relative flex-1 min-h-0" style={{ isolation: "isolate" }}>
+          <MapContainer
+            center={
+              (positioned[0] && [positioned[0].latitude, positioned[0].longitude]) ||
+              FALLBACK_CENTER
+            }
+            zoom={positioned.length ? LIVE_ZOOM : FALLBACK_ZOOM}
+            scrollWheelZoom
+            style={{ height: "100%", width: "100%" }}
+            data-testid="family-full-map-container"
+          >
+            <MapLayer layerKey={layerKey} />
+            {bounds.length > 0 && (
+              <FitBoundsOnChange
+                bounds={bounds}
+                fallbackCenter={FALLBACK_CENTER}
+                fallbackZoom={FALLBACK_ZOOM}
+              />
+            )}
+            {positioned.map((m) => (
+              <Marker
+                key={m.id}
+                position={[m.latitude, m.longitude]}
+                icon={memberIcon(m)}
+                eventHandlers={{
+                  click: () => onMemberClick && onMemberClick(m),
+                }}
+              >
+                <Popup>
+                  <MemberMarkerPopup member={m} address={addresses[m.id]} t={t} />
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+
+          {positioned.length === 0 && (
+            <div className="absolute inset-0 z-[400] flex items-center justify-center bg-white/70 backdrop-blur-sm">
+              <div className="text-center px-6">
+                <Users className="w-6 h-6 mx-auto text-[#7A7571] mb-2" strokeWidth={1.8} />
+                <p className="text-sm text-[#5C5853]">{t("fmap.fullMap.empty")}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ---------- Main card (default export) ----------
 const FamilyMapCard = () => {
   const { t, locale } = useI18n();
@@ -652,6 +1005,10 @@ const FamilyMapCard = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyMember, setHistoryMember] = useState(null);
   const [centerOn, setCenterOn] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailMember, setDetailMember] = useState(null);
+  const [fullMapOpen, setFullMapOpen] = useState(false);
+  const [addresses, setAddresses] = useState({}); // memberId -> string | null | "__loading__"
   const [layerKey, setLayerKey] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_LAYER;
     const saved = localStorage.getItem("family_map_layer");
@@ -697,6 +1054,43 @@ const FamilyMapCard = () => {
     [members]
   );
 
+  // Prefetch (and cache) addresses for everyone with a position. The
+  // reverseGeocode helper already throttles & caches, so re-renders are cheap.
+  // Effect only re-runs when the set of {id, rounded coords} actually changes.
+  const positionedFingerprint = useMemo(
+    () =>
+      positioned
+        .map((m) => `${m.id}:${coordCacheKey(m.latitude, m.longitude)}`)
+        .join("|"),
+    [positioned]
+  );
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const m of positioned) {
+        if (cancelled) return;
+        const key = coordCacheKey(m.latitude, m.longitude);
+        const cache = readAddressCache();
+        if (cache[key] !== undefined) {
+          setAddresses((prev) =>
+            prev[m.id] === cache[key] ? prev : { ...prev, [m.id]: cache[key] }
+          );
+          continue;
+        }
+        setAddresses((prev) =>
+          prev[m.id] === "__loading__" ? prev : { ...prev, [m.id]: "__loading__" }
+        );
+        const a = await reverseGeocode(m.latitude, m.longitude, locale);
+        if (cancelled) return;
+        setAddresses((prev) => ({ ...prev, [m.id]: a }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positionedFingerprint, locale]);
+
   const bounds = useMemo(
     () =>
       centerOn && typeof centerOn.latitude === "number"
@@ -704,6 +1098,15 @@ const FamilyMapCard = () => {
         : positioned.map((m) => [m.latitude, m.longitude]),
     [positioned, centerOn]
   );
+
+  const openDetail = (mem) => {
+    setDetailMember(mem);
+    setDetailOpen(true);
+  };
+  const openHistoryFor = (mem) => {
+    setHistoryMember(mem);
+    setHistoryOpen(true);
+  };
 
   return (
     <div
@@ -743,8 +1146,12 @@ const FamilyMapCard = () => {
         <MapTypeSelector value={layerKey} onChange={changeLayer} t={t} />
       </div>
 
-      {/* Map */}
-      <div className="mx-4 sm:mx-5 rounded-2xl overflow-hidden border border-white/70 bg-white" style={{ height: 280 }}>
+      {/* Map — isolated stacking context keeps Leaflet's overlay panes
+          (popups, controls, attribution) contained inside the rounded card. */}
+      <div
+        className="mx-4 sm:mx-5 rounded-2xl overflow-hidden border border-white/70 bg-white relative"
+        style={{ height: 340, isolation: "isolate", zIndex: 0 }}
+      >
         <MapContainer
           center={
             (centerOn && [centerOn.latitude, centerOn.longitude]) ||
@@ -771,45 +1178,24 @@ const FamilyMapCard = () => {
               icon={memberIcon(m)}
             >
               <Popup>
-                <div className="text-xs leading-relaxed min-w-[180px]">
-                  <p className="font-semibold text-[#2D2A26] text-sm">{m.name || m.id}</p>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-1.5">
-                    <span className="text-[#7A7571]">{t("fmap.lastUpdate")}</span>
-                    <span className="text-[#2D2A26]">{timeAgo(m.lastUpdate, t)}</span>
-                    {typeof m.battery === "number" && (
-                      <>
-                        <span className="text-[#7A7571]">{t("fmap.battery")}</span>
-                        <span className="text-[#2D2A26]">{t("fmap.unit.percent", { n: Math.round(m.battery) })}</span>
-                      </>
-                    )}
-                    {typeof m.accuracy === "number" && (
-                      <>
-                        <span className="text-[#7A7571]">{t("fmap.accuracy")}</span>
-                        <span className="text-[#2D2A26]">{t("fmap.unit.meters", { n: Math.round(m.accuracy) })}</span>
-                      </>
-                    )}
-                    <span className="text-[#7A7571]">{t("fmap.network")}</span>
-                    <span className="text-[#2D2A26]">{networkLabel(m.networkStatus, t)}</span>
-                    <span className="text-[#7A7571]">{t("fmap.connection")}</span>
-                    <span className="text-[#2D2A26]">{connectionLabel(m.connectionType, t)}</span>
-                    {m.trackingStatus && (
-                      <>
-                        <span className="text-[#7A7571]">{t("fmap.tracking")}</span>
-                        <span className="text-[#2D2A26]">
-                          {m.trackingStatus === "active"
-                            ? t("fmap.tracking.active")
-                            : m.trackingStatus === "paused"
-                            ? t("fmap.tracking.paused")
-                            : m.trackingStatus}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
+                <MemberMarkerPopup member={m} address={addresses[m.id]} t={t} />
               </Popup>
             </Marker>
           ))}
         </MapContainer>
+      </div>
+
+      {/* Full-map CTA */}
+      <div className="px-4 sm:px-5 pt-3 pb-1">
+        <button
+          type="button"
+          onClick={() => setFullMapOpen(true)}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-[#2D2A26] hover:bg-[#1f1d1a] text-white text-sm font-semibold py-2.5 active:scale-[0.99] transition shadow-[0_6px_18px_-8px_rgba(0,0,0,0.4)]"
+          data-testid="family-map-fullmap-btn"
+        >
+          <Maximize2 className="w-4 h-4" strokeWidth={2.2} />
+          {t("fmap.fullMap")}
+        </button>
       </div>
 
       {/* List */}
@@ -825,12 +1211,10 @@ const FamilyMapCard = () => {
               key={m.id}
               member={m}
               t={t}
-              onHistory={(mem) => {
-                setHistoryMember(mem);
-                setHistoryOpen(true);
-              }}
+              onHistory={openHistoryFor}
               onCenter={(mem) => {
                 if (typeof mem.latitude === "number") setCenterOn(mem);
+                openDetail(mem);
               }}
             />
           ))
@@ -845,6 +1229,30 @@ const FamilyMapCard = () => {
         }}
         members={members}
         initialMember={historyMember}
+      />
+
+      <MemberDetailDialog
+        open={detailOpen}
+        onOpenChange={(v) => {
+          setDetailOpen(v);
+          if (!v) setDetailMember(null);
+        }}
+        member={detailMember}
+        address={detailMember ? addresses[detailMember.id] : undefined}
+        t={t}
+        locale={locale}
+        onHistory={openHistoryFor}
+      />
+
+      <FullMapDialog
+        open={fullMapOpen}
+        onOpenChange={setFullMapOpen}
+        members={members}
+        addresses={addresses}
+        layerKey={layerKey}
+        onLayerChange={changeLayer}
+        t={t}
+        onMemberClick={openDetail}
       />
     </div>
   );

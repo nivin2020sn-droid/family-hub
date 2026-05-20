@@ -44,9 +44,18 @@ export async function fetchLatest() {
   }
 }
 
-export async function fetchHistory(memberId, date) {
+export async function fetchHistory(memberId, opts = {}) {
   const params = { memberId };
-  if (date) params.date = date;
+  // Accept either a {date} string, an explicit {start, end} ISO range, or
+  // a plain string (legacy "YYYY-MM-DD" call signature).
+  if (typeof opts === "string") {
+    params.date = opts;
+  } else if (opts.start && opts.end) {
+    params.start = opts.start;
+    params.end = opts.end;
+  } else if (opts.date) {
+    params.date = opts.date;
+  }
   try {
     const res = await axios.get(BACKEND_URL + "/api/location/history", {
       params,

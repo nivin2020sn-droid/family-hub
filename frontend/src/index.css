@@ -91,6 +91,39 @@ code {
     scrollbar-width: none;
 }
 
+/* Leaflet — keep map panes inside our rounded card and harmonize popup look
+   with the rest of the app. */
+.leaflet-container {
+    background: #E6EEF7;
+    font-family: 'DM Sans', sans-serif;
+    z-index: 0;
+}
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+    z-index: 1;
+}
+.leaflet-popup-pane {
+    z-index: 5;
+}
+.leaflet-popup-content-wrapper {
+    border-radius: 14px;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.25);
+    padding: 4px 4px;
+}
+.leaflet-popup-content {
+    margin: 8px 10px;
+    line-height: 1.4;
+}
+.leaflet-popup-tip {
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.12);
+}
+.leaflet-control-attribution {
+    font-size: 9px !important;
+    background: rgba(255, 255, 255, 0.75) !important;
+    border-radius: 6px 0 0 0;
+}
+
 /* Smooth transitions for layout */
 .day-cell-transition {
     transition: background-color 0.2s ease, box-shadow 0.2s ease;
