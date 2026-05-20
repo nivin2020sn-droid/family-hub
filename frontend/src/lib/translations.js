@@ -332,6 +332,12 @@ export const TRANSLATIONS = {
     "fmap.coords": "Coordinates",
     "fmap.details": "Details",
     "fmap.details.title": "Member details",
+    "fmap.delete": "Remove from map",
+    "fmap.delete.confirm.title": "Remove this person?",
+    "fmap.delete.confirm.desc": "Are you sure you want to remove this person from the family map? Their location and movement history will be permanently deleted.",
+    "fmap.delete.confirm.cta": "Remove",
+    "fmap.delete.success": "Removed from family map",
+    "fmap.delete.error": "Could not remove. Please try again.",
   },
 
   ar: {
@@ -641,6 +647,12 @@ export const TRANSLATIONS = {
     "fmap.coords": "الإحداثيات",
     "fmap.details": "التفاصيل",
     "fmap.details.title": "تفاصيل الفرد",
+    "fmap.delete": "إزالة من الخريطة",
+    "fmap.delete.confirm.title": "إزالة هذا الشخص؟",
+    "fmap.delete.confirm.desc": "هل أنت متأكد أنك تريد حذف هذا الشخص من خريطة العائلة؟ سيتم حذف موقعه وسجل حركته بشكل نهائي.",
+    "fmap.delete.confirm.cta": "إزالة",
+    "fmap.delete.success": "تمت إزالته من خريطة العائلة",
+    "fmap.delete.error": "تعذّرت الإزالة. حاول مرة أخرى.",
   },
 
   de: {
@@ -950,6 +962,12 @@ export const TRANSLATIONS = {
     "fmap.coords": "Koordinaten",
     "fmap.details": "Details",
     "fmap.details.title": "Mitgliedsdetails",
+    "fmap.delete": "Von der Karte entfernen",
+    "fmap.delete.confirm.title": "Diese Person entfernen?",
+    "fmap.delete.confirm.desc": "Möchtest du diese Person wirklich von der Familienkarte entfernen? Standort und Bewegungsverlauf werden dauerhaft gelöscht.",
+    "fmap.delete.confirm.cta": "Entfernen",
+    "fmap.delete.success": "Von der Familienkarte entfernt",
+    "fmap.delete.error": "Entfernen fehlgeschlagen. Bitte erneut versuchen.",
   },
 };
 

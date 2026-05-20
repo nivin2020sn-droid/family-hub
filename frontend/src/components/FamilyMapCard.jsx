@@ -36,6 +36,7 @@ import {
   Moon,
   Maximize2,
   Navigation,
+  Trash2,
 } from "lucide-react";
 // lucide-react does not export HistoryIcon under that alias on every version
 // — fall back to History.
@@ -48,11 +49,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n";
-import { cachedLatest, fetchLatest, fetchHistory } from "@/lib/locationApi";
+import { cachedLatest, fetchLatest, fetchHistory, deleteMember } from "@/lib/locationApi";
 
 // ---------- helpers ----------
 const FALLBACK_CENTER = [50.8503, 4.3517]; // Brussels — neutral fallback only
@@ -419,7 +431,7 @@ const FitBoundsOnChange = ({ bounds, fallbackCenter, fallbackZoom }) => {
 };
 
 // ---------- Member compact card (below the map) ----------
-const MemberCard = ({ member, onHistory, onCenter, t }) => {
+const MemberCard = ({ member, onHistory, onCenter, onDelete, t }) => {
   const online = member.networkStatus === "online";
   const battery = typeof member.battery === "number" ? Math.round(member.battery) : null;
   const isLowBattery = battery !== null && battery <= 20;
@@ -478,16 +490,31 @@ const MemberCard = ({ member, onHistory, onCenter, t }) => {
           </p>
         </div>
 
-        {/* History button */}
-        <button
-          type="button"
-          onClick={() => onHistory(member)}
-          className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#16A34A] bg-[#E3F1E0] hover:bg-[#D1E7CD] active:scale-95 transition px-2.5 py-1.5 rounded-full"
-          data-testid={`family-history-btn-${member.id}`}
-        >
-          <HistoryLucide className="w-3 h-3" strokeWidth={2} />
-          {t("btn.history")}
-        </button>
+        {/* Action buttons */}
+        <div className="flex-shrink-0 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onHistory(member)}
+            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[#16A34A] bg-[#E3F1E0] hover:bg-[#D1E7CD] active:scale-95 transition px-2.5 py-1.5 rounded-full"
+            data-testid={`family-history-btn-${member.id}`}
+          >
+            <HistoryLucide className="w-3 h-3" strokeWidth={2} />
+            {t("btn.history")}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(member);
+            }}
+            className="w-7 h-7 inline-flex items-center justify-center rounded-full text-[#B91C1C]/85 hover:text-[#B91C1C] hover:bg-[#FEE2E2] active:scale-95 transition"
+            aria-label={t("fmap.delete")}
+            title={t("fmap.delete")}
+            data-testid={`family-delete-btn-${member.id}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
       {/* Stat row — battery, network, connection */}
@@ -1008,6 +1035,8 @@ const FamilyMapCard = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailMember, setDetailMember] = useState(null);
   const [fullMapOpen, setFullMapOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // member pending confirm
+  const [deleting, setDeleting] = useState(false);
   const [addresses, setAddresses] = useState({}); // memberId -> string | null | "__loading__"
   const [layerKey, setLayerKey] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_LAYER;
@@ -1106,6 +1135,41 @@ const FamilyMapCard = () => {
   const openHistoryFor = (mem) => {
     setHistoryMember(mem);
     setHistoryOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteMember(deleteTarget.id);
+      // Optimistically prune from local state so the row disappears instantly.
+      setMembers((prev) => prev.filter((m) => m.id !== deleteTarget.id));
+      setAddresses((prev) => {
+        const next = { ...prev };
+        delete next[deleteTarget.id];
+        return next;
+      });
+      // Close any open dialogs that referenced this member.
+      if (detailMember && detailMember.id === deleteTarget.id) {
+        setDetailOpen(false);
+        setDetailMember(null);
+      }
+      if (historyMember && historyMember.id === deleteTarget.id) {
+        setHistoryOpen(false);
+        setHistoryMember(null);
+      }
+      if (centerOn && centerOn.id === deleteTarget.id) {
+        setCenterOn(null);
+      }
+      toast.success(t("fmap.delete.success"));
+      setDeleteTarget(null);
+      // Pull fresh server truth so we stay in sync if other tabs are open.
+      refresh();
+    } catch (err) {
+      toast.error(err.message || t("fmap.delete.error"));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -1212,6 +1276,7 @@ const FamilyMapCard = () => {
               member={m}
               t={t}
               onHistory={openHistoryFor}
+              onDelete={(mem) => setDeleteTarget(mem)}
               onCenter={(mem) => {
                 if (typeof mem.latitude === "number") setCenterOn(mem);
                 openDetail(mem);
@@ -1254,6 +1319,58 @@ const FamilyMapCard = () => {
         t={t}
         onMemberClick={openDetail}
       />
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => {
+          if (!v && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent
+          className="rounded-3xl border border-[#E5E2DC] bg-white"
+          data-testid="family-delete-confirm-dialog"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-heading text-lg text-[#2D2A26] flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-[#B91C1C]" />
+              {t("fmap.delete.confirm.title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm text-[#5C5853] leading-relaxed">
+              {t("fmap.delete.confirm.desc")}
+              {deleteTarget && (
+                <span className="block mt-3 px-3 py-2 rounded-xl bg-[#F3F0EA] text-[#2D2A26] text-xs font-semibold">
+                  {deleteTarget.name || deleteTarget.id}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
+              disabled={deleting}
+              className="rounded-full"
+              data-testid="family-delete-cancel-btn"
+            >
+              {t("btn.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+              disabled={deleting}
+              className="rounded-full bg-[#B91C1C] hover:bg-[#991414] text-white"
+              data-testid="family-delete-confirm-btn"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-1.5 rtl:mr-0 rtl:ml-1.5" />
+              )}
+              {t("fmap.delete.confirm.cta")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

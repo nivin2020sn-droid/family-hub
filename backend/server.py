@@ -828,6 +828,28 @@ async def location_history(
     return await cursor.to_list(5000)
 
 
+@api_router.delete("/location/member/{member_id}")
+async def delete_location_member(member_id: str, familyCode: Optional[str] = None):
+    """Remove a single tracked member and their entire location history.
+
+    Used by the web app to clean up stale / duplicate device identities (e.g.
+    after the Android app is reinstalled and a fresh memberId is generated).
+    Protected by the same `FAMILY_CODE` env var used by the POST ingest.
+    """
+    expected_code = os.environ.get("FAMILY_CODE", "FAMILY2026")
+    if (familyCode or "").strip() != expected_code:
+        raise HTTPException(status_code=401, detail="Invalid family code")
+    member_res = await db.family_members.delete_one({"id": member_id})
+    points_res = await db.location_points.delete_many({"memberId": member_id})
+    if member_res.deleted_count == 0 and points_res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {
+        "ok": True,
+        "memberDeleted": member_res.deleted_count,
+        "pointsDeleted": points_res.deleted_count,
+    }
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

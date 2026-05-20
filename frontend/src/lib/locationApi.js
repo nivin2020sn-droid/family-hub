@@ -4,6 +4,7 @@
 // so the map still has something to render when the device goes offline.
 
 import axios from "axios";
+import { getFamilyCode } from "./auth";
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL ||
@@ -64,5 +65,40 @@ export async function fetchHistory(memberId, opts = {}) {
     return Array.isArray(res.data) ? res.data : [];
   } catch {
     return [];
+  }
+}
+
+// Remove a tracked member and ALL their history. Used by the "trash" button
+// on each member card to clean up stale device identities. Returns
+// { ok: true } on success and throws an Error otherwise so the UI can react.
+export async function deleteMember(memberId) {
+  const code = getFamilyCode();
+  if (!code) {
+    throw new Error("Family code missing — please sign in again.");
+  }
+  try {
+    const res = await axios.delete(
+      `${BACKEND_URL}/api/location/member/${encodeURIComponent(memberId)}`,
+      { params: { familyCode: code }, timeout: 12000 }
+    );
+    // Refresh local cache so subsequent reads don't resurrect the deleted row.
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          const next = list.filter((m) => m.id !== memberId);
+          localStorage.setItem(CACHE_KEY, JSON.stringify(next));
+        }
+      }
+    } catch {
+      /* ignore cache errors */
+    }
+    return res.data || { ok: true };
+  } catch (err) {
+    const status = err && err.response && err.response.status;
+    if (status === 401) throw new Error("Invalid family code");
+    if (status === 404) throw new Error("Member not found");
+    throw new Error("Could not delete member. Please try again.");
   }
 }

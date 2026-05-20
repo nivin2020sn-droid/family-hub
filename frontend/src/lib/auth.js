@@ -8,6 +8,7 @@
 import axios from "axios";
 
 const AUTH_KEY = "mfml_auth_ok";
+const FAMILY_CODE_KEY = "mfml_family_code";
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || window.location.origin;
 
@@ -16,6 +17,14 @@ export function isAuthenticated() {
     return localStorage.getItem(AUTH_KEY) === "true";
   } catch {
     return false;
+  }
+}
+
+export function getFamilyCode() {
+  try {
+    return localStorage.getItem(FAMILY_CODE_KEY) || "";
+  } catch {
+    return "";
   }
 }
 
@@ -32,6 +41,9 @@ export async function login(code) {
     );
     if (res.data && res.data.ok) {
       localStorage.setItem(AUTH_KEY, "true");
+      // Persist the verified code so authenticated calls (e.g. DELETE
+      // /api/location/member/{id}) can re-send it without prompting again.
+      localStorage.setItem(FAMILY_CODE_KEY, trimmed);
       return true;
     }
     throw new Error("Invalid family code");
@@ -49,6 +61,7 @@ export async function login(code) {
 export function logout() {
   try {
     localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(FAMILY_CODE_KEY);
   } catch {
     /* ignore */
   }
