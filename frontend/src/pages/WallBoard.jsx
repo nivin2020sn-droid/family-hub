@@ -1705,8 +1705,8 @@ const WallBoard = () => {
           <BottomNavItem
             icon={Wallet}
             label={t("nav.homeBudget")}
-            active={false}
-            onClick={() => goSoon(t("nav.homeBudget"))}
+            active={isActive("/home-budget")}
+            onClick={() => navigate("/home-budget")}
             testid="nav-home-budget"
           />
           <BottomNavItem

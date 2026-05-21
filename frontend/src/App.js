@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import TimePlan from "@/pages/TimePlan";
 import WallBoard from "@/pages/WallBoard";
 import Routines from "@/pages/Routines";
+import HomeBudget from "@/pages/HomeBudget";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -38,6 +39,14 @@ function App() {
                 element={
                   <RequireAuth>
                     <Routines />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/home-budget"
+                element={
+                  <RequireAuth>
+                    <HomeBudget />
                   </RequireAuth>
                 }
               />

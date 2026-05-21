@@ -1165,6 +1165,593 @@ async def delete_routine_log(routine_id: str, log_id: str):
     return {"ok": True}
 
 
+# ============= Family Budget =============
+# Five top-level concepts:
+#   - income      (one-off entries: salary, mini-job, gifts, refunds…)
+#   - expenses    (one-off expenses: food, clothes, travel, health…)
+#   - bills       (recurring: monthly_fixed, periodic, yearly)
+#   - debts       (informal: borrowed from a person / shop)
+#   - loans       (formal: bank loans with interest + tenure + monthly payment)
+#
+# Computation is server-side via `/api/budget/summary` so the frontend can be
+# a thin renderer.
+
+
+INCOME_TYPES = {"primary", "extra", "external"}
+EXPENSE_CATS = {"food", "clothes", "travel", "maintenance", "gifts", "toys", "health", "other"}
+BILL_TYPES = {"fixed_monthly", "periodic", "yearly"}
+DEBT_STATUSES = {"unpaid", "partial", "paid"}
+
+
+class BudgetEntry(BaseModel):
+    """Common shape used by income & expenses (free-text category + amount)."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    description: str = ""
+    amount: float
+    category: str  # for income: income_type; for expense: expense_cat
+    date: str  # ISO date or datetime
+    notes: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class BudgetEntryCreate(BaseModel):
+    description: str = ""
+    amount: float
+    category: str
+    date: Optional[str] = None
+    notes: str = ""
+
+
+class BudgetEntryUpdate(BaseModel):
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    category: Optional[str] = None
+    date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class Bill(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    amount: float
+    bill_type: str  # one of BILL_TYPES
+    due_date: Optional[str] = None  # next due date (YYYY-MM-DD)
+    last_paid_at: Optional[str] = None
+    is_paid: bool = False
+    notes: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class BillCreate(BaseModel):
+    name: str
+    amount: float
+    bill_type: str
+    due_date: Optional[str] = None
+    notes: str = ""
+
+
+class BillUpdate(BaseModel):
+    name: Optional[str] = None
+    amount: Optional[float] = None
+    bill_type: Optional[str] = None
+    due_date: Optional[str] = None
+    last_paid_at: Optional[str] = None
+    is_paid: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class Debt(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    creditor: str  # person or place we owe
+    original_amount: float
+    remaining_amount: float
+    due_date: Optional[str] = None
+    status: str = "unpaid"  # unpaid | partial | paid
+    notes: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class DebtCreate(BaseModel):
+    creditor: str
+    original_amount: float
+    remaining_amount: Optional[float] = None
+    due_date: Optional[str] = None
+    notes: str = ""
+
+
+class DebtUpdate(BaseModel):
+    creditor: Optional[str] = None
+    original_amount: Optional[float] = None
+    remaining_amount: Optional[float] = None
+    due_date: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class Loan(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    lender: str = ""
+    principal: float  # original loan amount
+    interest_rate: float = 0.0  # annual %, informational only
+    term_months: int  # total number of months
+    monthly_payment: float
+    payments_made: int = 0
+    start_date: Optional[str] = None
+    notes: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class LoanCreate(BaseModel):
+    name: str
+    lender: str = ""
+    principal: float
+    interest_rate: float = 0.0
+    term_months: int
+    monthly_payment: float
+    payments_made: int = 0
+    start_date: Optional[str] = None
+    notes: str = ""
+
+
+class LoanUpdate(BaseModel):
+    name: Optional[str] = None
+    lender: Optional[str] = None
+    principal: Optional[float] = None
+    interest_rate: Optional[float] = None
+    term_months: Optional[int] = None
+    monthly_payment: Optional[float] = None
+    payments_made: Optional[int] = None
+    start_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _month_bounds(year: int, month: int):
+    """Return ISO start/end of a calendar month (UTC midnight)."""
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return start.isoformat(), end.isoformat()
+
+
+async def _sum_entries(coll, start: str, end: str) -> float:
+    pipe = [
+        {"$match": {"date": {"$gte": start, "$lt": end}}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]
+    rows = await coll.aggregate(pipe).to_list(1)
+    return float(rows[0]["total"]) if rows else 0.0
+
+
+def _bill_month_cost(bill: dict) -> float:
+    """Approximate monthly cost contribution for forecasting."""
+    bt = bill.get("bill_type")
+    amt = float(bill.get("amount") or 0)
+    if bt == "yearly":
+        return amt / 12.0
+    return amt  # fixed_monthly + periodic counted monthly
+
+
+def _next_n_days_bills(bills: list, days: int, now: datetime):
+    """Bills whose due_date falls within [now, now+days]. Filters out paid."""
+    horizon = now + timedelta(days=days)
+    out = []
+    for b in bills:
+        if b.get("is_paid"):
+            continue
+        due_str = b.get("due_date")
+        if not due_str:
+            continue
+        try:
+            due = datetime.fromisoformat(due_str.replace("Z", "+00:00"))
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if now <= due <= horizon:
+            out.append((b, due))
+    return out
+
+
+# ----- CRUD generators (income / expenses) -----
+
+def _income_routes():
+    coll = db.budget_income
+
+    @api_router.get("/budget/income", response_model=List[BudgetEntry])
+    async def list_income():
+        return await coll.find({}, {"_id": 0}).sort("date", -1).to_list(2000)
+
+    @api_router.post("/budget/income", response_model=BudgetEntry)
+    async def create_income(payload: BudgetEntryCreate):
+        if payload.category not in INCOME_TYPES:
+            raise HTTPException(400, f"category must be one of {sorted(INCOME_TYPES)}")
+        obj = BudgetEntry(
+            description=payload.description,
+            amount=payload.amount,
+            category=payload.category,
+            date=payload.date or datetime.now(timezone.utc).isoformat(),
+            notes=payload.notes,
+        )
+        await coll.insert_one(obj.model_dump())
+        return obj
+
+    @api_router.put("/budget/income/{item_id}", response_model=BudgetEntry)
+    async def update_income(item_id: str, payload: BudgetEntryUpdate):
+        update = payload.model_dump(exclude_unset=True)
+        if "category" in update and update["category"] not in INCOME_TYPES:
+            raise HTTPException(400, "invalid category")
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        res = await coll.update_one({"id": item_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Not found")
+        return await coll.find_one({"id": item_id}, {"_id": 0})
+
+    @api_router.delete("/budget/income/{item_id}")
+    async def delete_income(item_id: str):
+        res = await coll.delete_one({"id": item_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Not found")
+        return {"ok": True}
+
+
+def _expense_routes():
+    coll = db.budget_expenses
+
+    @api_router.get("/budget/expenses", response_model=List[BudgetEntry])
+    async def list_expenses():
+        return await coll.find({}, {"_id": 0}).sort("date", -1).to_list(2000)
+
+    @api_router.post("/budget/expenses", response_model=BudgetEntry)
+    async def create_expense(payload: BudgetEntryCreate):
+        if payload.category not in EXPENSE_CATS:
+            raise HTTPException(400, f"category must be one of {sorted(EXPENSE_CATS)}")
+        obj = BudgetEntry(
+            description=payload.description,
+            amount=payload.amount,
+            category=payload.category,
+            date=payload.date or datetime.now(timezone.utc).isoformat(),
+            notes=payload.notes,
+        )
+        await coll.insert_one(obj.model_dump())
+        return obj
+
+    @api_router.put("/budget/expenses/{item_id}", response_model=BudgetEntry)
+    async def update_expense(item_id: str, payload: BudgetEntryUpdate):
+        update = payload.model_dump(exclude_unset=True)
+        if "category" in update and update["category"] not in EXPENSE_CATS:
+            raise HTTPException(400, "invalid category")
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        res = await coll.update_one({"id": item_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Not found")
+        return await coll.find_one({"id": item_id}, {"_id": 0})
+
+    @api_router.delete("/budget/expenses/{item_id}")
+    async def delete_expense(item_id: str):
+        res = await coll.delete_one({"id": item_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Not found")
+        return {"ok": True}
+
+
+def _bill_routes():
+    coll = db.budget_bills
+
+    @api_router.get("/budget/bills", response_model=List[Bill])
+    async def list_bills():
+        return await coll.find({}, {"_id": 0}).sort("due_date", 1).to_list(1000)
+
+    @api_router.post("/budget/bills", response_model=Bill)
+    async def create_bill(payload: BillCreate):
+        if payload.bill_type not in BILL_TYPES:
+            raise HTTPException(400, f"bill_type must be one of {sorted(BILL_TYPES)}")
+        obj = Bill(**payload.model_dump())
+        await coll.insert_one(obj.model_dump())
+        return obj
+
+    @api_router.put("/budget/bills/{item_id}", response_model=Bill)
+    async def update_bill(item_id: str, payload: BillUpdate):
+        update = payload.model_dump(exclude_unset=True)
+        if "bill_type" in update and update["bill_type"] not in BILL_TYPES:
+            raise HTTPException(400, "invalid bill_type")
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        res = await coll.update_one({"id": item_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Not found")
+        return await coll.find_one({"id": item_id}, {"_id": 0})
+
+    @api_router.delete("/budget/bills/{item_id}")
+    async def delete_bill(item_id: str):
+        res = await coll.delete_one({"id": item_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Not found")
+        return {"ok": True}
+
+
+def _debt_routes():
+    coll = db.budget_debts
+
+    @api_router.get("/budget/debts", response_model=List[Debt])
+    async def list_debts():
+        return await coll.find({}, {"_id": 0}).sort("due_date", 1).to_list(500)
+
+    @api_router.post("/budget/debts", response_model=Debt)
+    async def create_debt(payload: DebtCreate):
+        remaining = (
+            payload.remaining_amount
+            if payload.remaining_amount is not None
+            else payload.original_amount
+        )
+        obj = Debt(
+            creditor=payload.creditor,
+            original_amount=payload.original_amount,
+            remaining_amount=remaining,
+            due_date=payload.due_date,
+            notes=payload.notes,
+            status="paid"
+            if remaining <= 0
+            else ("partial" if remaining < payload.original_amount else "unpaid"),
+        )
+        await coll.insert_one(obj.model_dump())
+        return obj
+
+    @api_router.put("/budget/debts/{item_id}", response_model=Debt)
+    async def update_debt(item_id: str, payload: DebtUpdate):
+        existing = await coll.find_one({"id": item_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, "Not found")
+        update = payload.model_dump(exclude_unset=True)
+        merged = {**existing, **update}
+        # Auto-recompute status from amounts if not explicitly set
+        if "status" not in update:
+            orig = float(merged["original_amount"])
+            remain = float(merged["remaining_amount"])
+            if remain <= 0:
+                merged["status"] = "paid"
+            elif remain < orig:
+                merged["status"] = "partial"
+            else:
+                merged["status"] = "unpaid"
+        if merged["status"] not in DEBT_STATUSES:
+            raise HTTPException(400, "invalid status")
+        merged["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await coll.update_one({"id": item_id}, {"$set": merged})
+        return merged
+
+    @api_router.delete("/budget/debts/{item_id}")
+    async def delete_debt(item_id: str):
+        res = await coll.delete_one({"id": item_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Not found")
+        return {"ok": True}
+
+
+def _loan_routes():
+    coll = db.budget_loans
+
+    @api_router.get("/budget/loans", response_model=List[Loan])
+    async def list_loans():
+        return await coll.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+    @api_router.post("/budget/loans", response_model=Loan)
+    async def create_loan(payload: LoanCreate):
+        if payload.term_months <= 0:
+            raise HTTPException(400, "term_months must be positive")
+        obj = Loan(**payload.model_dump())
+        await coll.insert_one(obj.model_dump())
+        return obj
+
+    @api_router.put("/budget/loans/{item_id}", response_model=Loan)
+    async def update_loan(item_id: str, payload: LoanUpdate):
+        update = payload.model_dump(exclude_unset=True)
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        res = await coll.update_one({"id": item_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Not found")
+        return await coll.find_one({"id": item_id}, {"_id": 0})
+
+    @api_router.delete("/budget/loans/{item_id}")
+    async def delete_loan(item_id: str):
+        res = await coll.delete_one({"id": item_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Not found")
+        return {"ok": True}
+
+
+# Register CRUD route groups
+_income_routes()
+_expense_routes()
+_bill_routes()
+_debt_routes()
+_loan_routes()
+
+
+@api_router.get("/budget/summary")
+async def budget_summary(year: Optional[int] = None, month: Optional[int] = None):
+    """Aggregate snapshot for the dashboard.
+
+    Returns:
+      - totals for the requested month (default: current UTC month)
+      - debts/loans totals (independent of month)
+      - health status (green / orange / red) + reason
+      - 7-day & end-of-month balance forecast
+      - month-over-month comparisons for income, expenses, food, remaining
+    """
+    now = datetime.now(timezone.utc)
+    year = year or now.year
+    month = month or now.month
+    start, end = _month_bounds(year, month)
+    # Previous month bounds
+    if month == 1:
+        prev_year, prev_month = year - 1, 12
+    else:
+        prev_year, prev_month = year, month - 1
+    pstart, pend = _month_bounds(prev_year, prev_month)
+
+    # Income / expense totals (this & previous month)
+    income_total = await _sum_entries(db.budget_income, start, end)
+    expense_total = await _sum_entries(db.budget_expenses, start, end)
+    prev_income = await _sum_entries(db.budget_income, pstart, pend)
+    prev_expense = await _sum_entries(db.budget_expenses, pstart, pend)
+
+    # Per-category expense breakdown for this month
+    breakdown = {c: 0.0 for c in EXPENSE_CATS}
+    async for doc in db.budget_expenses.find(
+        {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "category": 1, "amount": 1}
+    ):
+        c = doc.get("category", "other")
+        breakdown[c] = breakdown.get(c, 0.0) + float(doc.get("amount") or 0)
+
+    prev_food = 0.0
+    async for doc in db.budget_expenses.find(
+        {"date": {"$gte": pstart, "$lt": pend}, "category": "food"},
+        {"_id": 0, "amount": 1},
+    ):
+        prev_food += float(doc.get("amount") or 0)
+
+    # Bills, debts, loans
+    bills = await db.budget_bills.find({}, {"_id": 0}).to_list(1000)
+    debts = await db.budget_debts.find({}, {"_id": 0}).to_list(500)
+    loans = await db.budget_loans.find({}, {"_id": 0}).to_list(200)
+
+    # This month's bill cost (sum of monthly contribution)
+    bills_month_total = sum(_bill_month_cost(b) for b in bills if not b.get("is_paid"))
+
+    debts_total = sum(float(d.get("remaining_amount") or 0) for d in debts)
+    loans_total_remaining = 0.0
+    loans_principal = 0.0
+    loans_paid = 0.0
+    for ln in loans:
+        principal = float(ln.get("principal") or 0)
+        monthly = float(ln.get("monthly_payment") or 0)
+        made = int(ln.get("payments_made") or 0)
+        term = int(ln.get("term_months") or 0)
+        paid_amt = monthly * made
+        remaining_amt = max(0.0, principal - paid_amt)
+        loans_principal += principal
+        loans_paid += paid_amt
+        loans_total_remaining += remaining_amt
+
+    # Remaining = income - expense - this-month's recurring bill cost (already-paid bills excluded above)
+    remaining = income_total - expense_total - bills_month_total
+
+    # Upcoming bills in next 14 days for the health signal & 7d forecast
+    bills_next_14 = _next_n_days_bills(bills, 14, now)
+    next_14_total = sum(float(b["amount"]) for b, _ in bills_next_14)
+    bills_next_7 = [b for b in bills_next_14 if b[1] <= now + timedelta(days=7)]
+    next_7_total = sum(float(b["amount"]) for b, _ in bills_next_7)
+
+    # Health
+    if remaining < 0 or next_14_total > max(0.0, remaining) * 1.0:
+        health = "red"
+        health_reason = "next_14_uncovered"
+    elif next_14_total > remaining * 0.6:
+        health = "orange"
+        health_reason = "next_14_tight"
+    else:
+        health = "green"
+        health_reason = "all_covered"
+
+    # Forecast: assume no further income unless we can extrapolate; subtract upcoming bills
+    forecast_balance_7d = remaining - next_7_total
+    # Remaining month-end: subtract all unpaid bills due before end of month
+    eom = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    days_to_eom = max(1, (eom - now).days)
+    bills_to_eom = _next_n_days_bills(bills, days_to_eom, now)
+    forecast_balance_eom = remaining - sum(float(b["amount"]) for b, _ in bills_to_eom)
+
+    # Comparisons (percent change)
+    def pct(curr, prev):
+        if prev == 0:
+            return None
+        return round((curr - prev) / prev * 100, 1)
+
+    prev_remaining = prev_income - prev_expense  # rough — ignores prev bills
+    comparisons = {
+        "income": {"current": income_total, "previous": prev_income, "pct": pct(income_total, prev_income)},
+        "expense": {"current": expense_total, "previous": prev_expense, "pct": pct(expense_total, prev_expense)},
+        "food": {"current": breakdown.get("food", 0.0), "previous": prev_food, "pct": pct(breakdown.get("food", 0.0), prev_food)},
+        "remaining": {"current": remaining, "previous": prev_remaining, "pct": pct(remaining, prev_remaining)},
+    }
+
+    # Loan progress
+    loan_progress = []
+    for ln in loans:
+        term = int(ln.get("term_months") or 0) or 1
+        made = int(ln.get("payments_made") or 0)
+        remaining_months = max(0, term - made)
+        monthly = float(ln.get("monthly_payment") or 0)
+        principal = float(ln.get("principal") or 0)
+        paid_amt = monthly * made
+        remaining_amt = max(0.0, principal - paid_amt)
+        progress_pct = round(made / term * 100, 1) if term else 0.0
+        # Estimated end date = start_date + term months (if start_date provided)
+        est_end = None
+        sd = ln.get("start_date")
+        if sd:
+            try:
+                sd_dt = datetime.fromisoformat(sd.replace("Z", "+00:00"))
+                # Naive add months
+                ey = sd_dt.year + (sd_dt.month - 1 + term) // 12
+                em = (sd_dt.month - 1 + term) % 12 + 1
+                est_end = datetime(ey, em, min(sd_dt.day, 28), tzinfo=timezone.utc).date().isoformat()
+            except ValueError:
+                est_end = None
+        loan_progress.append(
+            {
+                "id": ln["id"],
+                "name": ln.get("name", ""),
+                "principal": principal,
+                "paid": paid_amt,
+                "remaining": remaining_amt,
+                "payments_made": made,
+                "payments_remaining": remaining_months,
+                "term_months": term,
+                "progress_pct": progress_pct,
+                "monthly_payment": monthly,
+                "estimated_end_date": est_end,
+            }
+        )
+
+    return {
+        "month": {"year": year, "month": month, "start": start, "end": end},
+        "income_total": round(income_total, 2),
+        "expense_total": round(expense_total, 2),
+        "bills_month_total": round(bills_month_total, 2),
+        "remaining": round(remaining, 2),
+        "debts_total": round(debts_total, 2),
+        "loans_total_remaining": round(loans_total_remaining, 2),
+        "loans_principal_total": round(loans_principal, 2),
+        "loans_paid_total": round(loans_paid, 2),
+        "expense_breakdown": {k: round(v, 2) for k, v in breakdown.items()},
+        "upcoming_bills": [
+            {**b, "_due": d.isoformat()} for b, d in bills_next_14
+        ][:20],
+        "next_14_total": round(next_14_total, 2),
+        "next_7_total": round(next_7_total, 2),
+        "health": health,
+        "health_reason": health_reason,
+        "forecast": {
+            "balance_now": round(remaining, 2),
+            "balance_7d": round(forecast_balance_7d, 2),
+            "balance_eom": round(forecast_balance_eom, 2),
+        },
+        "comparisons": comparisons,
+        "loan_progress": loan_progress,
+    }
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
