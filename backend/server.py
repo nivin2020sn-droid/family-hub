@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
+from calendar import monthrange
 
 
 ROOT_DIR = Path(__file__).parent
@@ -848,6 +849,320 @@ async def delete_location_member(member_id: str, familyCode: Optional[str] = Non
         "memberDeleted": member_res.deleted_count,
         "pointsDeleted": points_res.deleted_count,
     }
+
+
+# ============= Routines Models =============
+
+RECURRENCE_TYPES = {"minutes", "hours", "days", "weeks", "months", "monthly_weekday"}
+
+
+class Routine(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    description: Optional[str] = ""
+    icon: Optional[str] = "Repeat"
+    recurrence_type: str  # one of RECURRENCE_TYPES
+    recurrence_interval: int = 1
+    monthly_week: Optional[int] = None  # 1..4 or -1 for "last"
+    monthly_weekday: Optional[int] = None  # 0=Sun..6=Sat
+    time_of_day: Optional[str] = None  # "HH:MM" in user's local timezone
+    tz_offset_minutes: int = 0  # client's UTC offset at create-time (minutes east)
+    last_done_at: Optional[str] = None
+    next_due_at: str = ""
+    notify_enabled: bool = True
+    notify_before_minutes: int = 60
+    default_assignee: Optional[str] = ""
+    archived: bool = False
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class RoutineCreate(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    icon: Optional[str] = "Repeat"
+    recurrence_type: str
+    recurrence_interval: int = 1
+    monthly_week: Optional[int] = None
+    monthly_weekday: Optional[int] = None
+    time_of_day: Optional[str] = None
+    tz_offset_minutes: int = 0
+    notify_enabled: bool = True
+    notify_before_minutes: int = 60
+    default_assignee: Optional[str] = ""
+
+
+class RoutineUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    recurrence_type: Optional[str] = None
+    recurrence_interval: Optional[int] = None
+    monthly_week: Optional[int] = None
+    monthly_weekday: Optional[int] = None
+    time_of_day: Optional[str] = None
+    tz_offset_minutes: Optional[int] = None
+    notify_enabled: Optional[bool] = None
+    notify_before_minutes: Optional[int] = None
+    default_assignee: Optional[str] = None
+    archived: Optional[bool] = None
+
+
+class RoutineComplete(BaseModel):
+    done_at: Optional[str] = None  # ISO; defaults to now
+    notes: Optional[str] = ""
+    assignee: Optional[str] = ""
+
+
+class RoutineSnooze(BaseModel):
+    minutes: int = 60
+
+
+class RoutineLog(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    routine_id: str
+    done_at: str
+    notes: Optional[str] = ""
+    assignee: Optional[str] = ""
+
+
+# ----- Recurrence engine -----
+
+def _add_months(dt: datetime, n: int) -> datetime:
+    month = dt.month - 1 + n
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    day = min(dt.day, monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday_sun0: int, n: int):
+    """Find the Nth (1..4) or last (-1) occurrence of `weekday_sun0` (0=Sun..6=Sat).
+
+    Returns a naive datetime at midnight, or None if not found.
+    """
+    # Convert Sun-first to Python's Mon-first (Mon=0..Sun=6)
+    py_target = (weekday_sun0 + 6) % 7
+    days = monthrange(year, month)[1]
+    if n == -1:
+        for d in range(days, 0, -1):
+            dt = datetime(year, month, d)
+            if dt.weekday() == py_target:
+                return dt
+        return None
+    count = 0
+    for d in range(1, days + 1):
+        dt = datetime(year, month, d)
+        if dt.weekday() == py_target:
+            count += 1
+            if count == n:
+                return dt
+    return None
+
+
+def _apply_time_of_day(dt: datetime, time_of_day: Optional[str]) -> datetime:
+    if not time_of_day:
+        return dt
+    try:
+        h, m = [int(x) for x in time_of_day.split(":")[:2]]
+    except Exception:  # noqa: BLE001
+        return dt
+    return dt.replace(hour=h, minute=m, second=0, microsecond=0)
+
+
+def compute_next_due(routine: dict, from_dt_utc: datetime) -> datetime:
+    """Compute the next due datetime (UTC) for a routine, given a from-time.
+
+    `time_of_day` is interpreted in the user's local timezone (carried via
+    `tz_offset_minutes`, minutes east of UTC). For minutes/hours we ignore TOD.
+    """
+    rtype = routine.get("recurrence_type")
+    interval = max(1, int(routine.get("recurrence_interval") or 1))
+    tod = routine.get("time_of_day")
+    tz_off = int(routine.get("tz_offset_minutes") or 0)
+
+    def to_local(dt_utc: datetime) -> datetime:
+        return dt_utc + timedelta(minutes=tz_off)
+
+    def to_utc(dt_local: datetime) -> datetime:
+        return dt_local - timedelta(minutes=tz_off)
+
+    if rtype == "minutes":
+        return from_dt_utc + timedelta(minutes=interval)
+    if rtype == "hours":
+        return from_dt_utc + timedelta(hours=interval)
+    if rtype == "days":
+        local = to_local(from_dt_utc) + timedelta(days=interval)
+        return to_utc(_apply_time_of_day(local, tod))
+    if rtype == "weeks":
+        local = to_local(from_dt_utc) + timedelta(weeks=interval)
+        return to_utc(_apply_time_of_day(local, tod))
+    if rtype == "months":
+        local = _add_months(to_local(from_dt_utc), interval)
+        return to_utc(_apply_time_of_day(local, tod))
+    if rtype == "monthly_weekday":
+        n = routine.get("monthly_week")
+        wd = routine.get("monthly_weekday")
+        if n is None or wd is None:
+            return from_dt_utc + timedelta(days=30)
+        # Work in naive local time for month/weekday arithmetic, then re-attach UTC.
+        local_from_naive = (from_dt_utc + timedelta(minutes=tz_off)).replace(tzinfo=None)
+        # Try current month first
+        cand = _nth_weekday_of_month(local_from_naive.year, local_from_naive.month, wd, n)
+        if cand is not None:
+            cand = _apply_time_of_day(cand, tod)
+            if cand > local_from_naive:
+                return (cand - timedelta(minutes=tz_off)).replace(tzinfo=timezone.utc)
+        # Otherwise the same Nth weekday in the next month
+        nl = _add_months(local_from_naive.replace(day=1), 1)
+        cand = _nth_weekday_of_month(nl.year, nl.month, wd, n)
+        if cand is not None:
+            cand = _apply_time_of_day(cand, tod)
+            return (cand - timedelta(minutes=tz_off)).replace(tzinfo=timezone.utc)
+        return from_dt_utc + timedelta(days=30)
+    # Unknown type → safe fallback
+    return from_dt_utc + timedelta(days=1)
+
+
+def _validate_routine(data: dict) -> None:
+    if data.get("recurrence_type") not in RECURRENCE_TYPES:
+        raise HTTPException(400, "Invalid recurrence_type")
+    if data.get("recurrence_type") == "monthly_weekday":
+        n = data.get("monthly_week")
+        wd = data.get("monthly_weekday")
+        if n not in (1, 2, 3, 4, -1):
+            raise HTTPException(400, "monthly_week must be 1..4 or -1")
+        if wd is None or not (0 <= int(wd) <= 6):
+            raise HTTPException(400, "monthly_weekday must be 0..6 (Sun..Sat)")
+
+
+# ----- Routines Routes -----
+
+@api_router.get("/routines", response_model=List[Routine])
+async def list_routines(include_archived: bool = False):
+    query: dict = {} if include_archived else {"archived": {"$ne": True}}
+    items = await db.routines.find(query, {"_id": 0}).sort("next_due_at", 1).to_list(500)
+    return items
+
+
+@api_router.post("/routines", response_model=Routine)
+async def create_routine(payload: RoutineCreate):
+    data = payload.model_dump()
+    _validate_routine(data)
+    now = datetime.now(timezone.utc)
+    obj = Routine(**data)
+    # Compute next due from "now" so the first deadline starts ticking
+    obj.next_due_at = compute_next_due(obj.model_dump(), now).isoformat()
+    obj.created_at = now.isoformat()
+    obj.updated_at = now.isoformat()
+    await db.routines.insert_one(obj.model_dump())
+    return obj
+
+
+@api_router.put("/routines/{routine_id}", response_model=Routine)
+async def update_routine(routine_id: str, payload: RoutineUpdate):
+    existing = await db.routines.find_one({"id": routine_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    update = payload.model_dump(exclude_unset=True)
+    if "recurrence_type" in update or "recurrence_interval" in update or "monthly_week" in update or "monthly_weekday" in update or "time_of_day" in update or "tz_offset_minutes" in update:
+        merged = {**existing, **update}
+        _validate_routine(merged)
+        # If the recurrence definition changed, recompute next_due from now.
+        merged["next_due_at"] = compute_next_due(
+            merged, datetime.now(timezone.utc)
+        ).isoformat()
+        update["next_due_at"] = merged["next_due_at"]
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.routines.update_one({"id": routine_id}, {"$set": update})
+    doc = await db.routines.find_one({"id": routine_id}, {"_id": 0})
+    return doc
+
+
+@api_router.delete("/routines/{routine_id}")
+async def delete_routine(routine_id: str):
+    res = await db.routines.delete_one({"id": routine_id})
+    await db.routine_logs.delete_many({"routine_id": routine_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+@api_router.post("/routines/{routine_id}/complete", response_model=Routine)
+async def complete_routine(routine_id: str, payload: RoutineComplete):
+    existing = await db.routines.find_one({"id": routine_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    done_at = (payload.done_at or now_iso).strip() or now_iso
+    try:
+        done_dt = datetime.fromisoformat(done_at.replace("Z", "+00:00"))
+        if done_dt.tzinfo is None:
+            done_dt = done_dt.replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid done_at") from exc
+    next_due = compute_next_due(existing, done_dt)
+
+    log = RoutineLog(
+        routine_id=routine_id,
+        done_at=done_dt.isoformat(),
+        notes=payload.notes or "",
+        assignee=payload.assignee or existing.get("default_assignee") or "",
+    )
+    await db.routine_logs.insert_one(log.model_dump())
+
+    update = {
+        "last_done_at": done_dt.isoformat(),
+        "next_due_at": next_due.isoformat(),
+        "updated_at": now_iso,
+    }
+    await db.routines.update_one({"id": routine_id}, {"$set": update})
+    doc = await db.routines.find_one({"id": routine_id}, {"_id": 0})
+    return doc
+
+
+@api_router.post("/routines/{routine_id}/snooze", response_model=Routine)
+async def snooze_routine(routine_id: str, payload: RoutineSnooze):
+    existing = await db.routines.find_one({"id": routine_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    minutes = max(1, int(payload.minutes or 60))
+    now = datetime.now(timezone.utc)
+    try:
+        current_due = datetime.fromisoformat(
+            (existing.get("next_due_at") or now.isoformat()).replace("Z", "+00:00")
+        )
+        if current_due.tzinfo is None:
+            current_due = current_due.replace(tzinfo=timezone.utc)
+    except ValueError:
+        current_due = now
+    base = max(current_due, now)
+    new_due = base + timedelta(minutes=minutes)
+    await db.routines.update_one(
+        {"id": routine_id},
+        {"$set": {"next_due_at": new_due.isoformat(), "updated_at": now.isoformat()}},
+    )
+    doc = await db.routines.find_one({"id": routine_id}, {"_id": 0})
+    return doc
+
+
+@api_router.get("/routines/{routine_id}/logs", response_model=List[RoutineLog])
+async def list_routine_logs(routine_id: str, limit: int = 100):
+    cursor = (
+        db.routine_logs.find({"routine_id": routine_id}, {"_id": 0})
+        .sort("done_at", -1)
+        .limit(max(1, min(limit, 500)))
+    )
+    return await cursor.to_list(500)
+
+
+@api_router.delete("/routines/{routine_id}/logs/{log_id}")
+async def delete_routine_log(routine_id: str, log_id: str):
+    res = await db.routine_logs.delete_one({"id": log_id, "routine_id": routine_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
 
 
 # Include the router in the main app

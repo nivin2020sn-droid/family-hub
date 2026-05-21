@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import TimePlan from "@/pages/TimePlan";
 import WallBoard from "@/pages/WallBoard";
+import Routines from "@/pages/Routines";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -29,6 +30,14 @@ function App() {
                 element={
                   <RequireAuth>
                     <TimePlan />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/routines"
+                element={
+                  <RequireAuth>
+                    <Routines />
                   </RequireAuth>
                 }
               />
