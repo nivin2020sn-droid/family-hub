@@ -46,6 +46,7 @@ import { logout as authLogout } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FamilyMapCard from "@/components/FamilyMapCard";
+import WallBoardRoutines from "@/components/WallBoardRoutines";
 import {
   wallSettings,
   wallPhotos,
@@ -1014,69 +1015,6 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
   );
 };
 
-// ---------- Routines entry card (link tile to /routines) ----------
-const RoutinesEntryCard = () => {
-  const navigate = useNavigate();
-  const { t } = useI18n();
-  const [counts, setCounts] = useState({ total: 0, overdue: 0, approaching: 0 });
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const mod = await import("@/lib/routinesApi");
-        const list = await mod.listRoutines();
-        if (cancelled) return;
-        const now = Date.now();
-        let overdue = 0;
-        let approaching = 0;
-        list.forEach((r) => {
-          const s = mod.statusFor(r, now);
-          if (s === "red") overdue += 1;
-          else if (s === "orange") approaching += 1;
-        });
-        setCounts({ total: list.length, overdue, approaching });
-      } catch {
-        /* offline / first run — leave defaults */
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return (
-    <button
-      type="button"
-      onClick={() => navigate("/routines")}
-      className="text-left rounded-3xl border border-black/[0.04] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.08)] overflow-hidden active:scale-[0.99] transition"
-      style={{ backgroundColor: "#F3F0EA" }}
-      data-testid="card-routines-entry"
-    >
-      <div className="flex items-center gap-3 px-4 sm:px-5 py-4">
-        <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-sm flex-shrink-0"
-          style={{ backgroundColor: "#7C3AED" }}
-        >
-          <Repeat className="w-5 h-5" strokeWidth={2} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-heading text-base sm:text-lg font-semibold text-[#2D2A26] tracking-tight">
-            {t("routines.title")}
-          </h3>
-          <p className="text-[11px] text-[#7A7571] mt-0.5 truncate">
-            {counts.total === 0
-              ? t("routines.empty")
-              : `${counts.total} · ${counts.overdue} ${t("routines.status.red").toLowerCase()} · ${counts.approaching} ${t("routines.status.orange").toLowerCase()}`}
-          </p>
-        </div>
-        <ChevronRight className="w-4 h-4 text-[#7A7571] rtl:rotate-180 flex-shrink-0" strokeWidth={2} />
-      </div>
-    </button>
-  );
-};
-
 // ---------- Main page ----------
 const WallBoard = () => {
   const navigate = useNavigate();
@@ -1339,8 +1277,8 @@ const WallBoard = () => {
           {/* Where is my family? (live map) — placed right under the hero. */}
           <FamilyMapCard />
 
-          {/* My Routines entry — opens dedicated page */}
-          <RoutinesEntryCard />
+          {/* My Routines — embedded section, no navigation */}
+          <WallBoardRoutines />
 
           {/* Message of the Day */}
           <SectionCard

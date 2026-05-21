@@ -109,7 +109,7 @@ function formatLocale(iso, locale) {
 }
 
 // ---------- Routine Card ----------
-const RoutineCard = ({ routine, now, t, locale, onComplete, onSnooze, onEdit, onHistory, onDelete }) => {
+export const RoutineCard = ({ routine, now, t, locale, onComplete, onSnooze, onEdit, onHistory, onDelete }) => {
   const status = statusFor(routine, now);
   const rem = timeRemaining(routine, now);
   const theme = STATUS_THEME[status];
@@ -242,7 +242,7 @@ const ORDINALS = [1, 2, 3, 4, -1];
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 const RECUR_TYPES = ["minutes", "hours", "days", "weeks", "months", "monthly_weekday"];
 
-const RoutineEditor = ({ open, onOpenChange, initial, onSave }) => {
+export const RoutineEditor = ({ open, onOpenChange, initial, onSave }) => {
   const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -514,7 +514,7 @@ const RoutineEditor = ({ open, onOpenChange, initial, onSave }) => {
 };
 
 // ---------- History Dialog ----------
-const RoutineHistoryDialog = ({ open, onOpenChange, routine }) => {
+export const RoutineHistoryDialog = ({ open, onOpenChange, routine }) => {
   const { t, locale } = useI18n();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -604,7 +604,7 @@ const RoutineHistoryDialog = ({ open, onOpenChange, routine }) => {
 };
 
 // ---------- Complete dialog (capture notes + assignee) ----------
-const CompleteDialog = ({ open, onOpenChange, routine, onConfirm }) => {
+export const CompleteDialog = ({ open, onOpenChange, routine, onConfirm }) => {
   const { t } = useI18n();
   const [notes, setNotes] = useState("");
   const [assignee, setAssignee] = useState("");
