@@ -140,7 +140,7 @@ export const RoutineCard = ({ routine, now, t, locale, onComplete, onSnooze, onE
             <Repeat className="w-5 h-5" strokeWidth={2} />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-heading text-base font-semibold text-[#2D2A26] leading-tight truncate">
+            <h3 className="font-heading text-base font-semibold text-[#2D2A26] leading-tight card-title">
               {routine.title}
             </h3>
             <p className="text-[11px] text-[#7A7571] mt-0.5 leading-snug line-clamp-2">

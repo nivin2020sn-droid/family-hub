@@ -481,7 +481,7 @@ const MemberCard = ({ member, onHistory, onCenter, onDelete, t }) => {
 
         {/* Name + last update */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#2D2A26] truncate leading-tight">
+          <p className="text-sm font-semibold text-[#2D2A26] card-title leading-tight">
             {member.name || member.id}
           </p>
           <p className="text-[11px] text-[#7A7571] mt-0.5 inline-flex items-center gap-1">
@@ -853,7 +853,7 @@ const MemberDetailDialog = ({ open, onOpenChange, member, address, t, locale, on
             />
           </div>
           <div className="min-w-0">
-            <DialogTitle className="font-heading text-lg font-semibold text-[#2D2A26] truncate">
+            <DialogTitle className="font-heading text-lg font-semibold text-[#2D2A26] card-title">
               {member.name || member.id}
             </DialogTitle>
             <DialogDescription className="text-[11px] text-[#7A7571]">

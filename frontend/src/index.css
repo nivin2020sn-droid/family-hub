@@ -91,6 +91,24 @@ code {
     scrollbar-width: none;
 }
 
+/* =========================================================
+   Global CARD TITLE rule.
+   Use `.card-title` on every card heading instead of `truncate`.
+   It allows the full title up to 2 lines, with an ellipsis ONLY
+   after the second line. Long words wrap instead of overflowing.
+   Apply to: My Routines, Time Plan, Family Budget, Wall Board,
+   GPS cards, notifications, and any future card component.
+   ========================================================= */
+.card-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 /* Leaflet — keep map panes inside our rounded card and harmonize popup look
    with the rest of the app. */
 .leaflet-container {

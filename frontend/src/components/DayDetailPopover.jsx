@@ -74,7 +74,7 @@ const DayDetailPopover = ({
                       {ev.start_time || t("day.allDay")}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-[#2D2A26] truncate">{ev.title}</p>
+                      <p className="font-semibold text-sm text-[#2D2A26] card-title">{ev.title}</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-[#7A7571]">
                         {ev.end_time && (
                           <span className="inline-flex items-center gap-1">

@@ -235,7 +235,7 @@ const Row = ({ left, right, sub, onEdit, onDelete, accent, testid }) => (
     )}
     <div className="flex items-center gap-2 pl-1.5">
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-[#2D2A26] leading-tight truncate">{left}</p>
+        <p className="text-sm font-semibold text-[#2D2A26] leading-tight card-title">{left}</p>
         {sub && <p className="text-[11px] text-[#7A7571] mt-0.5 leading-snug">{sub}</p>}
       </div>
       <div className="text-right text-sm font-semibold text-[#2D2A26]">{right}</div>
@@ -725,7 +725,7 @@ const HomeBudget = () => {
           />
           <div className="flex items-start gap-2 pl-1.5">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#2D2A26] truncate inline-flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-[#2D2A26] card-title inline-flex items-center gap-2 flex-wrap">
                 {b.name}
                 <OwnerBadge owner={b.owner} />
               </p>
@@ -837,7 +837,7 @@ const HomeBudget = () => {
           <div className="pl-1.5">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-[#2D2A26] truncate inline-flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-[#2D2A26] card-title inline-flex items-center gap-2 flex-wrap">
                   {l.name}
                   <OwnerBadge owner={l.owner} />
                 </p>
@@ -1081,7 +1081,7 @@ const HomeBudget = () => {
                       key={b.id}
                       className="flex items-center justify-between text-xs bg-[#FAF9F6] rounded-xl px-3 py-2"
                     >
-                      <span className="text-[#2D2A26] font-medium truncate">{b.name}</span>
+                      <span className="text-[#2D2A26] font-medium card-title">{b.name}</span>
                       <span className="text-[#5C5853]">{formatDate(b._due, locale)}</span>
                       <span className="font-semibold text-[#2D2A26]">{fmtMoney(b.amount, locale)}</span>
                     </div>

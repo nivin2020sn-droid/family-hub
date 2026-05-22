@@ -1495,7 +1495,7 @@ const WallBoard = () => {
                   <li key={c.id} className="flex items-center gap-3 px-3.5 py-3" data-testid={`cd-row-${c.id}`}>
                     <CalendarDays className="w-5 h-5 text-[#D97706]" strokeWidth={1.8} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#3F3A36] truncate">{c.label}</p>
+                      <p className="text-sm font-medium text-[#3F3A36] card-title">{c.label}</p>
                       <p className="text-[11px] text-[#7A7571]">{formatLongDate(c.date)}</p>
                     </div>
                     <div className="text-right leading-tight">
@@ -1547,7 +1547,7 @@ const WallBoard = () => {
                   <li key={e.id} className="flex items-center gap-3 px-3.5 py-3" data-testid={`fe-row-${e.id}`}>
                     <CalendarHeart className="w-5 h-5 text-[#DB2777]" strokeWidth={1.8} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#3F3A36] truncate">{e.title}</p>
+                      <p className="text-sm font-medium text-[#3F3A36] card-title">{e.title}</p>
                       <p className="text-[11px] text-[#7A7571]">{formatLongDate(e.date)}</p>
                     </div>
                     <button
@@ -1599,7 +1599,7 @@ const WallBoard = () => {
                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: n.color }}
                     />
-                    <span className="flex-1 truncate">{n.text}</span>
+                    <span className="flex-1 card-title">{n.text}</span>
                     <button
                       type="button"
                       onClick={() => setNoteEditor({ open: true, item: n })}

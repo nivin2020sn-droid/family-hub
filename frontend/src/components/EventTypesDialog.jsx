@@ -199,7 +199,7 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-[#2D2A26] truncate">{typeItem.name}</p>
+                      <p className="text-sm font-semibold text-[#2D2A26] card-title">{typeItem.name}</p>
                       {typeItem.abbreviation && (
                         <span className="text-[10px] font-extrabold tracking-widest uppercase px-1.5 py-0.5 rounded-md bg-[#2D2A26]/10 text-[#2D2A26]">
                           {typeItem.abbreviation}
@@ -207,7 +207,7 @@ const EventTypesDialog = ({ open, onOpenChange, types, onChanged }) => {
                       )}
                     </div>
                     {typeItem.description && (
-                      <p className="text-xs text-[#7A7571] truncate">{typeItem.description}</p>
+                      <p className="text-xs text-[#7A7571] card-title">{typeItem.description}</p>
                     )}
                   </div>
                   <Button
