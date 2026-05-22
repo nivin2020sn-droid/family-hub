@@ -1015,6 +1015,206 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
   );
 };
 
+// ---------- Photo upload dialog (title + caption) ----------
+const PhotoUploadDialog = ({ state, onChange, onSave }) => {
+  const { t } = useI18n();
+  if (!state.open) return null;
+  const close = () => onChange({ open: false, image: "", title: "", caption: "" });
+  return (
+    <Dialog open={state.open} onOpenChange={(v) => !v && close()}>
+      <DialogContent
+        className="max-w-md rounded-3xl border border-[#E5E2DC] bg-white max-h-[92vh] overflow-y-auto"
+        data-testid="photo-upload-dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl text-[#2D2A26]">
+            {t("photo.upload.image")}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[#7A7571]">
+            {t("section.photo")}
+          </DialogDescription>
+        </DialogHeader>
+        {/* Live preview with overlay */}
+        <div className="rounded-2xl overflow-hidden relative bg-black">
+          <img src={state.image} alt="" className="w-full h-48 sm:h-56 object-cover" />
+          {(state.title || state.caption) && (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/65 via-black/30 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 px-4 pb-3 pt-6">
+                {state.title && (
+                  <p className="font-heading text-white text-lg font-semibold leading-tight drop-shadow card-title">
+                    {state.title}
+                  </p>
+                )}
+                {state.caption && (
+                  <p className="text-white/90 text-xs mt-1 drop-shadow card-title">
+                    {state.caption}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+              {t("photo.upload.title")}
+            </Label>
+            <Input
+              value={state.title}
+              onChange={(e) => onChange({ ...state, title: e.target.value })}
+              placeholder={t("photo.upload.titlePh")}
+              className="mt-1 rounded-xl border-[#E5E2DC]"
+              data-testid="photo-title-input"
+              maxLength={80}
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+              {t("photo.upload.caption")}
+            </Label>
+            <Textarea
+              value={state.caption}
+              onChange={(e) => onChange({ ...state, caption: e.target.value })}
+              placeholder={t("photo.upload.captionPh")}
+              className="mt-1 rounded-xl border-[#E5E2DC] min-h-[60px]"
+              data-testid="photo-caption-input"
+              maxLength={140}
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" className="rounded-full" onClick={close}>
+            {t("btn.cancel")}
+          </Button>
+          <Button
+            onClick={onSave}
+            className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+            data-testid="photo-save-btn"
+          >
+            {t("btn.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ---------- Full-screen photo viewer with overlay + navigation ----------
+const PhotoViewerDialog = ({ open, onOpenChange, photos, index, onIndexChange, onDelete }) => {
+  const { t } = useI18n();
+  if (!photos || photos.length === 0) return null;
+  const current = photos[index % photos.length];
+  const prev = () => onIndexChange((index - 1 + photos.length) % photos.length);
+  const next = () => onIndexChange((index + 1) % photos.length);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="p-0 overflow-hidden border-0 bg-black w-screen max-w-[100vw] h-[100dvh] sm:h-[100dvh] sm:max-w-[100vw] rounded-none flex flex-col"
+        data-testid="photo-viewer-dialog"
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>{current.title || t("section.photo")}</DialogTitle>
+          <DialogDescription>{current.caption || ""}</DialogDescription>
+        </DialogHeader>
+
+        {/* Top action bar */}
+        <div className="absolute top-0 inset-x-0 z-[500] flex items-center gap-2 px-3 pt-3">
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur flex items-center justify-center text-white active:scale-95"
+            aria-label={t("photo.viewer.close")}
+            data-testid="photo-viewer-close"
+          >
+            <X className="w-4 h-4" strokeWidth={2.2} />
+          </button>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => onDelete(current.id)}
+            className="w-10 h-10 rounded-full bg-white/15 hover:bg-rose-500/40 backdrop-blur flex items-center justify-center text-white active:scale-95"
+            aria-label={t("photo.viewer.delete")}
+            data-testid="photo-viewer-delete"
+          >
+            <Trash2 className="w-4 h-4" strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Image */}
+        <div className="relative flex-1 flex items-center justify-center">
+          <img
+            src={current.image}
+            alt=""
+            className="max-w-full max-h-full object-contain"
+          />
+          {/* Overlay text */}
+          {(current.title || current.caption) && (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+              <div className="absolute inset-x-0 bottom-16 px-6 text-left rtl:text-right">
+                {current.title && (
+                  <p className="font-heading text-white text-2xl sm:text-3xl font-semibold leading-tight card-title">
+                    {current.title}
+                  </p>
+                )}
+                {current.caption && (
+                  <p className="text-white/90 text-sm sm:text-base mt-2 leading-snug card-title">
+                    {current.caption}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Nav buttons */}
+          {photos.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={prev}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur flex items-center justify-center text-white active:scale-95"
+                aria-label={t("photo.viewer.prev")}
+                data-testid="photo-viewer-prev"
+              >
+                <ChevronRight className="w-5 h-5 rotate-180 rtl:rotate-0" strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                onClick={next}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur flex items-center justify-center text-white active:scale-95"
+                aria-label={t("photo.viewer.next")}
+                data-testid="photo-viewer-next"
+              >
+                <ChevronRight className="w-5 h-5 rtl:rotate-180" strokeWidth={2} />
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Dots */}
+        {photos.length > 1 && (
+          <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-1.5">
+            {photos.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onIndexChange(i)}
+                className={`h-1.5 rounded-full transition-all ${
+                  i === index % photos.length ? "w-5 bg-white" : "w-1.5 bg-white/40"
+                }`}
+                aria-label={`Photo ${i + 1}`}
+              />
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ---------- Main page ----------
 const WallBoard = () => {
   const navigate = useNavigate();
@@ -1030,6 +1230,23 @@ const WallBoard = () => {
   const [familyEvents, setFamilyEvents] = useState(() => wallFamilyEvents.cached());
 
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [photoEditor, setPhotoEditor] = useState({
+    open: false,
+    image: "",
+    title: "",
+    caption: "",
+  });
+  const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
+  // Auto-rotate the photo carousel every 4 seconds. Pause while either the
+  // upload editor or the full-screen viewer is open so users aren't disrupted.
+  useEffect(() => {
+    if (photos.length <= 1) return;
+    if (photoEditor.open || photoViewerOpen) return;
+    const id = setInterval(() => {
+      setPhotoIndex((i) => (i + 1) % photos.length);
+    }, 4000);
+    return () => clearInterval(id);
+  }, [photos.length, photoEditor.open, photoViewerOpen]);
   const [pending, setPending] = useState(() => pendingSyncCount());
 
   // Edit dialogs state
@@ -1085,27 +1302,42 @@ const WallBoard = () => {
   };
 
   // ----- Photos -----
+  // Pick → open editor dialog where the user can add title + caption.
+  // Only after save does the photo hit the backend.
   const handlePhotoPick = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
     try {
       const data = await fileToCompressedDataUrl(file, { maxDim: 1280, quality: 0.82 });
-      const optimistic = { id: uuid(), image: data, caption: "", created_at: new Date().toISOString() };
-      setPhotos((prev) => [...prev, optimistic]);
-      const r = await wallPhotos.create({ image: data }, optimistic);
-      if (r.queued) {
-        toast.message(t("settings.toast.photoLocal"));
-        setPending(pendingSyncCount());
-      } else if (r.ok) {
-        toast.success(t("settings.toast.photoAdded"));
-        setPhotos(wallPhotos.cached());
-      } else {
-        toast.error(t("settings.toast.failed"));
-        setPhotos((prev) => prev.filter((x) => x.id !== optimistic.id));
-      }
+      setPhotoEditor({ open: true, image: data, title: "", caption: "" });
     } catch {
       toast.error(t("settings.toast.cantReadPhoto"));
+    }
+  };
+  const handlePhotoSave = async () => {
+    const payload = {
+      image: photoEditor.image,
+      title: (photoEditor.title || "").trim(),
+      caption: (photoEditor.caption || "").trim(),
+    };
+    const optimistic = {
+      id: uuid(),
+      ...payload,
+      created_at: new Date().toISOString(),
+    };
+    setPhotos((prev) => [...prev, optimistic]);
+    setPhotoEditor({ open: false, image: "", title: "", caption: "" });
+    const r = await wallPhotos.create(payload, optimistic);
+    if (r.queued) {
+      toast.message(t("settings.toast.photoLocal"));
+      setPending(pendingSyncCount());
+    } else if (r.ok) {
+      toast.success(t("settings.toast.photoAdded"));
+      setPhotos(wallPhotos.cached());
+    } else {
+      toast.error(t("settings.toast.failed"));
+      setPhotos((prev) => prev.filter((x) => x.id !== optimistic.id));
     }
   };
   const handlePhotoDelete = async (id) => {
@@ -1331,41 +1563,39 @@ const WallBoard = () => {
                 label={t("btn.upload")}
               />
             ) : (
-              <div className="rounded-2xl overflow-hidden bg-white/70 relative">
+              <button
+                type="button"
+                onClick={() => setPhotoViewerOpen(true)}
+                className="block w-full rounded-2xl overflow-hidden bg-white/70 relative group active:scale-[0.997] transition"
+                data-testid="photo-card-cover"
+              >
                 <img
                   src={photos[photoIndex % photos.length].image}
                   alt=""
-                  className="w-full h-40 sm:h-44 object-cover"
+                  className="w-full h-48 sm:h-56 object-cover"
                   loading="lazy"
                 />
-                <button
-                  type="button"
-                  onClick={() => handlePhotoDelete(photos[photoIndex % photos.length].id)}
-                  className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/85 backdrop-blur flex items-center justify-center text-[#B91C1C] shadow"
-                  aria-label="Delete photo"
-                  data-testid="photo-delete-btn"
-                >
-                  <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/70 backdrop-blur flex items-center justify-center shadow disabled:opacity-0"
-                  disabled={photos.length <= 1}
-                  aria-label="Previous"
-                >
-                  <X className="w-4 h-4 rotate-45" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/70 backdrop-blur flex items-center justify-center shadow disabled:opacity-0"
-                  disabled={photos.length <= 1}
-                  aria-label="Next"
-                >
-                  <X className="w-4 h-4 -rotate-45" />
-                </button>
-              </div>
+                {/* Overlay text — title + caption above the photo, like the Hero banner. */}
+                {(photos[photoIndex % photos.length].title ||
+                  photos[photoIndex % photos.length].caption) && (
+                  <>
+                    {/* Soft gradient only behind the text so faces stay visible. */}
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/65 via-black/30 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 px-4 pb-3 pt-6 text-left rtl:text-right">
+                      {photos[photoIndex % photos.length].title && (
+                        <p className="font-heading text-white text-lg sm:text-xl font-semibold leading-tight drop-shadow card-title">
+                          {photos[photoIndex % photos.length].title}
+                        </p>
+                      )}
+                      {photos[photoIndex % photos.length].caption && (
+                        <p className="text-white/90 text-xs sm:text-sm mt-1 leading-snug drop-shadow card-title">
+                          {photos[photoIndex % photos.length].caption}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </button>
             )}
             {photos.length > 1 && (
               <div className="flex items-center justify-center gap-1.5 mt-2.5">
@@ -1805,6 +2035,23 @@ const WallBoard = () => {
           await goalsCrud.remove(id);
           toast.success(t("history.deleted"));
         }}
+      />
+
+      {/* Photo upload editor — captures title + caption BEFORE saving */}
+      <PhotoUploadDialog
+        state={photoEditor}
+        onChange={setPhotoEditor}
+        onSave={handlePhotoSave}
+      />
+
+      {/* Photo lightbox — full-screen viewer with overlay text + navigation */}
+      <PhotoViewerDialog
+        open={photoViewerOpen}
+        onOpenChange={setPhotoViewerOpen}
+        photos={photos}
+        index={photoIndex}
+        onIndexChange={setPhotoIndex}
+        onDelete={handlePhotoDelete}
       />
     </div>
   );

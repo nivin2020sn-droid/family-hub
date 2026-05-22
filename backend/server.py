@@ -123,13 +123,20 @@ class WallSettingsUpdate(BaseModel):
 class WallPhoto(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     image: str  # base64 data URL
+    title: Optional[str] = ""
     caption: Optional[str] = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class WallPhotoCreate(BaseModel):
     image: str
+    title: Optional[str] = ""
     caption: Optional[str] = ""
+
+
+class WallPhotoUpdate(BaseModel):
+    title: Optional[str] = None
+    caption: Optional[str] = None
 
 
 class WallGoal(BaseModel):
@@ -504,6 +511,20 @@ async def delete_wall_photo(photo_id: str):
     if res.deleted_count == 0:
         raise HTTPException(404, "Not found")
     return {"ok": True}
+
+
+@api_router.put("/wall/photos/{photo_id}", response_model=WallPhoto)
+async def update_wall_photo(photo_id: str, payload: WallPhotoUpdate):
+    update = payload.model_dump(exclude_unset=True)
+    if not update:
+        existing = await db.wall_photos.find_one({"id": photo_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, "Not found")
+        return existing
+    res = await db.wall_photos.update_one({"id": photo_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    return await db.wall_photos.find_one({"id": photo_id}, {"_id": 0})
 
 
 # --- Goals
