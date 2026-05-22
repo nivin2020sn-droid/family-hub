@@ -53,6 +53,8 @@ import {
   INCOME_TYPES,
   EXPENSE_CATS,
   BILL_TYPES,
+  OWNERS,
+  OWNER_COLORS,
   fmtMoney,
 } from "@/lib/budgetApi";
 
@@ -288,6 +290,14 @@ const TabBar = ({ value, onChange, t }) => {
 };
 
 // ---------- Field factories ----------
+const ownerField = (t) => ({
+  name: "owner",
+  label: t("budget.field.owner"),
+  type: "select",
+  default: "shared",
+  options: OWNERS.map((k) => ({ value: k, label: t(`budget.owner.${k}`) })),
+});
+
 const incomeFields = (t) => [
   { name: "description", label: t("budget.field.description"), type: "text", placeholder: "" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
@@ -298,6 +308,7 @@ const incomeFields = (t) => [
     default: "primary",
     options: INCOME_TYPES.map((k) => ({ value: k, label: t(`budget.income.${k}`) })),
   },
+  ownerField(t),
   { name: "date", label: t("budget.field.date"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
@@ -312,6 +323,7 @@ const expenseFields = (t) => [
     default: "food",
     options: EXPENSE_CATS.map((k) => ({ value: k, label: t(`budget.expense.${k}`) })),
   },
+  ownerField(t),
   { name: "date", label: t("budget.field.date"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
@@ -326,6 +338,7 @@ const billFields = (t) => [
     default: "fixed_monthly",
     options: BILL_TYPES.map((k) => ({ value: k, label: t(`budget.bill.${k}`) })),
   },
+  ownerField(t),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
@@ -334,6 +347,7 @@ const debtFields = (t) => [
   { name: "creditor", label: t("budget.field.creditor"), type: "text" },
   { name: "original_amount", label: t("budget.field.original"), type: "number", default: 0 },
   { name: "remaining_amount", label: t("budget.field.remaining"), type: "number", default: 0 },
+  ownerField(t),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
@@ -346,6 +360,7 @@ const loanFields = (t) => [
   { name: "term_months", label: t("budget.field.termMonths"), type: "number", default: 12 },
   { name: "monthly_payment", label: t("budget.field.monthlyPayment"), type: "number", default: 0 },
   { name: "payments_made", label: t("budget.field.paymentsMade"), type: "number", default: 0 },
+  ownerField(t),
   { name: "start_date", label: t("budget.field.startDate"), type: "date" },
 ];
 
@@ -371,6 +386,148 @@ const CompareRow = ({ label, comp, locale }) => {
   );
 };
 
+// ---------- Family Dashboard (per-wallet KPIs) ----------
+const WalletColumn = ({ ownerKey, title, kpis, locale }) => {
+  const c = OWNER_COLORS[ownerKey] || OWNER_COLORS.shared;
+  return (
+    <div
+      className="rounded-3xl border border-black/[0.03] p-3 sm:p-4 flex-1 min-w-0"
+      style={{ backgroundColor: c.soft }}
+      data-testid={`budget-wallet-${ownerKey}`}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.ring }} />
+        <h3 className="font-heading text-sm font-semibold" style={{ color: c.text }}>
+          {title}
+        </h3>
+      </div>
+      <ul className="space-y-1.5">
+        {kpis.map((k) => (
+          <li key={k.label} className="flex items-center justify-between gap-2">
+            <span className="text-[10px] uppercase tracking-wider" style={{ color: c.fg }}>
+              {k.label}
+            </span>
+            <span
+              className="text-sm font-heading font-semibold"
+              style={{ color: k.negative ? "#B91C1C" : c.text }}
+            >
+              {fmtMoney(k.value, locale)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+const FamilyDashboard = ({ summary, t, locale }) => {
+  if (!summary) return null;
+  const bo = summary.by_owner || {};
+  const get = (k, o) => (bo?.[k]?.[o] ?? 0);
+
+  // Top-level family-wide KPIs
+  const familyKpis = [
+    { label: t("budget.dashboard.familyIncome"), value: summary.income_total },
+    { label: t("budget.dashboard.familyRemaining"), value: summary.remaining, negative: (summary.remaining ?? 0) < 0 },
+    { label: t("budget.dashboard.sharedExpenses"), value: get("expense", "shared") + get("bills", "shared") },
+    { label: t("budget.dashboard.monthlyObligations"), value: summary.monthly_obligations_total },
+    { label: t("budget.summary.debts"), value: summary.debts_total },
+    { label: t("budget.dashboard.totalRemainingLoans"), value: summary.loans_total_remaining },
+  ];
+
+  const bahaaKpis = [
+    { label: t("budget.summary.income"), value: get("income", "bahaa") },
+    { label: t("budget.summary.expense"), value: get("expense", "bahaa") },
+    { label: t("budget.dashboard.monthlyObligations"), value: get("monthly_obligations", "bahaa") },
+    { label: t("budget.summary.remaining"), value: get("remaining", "bahaa"), negative: get("remaining", "bahaa") < 0 },
+  ];
+
+  const theresaKpis = [
+    { label: t("budget.summary.income"), value: get("income", "theresa") },
+    { label: t("budget.summary.expense"), value: get("expense", "theresa") },
+    { label: t("budget.dashboard.monthlyObligations"), value: get("monthly_obligations", "theresa") },
+    { label: t("budget.summary.remaining"), value: get("remaining", "theresa"), negative: get("remaining", "theresa") < 0 },
+  ];
+
+  return (
+    <div className="space-y-3" data-testid="budget-family-dashboard">
+      <div className="bg-white rounded-3xl border border-[#EFEBE4] p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-2.5">
+          <Wallet className="w-4 h-4 text-[#2D2A26]" strokeWidth={2} />
+          <h3 className="font-heading text-base font-semibold text-[#2D2A26]">
+            {t("budget.dashboard.title")}
+          </h3>
+        </div>
+        <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+          {familyKpis.map((k) => (
+            <li key={k.label} className="flex items-center justify-between gap-2 min-w-0">
+              <span className="text-[10px] uppercase tracking-wider text-[#7A7571] truncate">
+                {k.label}
+              </span>
+              <span
+                className={`text-sm font-heading font-semibold ${
+                  k.negative ? "text-rose-700" : "text-[#2D2A26]"
+                }`}
+              >
+                {fmtMoney(k.value, locale)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
+        <WalletColumn
+          ownerKey="bahaa"
+          title={t("budget.wallet.bahaa")}
+          kpis={bahaaKpis}
+          locale={locale}
+        />
+        <WalletColumn
+          ownerKey="theresa"
+          title={t("budget.wallet.theresa")}
+          kpis={theresaKpis}
+          locale={locale}
+        />
+      </div>
+    </div>
+  );
+};
+
+// ---------- Wallet filter pills ----------
+const WalletFilter = ({ value, onChange, t }) => {
+  const tabs = [
+    { key: "all", label: t("budget.wallet.all"), color: "#2D2A26" },
+    { key: "bahaa", label: t("budget.wallet.bahaa"), color: OWNER_COLORS.bahaa.ring },
+    { key: "theresa", label: t("budget.wallet.theresa"), color: OWNER_COLORS.theresa.ring },
+    { key: "shared", label: t("budget.wallet.shared"), color: OWNER_COLORS.shared.ring },
+  ];
+  return (
+    <div className="flex gap-1 bg-white rounded-full p-1 border border-[#EFEBE4] shadow-sm">
+      {tabs.map((w) => {
+        const active = value === w.key;
+        return (
+          <button
+            key={w.key}
+            type="button"
+            onClick={() => onChange(w.key)}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider py-1.5 rounded-full transition ${
+              active ? "text-white shadow" : "text-[#5C5853] hover:bg-[#F3F0EA]"
+            }`}
+            style={active ? { backgroundColor: w.color } : undefined}
+            data-testid={`budget-wallet-filter-${w.key}`}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: active ? "white" : w.color }}
+            />
+            {w.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 // ---------- Main page ----------
 const HomeBudget = () => {
   const navigate = useNavigate();
@@ -390,6 +547,7 @@ const HomeBudget = () => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorKind, setEditorKind] = useState(null); // 'income' | 'expenses' | ...
   const [editorInitial, setEditorInitial] = useState(null);
+  const [walletFilter, setWalletFilter] = useState("all"); // all | bahaa | theresa | shared
 
   const apis = useMemo(
     () => ({
@@ -486,16 +644,44 @@ const HomeBudget = () => {
   const HealthIcon = healthTheme.icon;
 
   // ---- list renderers ----
+  // Wallet filter helper — applies to all tabs uniformly.
+  const matchWallet = (it) => {
+    if (walletFilter === "all") return true;
+    const o = (it.owner || "shared").toLowerCase();
+    return o === walletFilter;
+  };
+  // Owner badge / accent helper
+  const ownerOf = (it) => (it.owner || "shared").toLowerCase();
+  const accentFor = (it) => (OWNER_COLORS[ownerOf(it)] || OWNER_COLORS.shared).ring;
+  const OwnerBadge = ({ owner }) => {
+    const o = (owner || "shared").toLowerCase();
+    const c = OWNER_COLORS[o] || OWNER_COLORS.shared;
+    return (
+      <span
+        className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+        style={{ backgroundColor: c.soft, color: c.text }}
+      >
+        {t(`budget.owner.${o}`)}
+      </span>
+    );
+  };
+
   const renderList = () => {
     if (tab === "income") {
-      if (items.income.length === 0) return <EmptyHint text={t("budget.empty.income")} />;
-      return items.income.map((it) => (
+      const filtered = items.income.filter(matchWallet);
+      if (filtered.length === 0) return <EmptyHint text={t("budget.empty.income")} />;
+      return filtered.map((it) => (
         <Row
           key={it.id}
-          left={it.description || t(`budget.income.${it.category}`)}
+          left={
+            <span className="inline-flex items-center gap-2 flex-wrap">
+              {it.description || t(`budget.income.${it.category}`)}
+              <OwnerBadge owner={it.owner} />
+            </span>
+          }
           sub={`${t(`budget.income.${it.category}`)} · ${formatDate(it.date, locale)}`}
           right={`+${fmtMoney(it.amount, locale)}`}
-          accent="#16A34A"
+          accent={accentFor(it)}
           onEdit={() => openEditor("income", it)}
           onDelete={() => deleteEntry("income", it.id)}
           testid={`budget-income-${it.id}`}
@@ -503,14 +689,20 @@ const HomeBudget = () => {
       ));
     }
     if (tab === "expenses") {
-      if (items.expenses.length === 0) return <EmptyHint text={t("budget.empty.expenses")} />;
-      return items.expenses.map((it) => (
+      const filtered = items.expenses.filter(matchWallet);
+      if (filtered.length === 0) return <EmptyHint text={t("budget.empty.expenses")} />;
+      return filtered.map((it) => (
         <Row
           key={it.id}
-          left={it.description || t(`budget.expense.${it.category}`)}
+          left={
+            <span className="inline-flex items-center gap-2 flex-wrap">
+              {it.description || t(`budget.expense.${it.category}`)}
+              <OwnerBadge owner={it.owner} />
+            </span>
+          }
           sub={`${t(`budget.expense.${it.category}`)} · ${formatDate(it.date, locale)}`}
           right={`-${fmtMoney(it.amount, locale)}`}
-          accent="#B91C1C"
+          accent={accentFor(it)}
           onEdit={() => openEditor("expenses", it)}
           onDelete={() => deleteEntry("expenses", it.id)}
           testid={`budget-expense-${it.id}`}
@@ -518,8 +710,9 @@ const HomeBudget = () => {
       ));
     }
     if (tab === "bills") {
-      if (items.bills.length === 0) return <EmptyHint text={t("budget.empty.bills")} />;
-      return items.bills.map((b) => (
+      const filtered = items.bills.filter(matchWallet);
+      if (filtered.length === 0) return <EmptyHint text={t("budget.empty.bills")} />;
+      return filtered.map((b) => (
         <div
           key={b.id}
           className="relative bg-white rounded-2xl border border-[#EFEBE4] p-3 overflow-hidden"
@@ -528,11 +721,14 @@ const HomeBudget = () => {
           <span
             aria-hidden
             className="absolute inset-y-2 left-0 w-1 rounded-full"
-            style={{ backgroundColor: b.is_paid ? "#16A34A" : "#F59E0B" }}
+            style={{ backgroundColor: accentFor(b) }}
           />
           <div className="flex items-start gap-2 pl-1.5">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#2D2A26] truncate">{b.name}</p>
+              <p className="text-sm font-semibold text-[#2D2A26] truncate inline-flex items-center gap-2 flex-wrap">
+                {b.name}
+                <OwnerBadge owner={b.owner} />
+              </p>
               <p className="text-[11px] text-[#7A7571] mt-0.5">
                 {t(`budget.bill.${b.bill_type}`)}
                 {b.due_date && ` · ${formatDate(b.due_date, locale)}`}
@@ -574,8 +770,9 @@ const HomeBudget = () => {
       ));
     }
     if (tab === "debts") {
-      if (items.debts.length === 0) return <EmptyHint text={t("budget.empty.debts")} />;
-      return items.debts.map((d) => {
+      const filtered = items.debts.filter(matchWallet);
+      if (filtered.length === 0) return <EmptyHint text={t("budget.empty.debts")} />;
+      return filtered.map((d) => {
         const statusTone = {
           unpaid: "bg-rose-100 text-rose-700",
           partial: "bg-amber-100 text-amber-700",
@@ -584,7 +781,12 @@ const HomeBudget = () => {
         return (
           <Row
             key={d.id}
-            left={d.creditor}
+            left={
+              <span className="inline-flex items-center gap-2 flex-wrap">
+                {d.creditor}
+                <OwnerBadge owner={d.owner} />
+              </span>
+            }
             sub={
               <span className="inline-flex items-center gap-2 flex-wrap">
                 <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${statusTone}`}>
@@ -603,7 +805,7 @@ const HomeBudget = () => {
                 </span>
               </span>
             }
-            accent="#F59E0B"
+            accent={accentFor(d)}
             onEdit={() => openEditor("debts", d)}
             onDelete={() => deleteEntry("debts", d.id)}
             testid={`budget-debt-${d.id}`}
@@ -612,12 +814,13 @@ const HomeBudget = () => {
       });
     }
     // loans
-    if (items.loans.length === 0) return <EmptyHint text={t("budget.empty.loans")} />;
+    const filtered = items.loans.filter(matchWallet);
+    if (filtered.length === 0) return <EmptyHint text={t("budget.empty.loans")} />;
     const progress = (summary?.loan_progress || []).reduce(
       (m, p) => ({ ...m, [p.id]: p }),
       {}
     );
-    return items.loans.map((l) => {
+    return filtered.map((l) => {
       const p = progress[l.id] || {};
       const pct = p.progress_pct || 0;
       return (
@@ -629,12 +832,15 @@ const HomeBudget = () => {
           <span
             aria-hidden
             className="absolute inset-y-2 left-0 w-1 rounded-full"
-            style={{ backgroundColor: "#7C3AED" }}
+            style={{ backgroundColor: accentFor(l) }}
           />
           <div className="pl-1.5">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-[#2D2A26] truncate">{l.name}</p>
+                <p className="text-sm font-semibold text-[#2D2A26] truncate inline-flex items-center gap-2 flex-wrap">
+                  {l.name}
+                  <OwnerBadge owner={l.owner} />
+                </p>
                 <p className="text-[11px] text-[#7A7571] mt-0.5">
                   {l.lender || "—"} · {l.interest_rate}%
                 </p>
@@ -658,12 +864,12 @@ const HomeBudget = () => {
               <div className="h-2 bg-[#F3F0EA] rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all"
-                  style={{ width: `${pct}%`, backgroundColor: "#7C3AED" }}
+                  style={{ width: `${pct}%`, backgroundColor: accentFor(l) }}
                 />
               </div>
               {p.estimated_end_date && (
                 <p className="text-[10px] text-[#7A7571] mt-1.5">
-                  {t("budget.loan.estEnd")}: {p.estimated_end_date}
+                  {t("budget.loan.estEnd")}: {p.estimated_end_date} · {fmtMoney(l.monthly_payment, locale)}/mo
                 </p>
               )}
             </div>
@@ -720,6 +926,9 @@ const HomeBudget = () => {
           </div>
         ) : (
           <>
+            {/* Family Dashboard — top-level per-wallet summary */}
+            <FamilyDashboard summary={summary} t={t} locale={locale} />
+
             {/* Summary tiles */}
             <div className="grid grid-cols-2 gap-2.5">
               <Tile
@@ -883,6 +1092,8 @@ const HomeBudget = () => {
 
             {/* Tabs + List */}
             <div className="space-y-3">
+              {/* Wallet filter pills */}
+              <WalletFilter value={walletFilter} onChange={setWalletFilter} t={t} />
               <TabBar value={tab} onChange={setTab} t={t} />
               <div className="flex justify-end">
                 <Button

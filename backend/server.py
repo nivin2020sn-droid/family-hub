@@ -1181,6 +1181,13 @@ INCOME_TYPES = {"primary", "extra", "external"}
 EXPENSE_CATS = {"food", "clothes", "travel", "maintenance", "gifts", "toys", "health", "other"}
 BILL_TYPES = {"fixed_monthly", "periodic", "yearly"}
 DEBT_STATUSES = {"unpaid", "partial", "paid"}
+OWNERS = {"bahaa", "theresa", "shared"}
+
+
+def _norm_owner(value: Optional[str]) -> str:
+    """Coerce owner to one of OWNERS; default 'shared' for legacy rows."""
+    v = (value or "shared").strip().lower()
+    return v if v in OWNERS else "shared"
 
 
 class BudgetEntry(BaseModel):
@@ -1190,6 +1197,7 @@ class BudgetEntry(BaseModel):
     description: str = ""
     amount: float
     category: str  # for income: income_type; for expense: expense_cat
+    owner: str = "shared"  # bahaa | theresa | shared
     date: str  # ISO date or datetime
     notes: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -1200,6 +1208,7 @@ class BudgetEntryCreate(BaseModel):
     description: str = ""
     amount: float
     category: str
+    owner: Optional[str] = "shared"
     date: Optional[str] = None
     notes: str = ""
 
@@ -1208,6 +1217,7 @@ class BudgetEntryUpdate(BaseModel):
     description: Optional[str] = None
     amount: Optional[float] = None
     category: Optional[str] = None
+    owner: Optional[str] = None
     date: Optional[str] = None
     notes: Optional[str] = None
 
@@ -1218,6 +1228,7 @@ class Bill(BaseModel):
     name: str
     amount: float
     bill_type: str  # one of BILL_TYPES
+    owner: str = "shared"
     due_date: Optional[str] = None  # next due date (YYYY-MM-DD)
     last_paid_at: Optional[str] = None
     is_paid: bool = False
@@ -1230,6 +1241,7 @@ class BillCreate(BaseModel):
     name: str
     amount: float
     bill_type: str
+    owner: Optional[str] = "shared"
     due_date: Optional[str] = None
     notes: str = ""
 
@@ -1238,6 +1250,7 @@ class BillUpdate(BaseModel):
     name: Optional[str] = None
     amount: Optional[float] = None
     bill_type: Optional[str] = None
+    owner: Optional[str] = None
     due_date: Optional[str] = None
     last_paid_at: Optional[str] = None
     is_paid: Optional[bool] = None
@@ -1250,6 +1263,7 @@ class Debt(BaseModel):
     creditor: str  # person or place we owe
     original_amount: float
     remaining_amount: float
+    owner: str = "shared"
     due_date: Optional[str] = None
     status: str = "unpaid"  # unpaid | partial | paid
     notes: str = ""
@@ -1261,6 +1275,7 @@ class DebtCreate(BaseModel):
     creditor: str
     original_amount: float
     remaining_amount: Optional[float] = None
+    owner: Optional[str] = "shared"
     due_date: Optional[str] = None
     notes: str = ""
 
@@ -1269,6 +1284,7 @@ class DebtUpdate(BaseModel):
     creditor: Optional[str] = None
     original_amount: Optional[float] = None
     remaining_amount: Optional[float] = None
+    owner: Optional[str] = None
     due_date: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
@@ -1284,6 +1300,7 @@ class Loan(BaseModel):
     term_months: int  # total number of months
     monthly_payment: float
     payments_made: int = 0
+    owner: str = "shared"
     start_date: Optional[str] = None
     notes: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -1298,6 +1315,7 @@ class LoanCreate(BaseModel):
     term_months: int
     monthly_payment: float
     payments_made: int = 0
+    owner: Optional[str] = "shared"
     start_date: Optional[str] = None
     notes: str = ""
 
@@ -1310,6 +1328,7 @@ class LoanUpdate(BaseModel):
     term_months: Optional[int] = None
     monthly_payment: Optional[float] = None
     payments_made: Optional[int] = None
+    owner: Optional[str] = None
     start_date: Optional[str] = None
     notes: Optional[str] = None
 
@@ -1380,6 +1399,7 @@ def _income_routes():
             description=payload.description,
             amount=payload.amount,
             category=payload.category,
+            owner=_norm_owner(payload.owner),
             date=payload.date or datetime.now(timezone.utc).isoformat(),
             notes=payload.notes,
         )
@@ -1420,6 +1440,7 @@ def _expense_routes():
             description=payload.description,
             amount=payload.amount,
             category=payload.category,
+            owner=_norm_owner(payload.owner),
             date=payload.date or datetime.now(timezone.utc).isoformat(),
             notes=payload.notes,
         )
@@ -1456,7 +1477,9 @@ def _bill_routes():
     async def create_bill(payload: BillCreate):
         if payload.bill_type not in BILL_TYPES:
             raise HTTPException(400, f"bill_type must be one of {sorted(BILL_TYPES)}")
-        obj = Bill(**payload.model_dump())
+        data = payload.model_dump()
+        data["owner"] = _norm_owner(data.get("owner"))
+        obj = Bill(**data)
         await coll.insert_one(obj.model_dump())
         return obj
 
@@ -1497,6 +1520,7 @@ def _debt_routes():
             creditor=payload.creditor,
             original_amount=payload.original_amount,
             remaining_amount=remaining,
+            owner=_norm_owner(payload.owner),
             due_date=payload.due_date,
             notes=payload.notes,
             status="paid"
@@ -1548,7 +1572,9 @@ def _loan_routes():
     async def create_loan(payload: LoanCreate):
         if payload.term_months <= 0:
             raise HTTPException(400, "term_months must be positive")
-        obj = Loan(**payload.model_dump())
+        data = payload.model_dump()
+        data["owner"] = _norm_owner(data.get("owner"))
+        obj = Loan(**data)
         await coll.insert_one(obj.model_dump())
         return obj
 
@@ -1599,9 +1625,23 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
         prev_year, prev_month = year, month - 1
     pstart, pend = _month_bounds(prev_year, prev_month)
 
-    # Income / expense totals (this & previous month)
-    income_total = await _sum_entries(db.budget_income, start, end)
-    expense_total = await _sum_entries(db.budget_expenses, start, end)
+    # Income / expense totals (this & previous month) + per-owner breakdown
+    income_total = 0.0
+    expense_total = 0.0
+    by_owner_income = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    by_owner_expense = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    async for doc in db.budget_income.find(
+        {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1, "owner": 1}
+    ):
+        amt = float(doc.get("amount") or 0)
+        income_total += amt
+        by_owner_income[_norm_owner(doc.get("owner"))] += amt
+    async for doc in db.budget_expenses.find(
+        {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1, "owner": 1}
+    ):
+        amt = float(doc.get("amount") or 0)
+        expense_total += amt
+        by_owner_expense[_norm_owner(doc.get("owner"))] += amt
     prev_income = await _sum_entries(db.budget_income, pstart, pend)
     prev_expense = await _sum_entries(db.budget_expenses, pstart, pend)
 
@@ -1625,13 +1665,30 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
     debts = await db.budget_debts.find({}, {"_id": 0}).to_list(500)
     loans = await db.budget_loans.find({}, {"_id": 0}).to_list(200)
 
-    # This month's bill cost (sum of monthly contribution)
-    bills_month_total = sum(_bill_month_cost(b) for b in bills if not b.get("is_paid"))
+    # This month's bill cost (sum of monthly contribution) + per-owner split
+    bills_month_total = 0.0
+    bills_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    for b in bills:
+        if b.get("is_paid"):
+            continue
+        cost = _bill_month_cost(b)
+        bills_month_total += cost
+        bills_by_owner[_norm_owner(b.get("owner"))] += cost
 
-    debts_total = sum(float(d.get("remaining_amount") or 0) for d in debts)
+    debts_total = 0.0
+    debts_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    for d in debts:
+        r = float(d.get("remaining_amount") or 0)
+        debts_total += r
+        debts_by_owner[_norm_owner(d.get("owner"))] += r
+
+    # Loans: monthly payment = real monthly burden, NOT principal.
     loans_total_remaining = 0.0
     loans_principal = 0.0
     loans_paid = 0.0
+    loans_remaining_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    loans_monthly_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    loans_monthly_total = 0.0
     for ln in loans:
         principal = float(ln.get("principal") or 0)
         monthly = float(ln.get("monthly_payment") or 0)
@@ -1639,12 +1696,33 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
         term = int(ln.get("term_months") or 0)
         paid_amt = monthly * made
         remaining_amt = max(0.0, principal - paid_amt)
+        owner = _norm_owner(ln.get("owner"))
         loans_principal += principal
         loans_paid += paid_amt
         loans_total_remaining += remaining_amt
+        loans_remaining_by_owner[owner] += remaining_amt
+        # Only count active loans (term not finished) in the monthly burden.
+        if made < term:
+            loans_monthly_by_owner[owner] += monthly
+            loans_monthly_total += monthly
 
-    # Remaining = income - expense - this-month's recurring bill cost (already-paid bills excluded above)
-    remaining = income_total - expense_total - bills_month_total
+    # Remaining = income - expense - this-month's recurring bill cost - monthly loan payments.
+    remaining = income_total - expense_total - bills_month_total - loans_monthly_total
+
+    # Per-owner remaining (best-effort: own income/expense + own share of bills + own loans).
+    remaining_by_owner = {
+        k: by_owner_income[k]
+        - by_owner_expense[k]
+        - bills_by_owner[k]
+        - loans_monthly_by_owner[k]
+        for k in OWNERS
+    }
+
+    # Total monthly obligations = bills (monthly contribution) + loan monthlies
+    monthly_obligations_total = bills_month_total + loans_monthly_total
+    monthly_obligations_by_owner = {
+        k: bills_by_owner[k] + loans_monthly_by_owner[k] for k in OWNERS
+    }
 
     # Upcoming bills in next 14 days for the health signal & 7d forecast
     bills_next_14 = _next_n_days_bills(bills, 14, now)
@@ -1712,6 +1790,7 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
             {
                 "id": ln["id"],
                 "name": ln.get("name", ""),
+                "owner": _norm_owner(ln.get("owner")),
                 "principal": principal,
                 "paid": paid_amt,
                 "remaining": remaining_amt,
@@ -1734,6 +1813,18 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
         "loans_total_remaining": round(loans_total_remaining, 2),
         "loans_principal_total": round(loans_principal, 2),
         "loans_paid_total": round(loans_paid, 2),
+        "loans_monthly_total": round(loans_monthly_total, 2),
+        "monthly_obligations_total": round(monthly_obligations_total, 2),
+        "by_owner": {
+            "income": {k: round(v, 2) for k, v in by_owner_income.items()},
+            "expense": {k: round(v, 2) for k, v in by_owner_expense.items()},
+            "bills": {k: round(v, 2) for k, v in bills_by_owner.items()},
+            "debts": {k: round(v, 2) for k, v in debts_by_owner.items()},
+            "loans_remaining": {k: round(v, 2) for k, v in loans_remaining_by_owner.items()},
+            "loans_monthly": {k: round(v, 2) for k, v in loans_monthly_by_owner.items()},
+            "monthly_obligations": {k: round(v, 2) for k, v in monthly_obligations_by_owner.items()},
+            "remaining": {k: round(v, 2) for k, v in remaining_by_owner.items()},
+        },
         "expense_breakdown": {k: round(v, 2) for k, v in breakdown.items()},
         "upcoming_bills": [
             {**b, "_due": d.isoformat()} for b, d in bills_next_14

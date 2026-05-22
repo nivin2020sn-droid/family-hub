@@ -58,6 +58,14 @@ export const EXPENSE_CATS = [
   "other",
 ];
 export const BILL_TYPES = ["fixed_monthly", "periodic", "yearly"];
+export const OWNERS = ["bahaa", "theresa", "shared"];
+
+// Wallet color palette — mirrors the Time Plan profile colors.
+export const OWNER_COLORS = {
+  bahaa: { ring: "#3B82F6", soft: "#DBEAFE", fg: "#1D4ED8", text: "#1E3A8A" },
+  theresa: { ring: "#EC4899", soft: "#FCE7F3", fg: "#BE185D", text: "#831843" },
+  shared: { ring: "#10B981", soft: "#D1FAE5", fg: "#047857", text: "#065F46" },
+};
 
 export function fmtMoney(value, locale = "en-US", currency = "EUR") {
   const n = Number(value) || 0;
