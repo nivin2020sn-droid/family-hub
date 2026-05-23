@@ -543,6 +543,25 @@ export const TRANSLATIONS = {
     "photo.viewer.prev": "Previous photo",
     "photo.viewer.next": "Next photo",
     "photo.viewer.delete": "Delete photo",
+
+    // ===== Shopping List =====
+    "shopping.title": "Shopping List",
+    "shopping.addPlaceholder": "Add an item…",
+    "shopping.add": "Add",
+    "shopping.empty": "Your shopping list is empty",
+    "shopping.finish": "Finished Shopping",
+    "shopping.finish.confirm.title": "Finished shopping?",
+    "shopping.finish.confirm.desc": "Purchased items will be removed. Unpurchased items will remain on the list.",
+    "shopping.finish.confirm.btn": "Yes, finish",
+    "shopping.markPurchased": "Mark as purchased",
+    "shopping.markUnpurchased": "Mark as not purchased",
+    "shopping.toast.addFailed": "Could not add item",
+    "shopping.toast.updateFailed": "Could not update item",
+    "shopping.toast.deleteFailed": "Could not delete item",
+    "shopping.toast.finishFailed": "Could not finish shopping",
+    "shopping.toast.finished": "{n} purchased items removed",
+    "common.loading": "Loading…",
+    "btn.back": "Back",
   },
 
   ar: {
@@ -1058,6 +1077,25 @@ export const TRANSLATIONS = {
     "photo.viewer.prev": "الصورة السابقة",
     "photo.viewer.next": "الصورة التالية",
     "photo.viewer.delete": "حذف الصورة",
+
+    // ===== Shopping List =====
+    "shopping.title": "قائمة المشتريات",
+    "shopping.addPlaceholder": "أضف عنصراً…",
+    "shopping.add": "إضافة",
+    "shopping.empty": "قائمة المشتريات فارغة",
+    "shopping.finish": "انتهيت من التسوق",
+    "shopping.finish.confirm.title": "هل انتهيت من التسوق؟",
+    "shopping.finish.confirm.desc": "سيتم حذف العناصر المشتراة. تبقى العناصر غير المشتراة في القائمة.",
+    "shopping.finish.confirm.btn": "نعم، انتهيت",
+    "shopping.markPurchased": "تحديد كمشترى",
+    "shopping.markUnpurchased": "تحديد كغير مشترى",
+    "shopping.toast.addFailed": "تعذّر إضافة العنصر",
+    "shopping.toast.updateFailed": "تعذّر تحديث العنصر",
+    "shopping.toast.deleteFailed": "تعذّر حذف العنصر",
+    "shopping.toast.finishFailed": "تعذّر إنهاء التسوق",
+    "shopping.toast.finished": "تم حذف {n} عنصراً مشترى",
+    "common.loading": "جارٍ التحميل…",
+    "btn.back": "رجوع",
   },
 
   de: {
@@ -1573,6 +1611,25 @@ export const TRANSLATIONS = {
     "photo.viewer.prev": "Vorheriges Foto",
     "photo.viewer.next": "Nächstes Foto",
     "photo.viewer.delete": "Foto löschen",
+
+    // ===== Shopping List =====
+    "shopping.title": "Einkaufsliste",
+    "shopping.addPlaceholder": "Artikel hinzufügen…",
+    "shopping.add": "Hinzufügen",
+    "shopping.empty": "Deine Einkaufsliste ist leer",
+    "shopping.finish": "Einkauf beendet",
+    "shopping.finish.confirm.title": "Einkauf abgeschlossen?",
+    "shopping.finish.confirm.desc": "Gekaufte Artikel werden entfernt. Nicht gekaufte Artikel bleiben auf der Liste.",
+    "shopping.finish.confirm.btn": "Ja, beenden",
+    "shopping.markPurchased": "Als gekauft markieren",
+    "shopping.markUnpurchased": "Als nicht gekauft markieren",
+    "shopping.toast.addFailed": "Artikel konnte nicht hinzugefügt werden",
+    "shopping.toast.updateFailed": "Artikel konnte nicht aktualisiert werden",
+    "shopping.toast.deleteFailed": "Artikel konnte nicht gelöscht werden",
+    "shopping.toast.finishFailed": "Einkauf konnte nicht beendet werden",
+    "shopping.toast.finished": "{n} gekaufte Artikel entfernt",
+    "common.loading": "Wird geladen…",
+    "btn.back": "Zurück",
   },
 };
 

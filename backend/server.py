@@ -1864,6 +1864,65 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
     }
 
 
+# ============= Shopping List =============
+# Simple family-shared shopping list. Each item only tracks whether it has been
+# purchased. "Finish shopping" removes purchased items and keeps the rest.
+
+class ShoppingItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    purchased: bool = False
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ShoppingItemCreate(BaseModel):
+    name: str
+
+
+@api_router.get("/shopping", response_model=List[ShoppingItem])
+async def list_shopping_items():
+    docs = await db.shopping_items.find({}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    return [ShoppingItem(**d) for d in docs]
+
+
+@api_router.post("/shopping", response_model=ShoppingItem)
+async def create_shopping_item(payload: ShoppingItemCreate):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Item name is required")
+    item = ShoppingItem(name=name)
+    await db.shopping_items.insert_one(item.model_dump())
+    return item
+
+
+@api_router.patch("/shopping/{item_id}/toggle", response_model=ShoppingItem)
+async def toggle_shopping_item(item_id: str):
+    existing = await db.shopping_items.find_one({"id": item_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
+    new_state = not bool(existing.get("purchased"))
+    await db.shopping_items.update_one(
+        {"id": item_id}, {"$set": {"purchased": new_state}}
+    )
+    existing["purchased"] = new_state
+    return ShoppingItem(**existing)
+
+
+@api_router.delete("/shopping/{item_id}")
+async def delete_shopping_item(item_id: str):
+    res = await db.shopping_items.delete_one({"id": item_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"ok": True}
+
+
+@api_router.post("/shopping/finish")
+async def finish_shopping():
+    res = await db.shopping_items.delete_many({"purchased": True})
+    return {"ok": True, "removed": res.deleted_count}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

@@ -88,3 +88,16 @@
 
 ## Next Tasks
 - After user review: choose between deepening Time Plan (recurring, drag-drop), starting Home Budget MVP, or building the standalone Android Sender app to start feeding real location data into the new endpoints.
+
+## Implemented (Feb 2026 — Shopping List)
+- New standalone **Shopping List** module accessible from a shopping-cart icon in the WallBoard top bar.
+- **Backend** (`server.py`): `ShoppingItem` model + 5 endpoints under `/api/shopping`:
+  - `GET /api/shopping`, `POST /api/shopping`, `PATCH /api/shopping/{id}/toggle`, `DELETE /api/shopping/{id}`, `POST /api/shopping/finish` (deletes only purchased items, keeps unpurchased ones).
+  - New MongoDB collection: `shopping_items` `{id, name, purchased, created_at}`.
+- **Frontend**:
+  - `pages/ShoppingList.jsx` — minimal mobile-first UI: input + Add button, tappable rows with checkbox + delete, "Finished Shopping" button with confirmation dialog.
+  - `lib/shoppingApi.js` — thin axios client (no offline queue; feature is light enough).
+  - Route `/shopping` added to `App.js`.
+  - Shopping cart icon added to WallBoard top bar (`wall-shopping-btn`).
+- **i18n**: 18 new `shopping.*` / `common.*` / `btn.back` keys × 3 locales (EN/AR/DE).
+- **Tested**: backend curl flow verified (create 3 items → toggle 2 → finish → only unpurchased item remained). Frontend smoke-tested via screenshot.

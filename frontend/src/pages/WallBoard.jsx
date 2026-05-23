@@ -28,6 +28,7 @@ import {
   Clock,
   Repeat,
   ChevronRight,
+  ShoppingCart,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -1446,6 +1447,16 @@ const WallBoard = () => {
             </div>
           </div>
           <div className="flex items-center gap-1 -mr-1">
+            <button
+              type="button"
+              onClick={() => navigate("/shopping")}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[#2D2A26] active:bg-[#F3F0EA]"
+              data-testid="wall-shopping-btn"
+              aria-label={t("shopping.title")}
+              title={t("shopping.title")}
+            >
+              <ShoppingCart className="w-5 h-5" strokeWidth={1.8} />
+            </button>
             <button
               type="button"
               onClick={forceSync}
