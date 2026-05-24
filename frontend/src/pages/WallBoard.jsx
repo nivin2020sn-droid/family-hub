@@ -106,6 +106,81 @@ function formatDateTime(iso) {
 
 const NOTE_COLORS = ["#60A5FA", "#34D399", "#A78BFA", "#F87171", "#FBBF24", "#F472B6"];
 
+// ---------- Birthday / yearly-event helpers ----------
+// Family Events are stored with the person's real birth date (YYYY-MM-DD).
+// On the Wall Board we treat them as recurring yearly anniversaries, so we
+// compute the next occurrence (month+day) and derive age + days remaining
+// from that — without ever mutating the stored value.
+
+// Returns the next future occurrence (Date at local midnight) of the given
+// birth date's month/day. If today matches month+day it returns today.
+function nextOccurrence(isoDate) {
+  if (!isoDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return null;
+  const month = parseInt(m[2], 10) - 1;
+  const day = parseInt(m[3], 10);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let candidate = new Date(today.getFullYear(), month, day);
+  candidate.setHours(0, 0, 0, 0);
+  if (candidate.getTime() < today.getTime()) {
+    candidate = new Date(today.getFullYear() + 1, month, day);
+    candidate.setHours(0, 0, 0, 0);
+  }
+  return candidate;
+}
+
+function daysUntilNextOccurrence(isoDate) {
+  const next = nextOccurrence(isoDate);
+  if (!next) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((next.getTime() - today.getTime()) / 86400000);
+}
+
+// Current age computed from birth date. Returns null if no birth year was
+// provided (e.g. the date stored is the upcoming event itself, not a DOB).
+function currentAge(isoDate) {
+  if (!isoDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return null;
+  const birth = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age >= 0 ? age : null;
+}
+
+// Format the next occurrence as a long date (e.g. "October 15, 2026").
+function formatNextOccurrence(isoDate) {
+  const next = nextOccurrence(isoDate);
+  if (!next) return "";
+  try {
+    return next.toLocaleDateString("en-US", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
+// Weekday name of the next occurrence (e.g. "Thursday").
+function nextOccurrenceWeekday(isoDate) {
+  const next = nextOccurrence(isoDate);
+  if (!next) return "";
+  try {
+    return next.toLocaleDateString("en-US", { weekday: "long" });
+  } catch {
+    return "";
+  }
+}
+
 // ---------- Section shell ----------
 const SectionCard = ({
   icon: Icon,
@@ -656,6 +731,129 @@ const NoteEditor = ({ open, onOpenChange, initial, onSave }) => {
   );
 };
 
+// ---------- Family event detail dialog (birthday card) ----------
+const FamilyEventDetailDialog = ({ open, onOpenChange, item, onEdit, onDelete }) => {
+  const { t } = useI18n();
+  if (!item) return null;
+  const days = daysUntilNextOccurrence(item.date);
+  const age = currentAge(item.date);
+  const nextAge = age != null ? age + 1 : null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white overflow-hidden"
+        data-testid="fe-detail-dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl text-[#2D2A26] flex items-center gap-2">
+            <CalendarHeart className="w-5 h-5 text-[#DB2777]" strokeWidth={2} />
+            <span className="card-title flex-1">{item.title}</span>
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[#7A7571]">
+            {nextOccurrenceWeekday(item.date)} · {formatNextOccurrence(item.date)}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Big countdown banner */}
+        <div className="rounded-2xl bg-[#FDE7F1] border border-[#FBCFE8] p-4 text-center">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[#9D174D] font-semibold">
+            {t("fe.detail.daysLeft")}
+          </p>
+          <p className="font-heading text-4xl font-bold text-[#DB2777] mt-1 leading-none">
+            {days != null ? days : "—"}
+          </p>
+          <p className="text-[11px] text-[#9D174D] mt-1">
+            {days === 0 ? t("fe.today") : t("fe.daysSuffix")}
+          </p>
+        </div>
+
+        {/* Detail rows */}
+        <ul className="space-y-2">
+          <li className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#EFEBE4]">
+            <CalendarDays className="w-4 h-4 text-[#7A7571] mt-0.5" strokeWidth={1.8} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.15em] text-[#7A7571] font-semibold">
+                {t("fe.detail.birthday")}
+              </p>
+              <p className="text-sm text-[#2D2A26]">{formatLongDate(item.date)}</p>
+            </div>
+          </li>
+          {age != null && (
+            <li className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#EFEBE4]">
+              <Heart className="w-4 h-4 text-[#7A7571] mt-0.5" strokeWidth={1.8} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-[#7A7571] font-semibold">
+                  {t("fe.detail.currentAge")}
+                </p>
+                <p className="text-sm text-[#2D2A26]">{age}</p>
+              </div>
+            </li>
+          )}
+          {nextAge != null && (
+            <li className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#EFEBE4]">
+              <Trophy className="w-4 h-4 text-[#7A7571] mt-0.5" strokeWidth={1.8} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-[#7A7571] font-semibold">
+                  {t("fe.detail.nextAge")}
+                </p>
+                <p className="text-sm text-[#2D2A26]">{nextAge}</p>
+              </div>
+            </li>
+          )}
+          {item.notes && (
+            <li className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#EFEBE4]">
+              <StickyNote className="w-4 h-4 text-[#7A7571] mt-0.5" strokeWidth={1.8} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-[#7A7571] font-semibold">
+                  {t("editor.field.notes")}
+                </p>
+                <p className="text-sm text-[#2D2A26] break-words whitespace-pre-wrap">{item.notes}</p>
+              </div>
+            </li>
+          )}
+        </ul>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="rounded-full text-[#B91C1C]"
+            onClick={() => {
+              onOpenChange(false);
+              onDelete(item.id);
+            }}
+            data-testid="fe-detail-delete"
+          >
+            <Trash2 className="w-4 h-4 ltr:mr-1 rtl:ml-1" />
+            {t("btn.delete")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full"
+            onClick={() => {
+              onOpenChange(false);
+              onEdit(item);
+            }}
+            data-testid="fe-detail-edit"
+          >
+            <Pencil className="w-4 h-4 ltr:mr-1 rtl:ml-1" />
+            {t("btn.edit")}
+          </Button>
+          <Button
+            type="button"
+            className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+            onClick={() => onOpenChange(false)}
+            data-testid="fe-detail-close"
+          >
+            {t("btn.close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ---------- Family event editor ----------
 const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
   const { t } = useI18n();
@@ -686,7 +884,7 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
             />
           </div>
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.date")}</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("fe.editor.birthDate")}</Label>
             <Input
               type="date"
               value={date}
@@ -694,6 +892,7 @@ const FamilyEventEditor = ({ open, onOpenChange, initial, onSave }) => {
               className="rounded-2xl mt-1.5"
               data-testid="fe-date-input"
             />
+            <p className="text-[10px] text-[#9CA3AF] mt-1">{t("fe.editor.birthDateHint")}</p>
           </div>
           <div>
             <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("editor.field.notes")}</Label>
@@ -1258,6 +1457,8 @@ const WallBoard = () => {
   const [achEditor, setAchEditor] = useState({ open: false, item: null });
   const [noteEditor, setNoteEditor] = useState({ open: false, item: null });
   const [feEditor, setFeEditor] = useState({ open: false, item: null });
+  const [feDetail, setFeDetail] = useState({ open: false, item: null });
+  const [feShowAll, setFeShowAll] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [goalHistoryOpen, setGoalHistoryOpen] = useState(false);
   const photoInputRef = useRef(null);
@@ -1411,10 +1612,13 @@ const WallBoard = () => {
   }, [countdown]);
 
   const upcomingFamilyEvents = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    // Treat each event as a recurring yearly anniversary so birthdays from
+    // any year (e.g. 1988) keep surfacing every year. Sort by days remaining
+    // ascending so the closest one is always first.
     return [...familyEvents]
-      .filter((e) => e.date >= today)
-      .sort((a, b) => (a.date < b.date ? -1 : 1));
+      .map((e) => ({ ...e, _days: daysUntilNextOccurrence(e.date) }))
+      .filter((e) => e._days !== null)
+      .sort((a, b) => (a._days ?? 9999) - (b._days ?? 9999));
   }, [familyEvents]);
 
   const isActive = (path) => location.pathname === path;
@@ -1783,33 +1987,52 @@ const WallBoard = () => {
                 label={t("empty.familyEvents.add")}
               />
             ) : (
-              <ul className="bg-white/70 rounded-2xl divide-y divide-[#EFEBE4]">
-                {upcomingFamilyEvents.map((e) => (
-                  <li key={e.id} className="flex items-center gap-3 px-3.5 py-3" data-testid={`fe-row-${e.id}`}>
-                    <CalendarHeart className="w-5 h-5 text-[#DB2777]" strokeWidth={1.8} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#3F3A36] card-title">{e.title}</p>
-                      <p className="text-[11px] text-[#7A7571]">{formatLongDate(e.date)}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setFeEditor({ open: true, item: e })}
-                      className="w-7 h-7 rounded-full hover:bg-[#F3F0EA] flex items-center justify-center text-[#7A7571]"
-                      aria-label="Edit"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => feCrud.remove(e.id)}
-                      className="w-7 h-7 rounded-full hover:bg-[#FEE2E2] flex items-center justify-center text-[#B91C1C]"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="bg-white/70 rounded-2xl divide-y divide-[#EFEBE4] overflow-hidden">
+                  {(feShowAll ? upcomingFamilyEvents : upcomingFamilyEvents.slice(0, 5)).map((e) => {
+                    const days = e._days;
+                    return (
+                      <li
+                        key={e.id}
+                        data-testid={`fe-row-${e.id}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setFeDetail({ open: true, item: e })}
+                          className="w-full flex items-center gap-3 px-3.5 py-3 text-left rtl:text-right hover:bg-white/70 active:bg-white transition-colors"
+                          data-testid={`fe-open-${e.id}`}
+                        >
+                          <CalendarHeart className="w-5 h-5 text-[#DB2777] flex-shrink-0" strokeWidth={1.8} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-[#3F3A36] card-title">{e.title}</p>
+                            <p className="text-[11px] text-[#7A7571]">{formatNextOccurrence(e.date)}</p>
+                          </div>
+                          <div className="flex flex-col items-end flex-shrink-0">
+                            <span className="text-base font-bold text-[#DB2777] leading-none">
+                              {days != null ? days : "—"}
+                            </span>
+                            <span className="text-[10px] uppercase tracking-wider text-[#9D174D] mt-0.5">
+                              {days === 0 ? t("fe.today") : t("fe.daysLeft")}
+                            </span>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {upcomingFamilyEvents.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setFeShowAll((v) => !v)}
+                    className="mt-2 w-full rounded-2xl bg-white/70 hover:bg-white border border-[#FBCFE8] px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#DB2777] active:scale-[0.99] transition"
+                    data-testid="fe-view-all-btn"
+                  >
+                    {feShowAll
+                      ? t("fe.showLess")
+                      : t("fe.viewAll", { n: upcomingFamilyEvents.length })}
+                  </button>
+                )}
+              </>
             )}
           </SectionCard>
 
@@ -2019,6 +2242,13 @@ const WallBoard = () => {
           else await feCrud.create(payload);
           setFeEditor({ open: false, item: null });
         }}
+      />
+      <FamilyEventDetailDialog
+        open={feDetail.open}
+        onOpenChange={(v) => setFeDetail({ open: v, item: v ? feDetail.item : null })}
+        item={feDetail.item}
+        onEdit={(item) => setFeEditor({ open: true, item })}
+        onDelete={(id) => feCrud.remove(id)}
       />
       <WallSettingsDialog
         open={settingsOpen}

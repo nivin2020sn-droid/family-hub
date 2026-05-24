@@ -101,3 +101,14 @@
   - Shopping cart icon added to WallBoard top bar (`wall-shopping-btn`).
 - **i18n**: 18 new `shopping.*` / `common.*` / `btn.back` keys × 3 locales (EN/AR/DE).
 - **Tested**: backend curl flow verified (create 3 items → toggle 2 → finish → only unpurchased item remained). Frontend smoke-tested via screenshot.
+
+## Implemented (Feb 2026 — Family Events as recurring birthdays)
+- Family Events now behaves as a **birthday card** module with no hard item limit.
+- **Yearly recurrence logic** (frontend-only, no schema migration): `nextOccurrence`, `daysUntilNextOccurrence`, `currentAge`, `nextOccurrenceWeekday` helpers compute the next future month+day match from the stored birth date.
+- Removed the buggy `e.date >= today` filter that hid all birthdays with a past birth year (1988, 1960 …).
+- **Card layout**: each row shows name + next-occurrence date + a pink "DAYS LEFT" badge, sorted by closest first. Card shows the first 5 by default; **"View All (N)"** button reveals the rest. Tapping a row opens a detail dialog.
+- **Detail dialog** (`FamilyEventDetailDialog`): weekday + next-occurrence date, big countdown banner, BIRTHDAY (full DOB), CURRENT AGE, NEXT BIRTHDAY (next age), notes (if any), Delete / Edit / Close actions.
+- **Editor** updated: date field relabeled "Birth Date" with a small hint explaining it powers the age & yearly countdown.
+- **i18n**: 12 new `fe.*` keys × 3 locales (EN/AR/DE).
+- **Tested**: curl-seeded 6 birthdays with years 1960–2020, verified list, sorting, "View All (6)" button, and the detail dialog (Bahaa: 37 → 38, 144 days). Test data cleaned up after verification.
+

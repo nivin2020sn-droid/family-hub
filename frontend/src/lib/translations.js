@@ -562,6 +562,19 @@ export const TRANSLATIONS = {
     "shopping.toast.finished": "{n} purchased items removed",
     "common.loading": "Loading…",
     "btn.back": "Back",
+
+    // ===== Family Events (birthday cards) =====
+    "fe.daysLeft": "Days Left",
+    "fe.today": "Today",
+    "fe.daysSuffix": "until next celebration",
+    "fe.viewAll": "View All ({n})",
+    "fe.showLess": "Show less",
+    "fe.editor.birthDate": "Birth Date",
+    "fe.editor.birthDateHint": "Used to calculate age and yearly countdown.",
+    "fe.detail.birthday": "Birthday",
+    "fe.detail.currentAge": "Current Age",
+    "fe.detail.nextAge": "Next Birthday",
+    "fe.detail.daysLeft": "Days Remaining",
   },
 
   ar: {
@@ -1096,6 +1109,19 @@ export const TRANSLATIONS = {
     "shopping.toast.finished": "تم حذف {n} عنصراً مشترى",
     "common.loading": "جارٍ التحميل…",
     "btn.back": "رجوع",
+
+    // ===== Family Events (بطاقات أعياد الميلاد) =====
+    "fe.daysLeft": "يوماً متبقياً",
+    "fe.today": "اليوم",
+    "fe.daysSuffix": "حتى الاحتفال القادم",
+    "fe.viewAll": "عرض الكل ({n})",
+    "fe.showLess": "عرض أقل",
+    "fe.editor.birthDate": "تاريخ الميلاد",
+    "fe.editor.birthDateHint": "يُستخدم لحساب العمر والعد التنازلي السنوي.",
+    "fe.detail.birthday": "تاريخ الميلاد",
+    "fe.detail.currentAge": "العمر الحالي",
+    "fe.detail.nextAge": "العمر القادم",
+    "fe.detail.daysLeft": "الأيام المتبقية",
   },
 
   de: {
@@ -1630,6 +1656,19 @@ export const TRANSLATIONS = {
     "shopping.toast.finished": "{n} gekaufte Artikel entfernt",
     "common.loading": "Wird geladen…",
     "btn.back": "Zurück",
+
+    // ===== Family Events (Geburtstagskarten) =====
+    "fe.daysLeft": "Tage verbleibend",
+    "fe.today": "Heute",
+    "fe.daysSuffix": "bis zur nächsten Feier",
+    "fe.viewAll": "Alle anzeigen ({n})",
+    "fe.showLess": "Weniger anzeigen",
+    "fe.editor.birthDate": "Geburtsdatum",
+    "fe.editor.birthDateHint": "Wird zur Berechnung des Alters und des jährlichen Countdowns verwendet.",
+    "fe.detail.birthday": "Geburtstag",
+    "fe.detail.currentAge": "Aktuelles Alter",
+    "fe.detail.nextAge": "Nächster Geburtstag",
+    "fe.detail.daysLeft": "Verbleibende Tage",
   },
 };
 
