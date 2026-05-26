@@ -46,6 +46,25 @@ export async function fetchBudgetSummary() {
   }
 }
 
+export async function fetchBudgetForecast(year, month) {
+  const r = await api.get(`/api/budget/forecast?year=${year}&month=${month}`);
+  return r.data;
+}
+
+export async function fetchBudgetForecastRange(months = 6) {
+  const r = await api.get(`/api/budget/forecast/range?months=${months}`);
+  return r.data;
+}
+
+export async function fetchExpiringContracts() {
+  try {
+    const r = await api.get("/api/budget/contracts/expiring");
+    return r.data?.expiring || [];
+  } catch {
+    return [];
+  }
+}
+
 export const INCOME_TYPES = ["primary", "extra", "external"];
 export const EXPENSE_CATS = [
   "food",

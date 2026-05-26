@@ -112,3 +112,21 @@
 - **i18n**: 12 new `fe.*` keys × 3 locales (EN/AR/DE).
 - **Tested**: curl-seeded 6 birthdays with years 1960–2020, verified list, sorting, "View All (6)" button, and the detail dialog (Bahaa: 37 → 38, 144 days). Test data cleaned up after verification.
 
+## Implemented (Feb 2026 — Financial Forecast & Contract Lifecycle)
+- New **Financial Forecast** card inside Family Budget. Users pick any month/year (← →) and see predicted income, bills, loan payments, debts due, total obligations, and remaining balance.
+- **Backend** (`server.py`):
+  - Extended `Bill` model with `start_date`, `end_date`, `auto_renew`, `notes` (notes already present).
+  - New endpoint `GET /api/budget/forecast?year=&month=`: returns single-month forecast + delta vs current month + a `changes` block listing loans that ended / contracts that expired between today and the forecast month.
+  - New endpoint `GET /api/budget/forecast/range?months=6`: rolling N-month outlook (used by the dialog's "Show 6-month outlook" button).
+  - New endpoint `GET /api/budget/contracts/expiring`: bills with `end_date` in the next 92 days, bucketed as `3_months` / `1_month` / `2_weeks`.
+  - Forecast logic respects the brief: a bill is **active in (Y, M)** only when its contract window covers that month *or* `auto_renew` is true; a loan installment counts **only its `monthly_payment`** and **only** while the term (start_date + term_months) hasn't ended; debts are counted only if `due_date` falls inside the target month and `status != "paid"`.
+  - Recurring income estimate = average of the last 3 completed months' income totals (falls back to the current month if no history).
+- **Frontend**:
+  - Bill editor now exposes `start_date`, `end_date`, `auto_renew` (new `checkbox` field type supported by the dynamic form).
+  - `ForecastDialog` component: month stepper, big "Expected Remaining" banner, breakdown rows, comparison to current month with reason (e.g. "Loan ended: Car Loan"), and an expandable "Next 6 months" list with tap-to-jump.
+  - `ExpiringContractsAlert`: inline reminder card listing bills ending within 2 weeks / 1 month / 3 months, with a colored bucket badge and an "Open forecast" shortcut.
+  - `lib/budgetApi.js`: added `fetchBudgetForecast`, `fetchBudgetForecastRange`, `fetchExpiringContracts`.
+- **i18n**: 38 new keys × 3 locales (EN/AR/DE) covering all forecast labels, month names, contract buckets, and editor field labels.
+- **Tested**: seeded recurring salaries + an O2 contract ending 2026-12-31, Netflix auto-renew, Car Loan ending Oct 2026; curl + screenshot proved: Sep 2026 included the loan (Bills 54.99, Loans 300, Remaining 2511.68), Nov 2026 dropped the loan (Loans 0, Remaining 2811.68, "Loan ended: Car Loan"), Feb 2027 dropped O2 (only Netflix counted). 6-month outlook visualised the Oct→Nov jump. Test data cleaned up.
+
+

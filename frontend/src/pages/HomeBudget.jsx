@@ -27,6 +27,10 @@ import {
   Loader2,
   ArrowRightLeft,
   Building2,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Bell,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -50,6 +54,9 @@ import {
   budgetDebts,
   budgetLoans,
   fetchBudgetSummary,
+  fetchBudgetForecast,
+  fetchBudgetForecastRange,
+  fetchExpiringContracts,
   INCOME_TYPES,
   EXPENSE_CATS,
   BILL_TYPES,
@@ -128,7 +135,11 @@ const EntryDialog = ({ open, onOpenChange, title, fields, initial, onSave }) => 
     if (!open) return;
     const base = {};
     fields.forEach((f) => {
-      base[f.name] = initial?.[f.name] ?? f.default ?? "";
+      if (f.type === "checkbox") {
+        base[f.name] = initial?.[f.name] ?? f.default ?? false;
+      } else {
+        base[f.name] = initial?.[f.name] ?? f.default ?? "";
+      }
     });
     setValues(base);
   }, [open, initial, fields]);
@@ -138,10 +149,12 @@ const EntryDialog = ({ open, onOpenChange, title, fields, initial, onSave }) => 
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Numeric coercion for declared number fields
+      // Numeric coercion for declared number fields; null-out blank dates.
       const out = { ...values };
       fields.forEach((f) => {
         if (f.type === "number") out[f.name] = Number(out[f.name]) || 0;
+        else if (f.type === "checkbox") out[f.name] = !!out[f.name];
+        else if (f.type === "date" && out[f.name] === "") out[f.name] = null;
       });
       await onSave(out);
       onOpenChange(false);
@@ -184,6 +197,19 @@ const EntryDialog = ({ open, onOpenChange, title, fields, initial, onSave }) => 
                   className="rounded-xl border-[#E5E2DC] min-h-[60px]"
                   data-testid={`budget-field-${f.name}`}
                 />
+              ) : f.type === "checkbox" ? (
+                <label className="flex items-center gap-2 h-10 px-3 rounded-xl border border-[#E5E2DC] bg-white cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!!values[f.name]}
+                    onChange={(e) => setField(f.name, e.target.checked)}
+                    className="w-4 h-4 accent-[#2D2A26]"
+                    data-testid={`budget-field-${f.name}`}
+                  />
+                  <span className="text-sm text-[#3F3A36]">
+                    {values[f.name] ? t("btn.yes") : t("btn.no")}
+                  </span>
+                </label>
               ) : (
                 <Input
                   type={f.type}
@@ -340,6 +366,14 @@ const billFields = (t) => [
   },
   ownerField(t),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
+  { name: "start_date", label: t("budget.field.contractStart"), type: "date" },
+  { name: "end_date", label: t("budget.field.contractEnd"), type: "date" },
+  {
+    name: "auto_renew",
+    label: t("budget.field.autoRenew"),
+    type: "checkbox",
+    default: false,
+  },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
@@ -528,6 +562,342 @@ const WalletFilter = ({ value, onChange, t }) => {
   );
 };
 
+// ---------- Financial Forecast ----------
+// Lets the user pick any future (or past) month and see the predicted
+// income / bills / loan payments / debts / remaining for that month.
+// Bills only count if their contract is still active that month, loans only
+// count their *monthly_payment* and only while the term hasn't ended yet.
+
+const MONTH_KEYS = [
+  "jan", "feb", "mar", "apr", "may", "jun",
+  "jul", "aug", "sep", "oct", "nov", "dec",
+];
+
+function monthName(t, monthNumber) {
+  return t(`budget.forecast.month.${MONTH_KEYS[monthNumber - 1]}`);
+}
+
+const ForecastRow = ({ icon: Icon, label, value, locale, tone }) => (
+  <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#EFEBE4]">
+    <span className="inline-flex items-center gap-2 text-sm text-[#5C5853]">
+      {Icon && <Icon className="w-4 h-4 text-[#7A7571]" strokeWidth={1.8} />}
+      {label}
+    </span>
+    <span
+      className={`text-sm font-heading font-semibold ${
+        tone === "negative" ? "text-rose-700" : tone === "positive" ? "text-emerald-700" : "text-[#2D2A26]"
+      }`}
+    >
+      {fmtMoney(value, locale)}
+    </span>
+  </div>
+);
+
+const ForecastDialog = ({ open, onOpenChange }) => {
+  const { t, locale } = useI18n();
+  const now = new Date();
+  // Default to next month — that's the most-asked forecast.
+  const [year, setYear] = useState(now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() === 11 ? 1 : now.getMonth() + 2);
+  const [data, setData] = useState(null);
+  const [range, setRange] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showRange, setShowRange] = useState(false);
+
+  // Reset selection each time the dialog opens.
+  useEffect(() => {
+    if (open) {
+      const n = new Date();
+      setYear(n.getMonth() === 11 ? n.getFullYear() + 1 : n.getFullYear());
+      setMonth(n.getMonth() === 11 ? 1 : n.getMonth() + 2);
+      setShowRange(false);
+    }
+  }, [open]);
+
+  // Re-fetch the single-month forecast whenever year/month changes.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    fetchBudgetForecast(year, month)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setData(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, year, month]);
+
+  const loadRange = async () => {
+    setShowRange(true);
+    if (range) return;
+    try {
+      const r = await fetchBudgetForecastRange(6);
+      setRange(r);
+    } catch {
+      setRange({ months: [] });
+    }
+  };
+
+  const stepMonth = (delta) => {
+    const idx = year * 12 + (month - 1) + delta;
+    setYear(Math.floor(idx / 12));
+    setMonth((idx % 12) + 1);
+  };
+
+  const fc = data?.forecast;
+  const delta = data?.delta;
+  const changes = data?.changes;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-md rounded-3xl border border-[#E5E2DC] bg-white max-h-[92vh] overflow-y-auto"
+        data-testid="forecast-dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl text-[#2D2A26] flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[#7C3AED]" strokeWidth={2} />
+            {t("budget.forecast.title")}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[#7A7571]">
+            {t("budget.forecast.desc")}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Month picker */}
+        <div className="flex items-center justify-between gap-2 bg-[#F3F0EA] rounded-2xl p-2">
+          <button
+            type="button"
+            onClick={() => stepMonth(-1)}
+            className="w-9 h-9 rounded-full bg-white hover:bg-[#E5E2DC] flex items-center justify-center text-[#2D2A26]"
+            data-testid="forecast-prev-month"
+            aria-label={t("forecast.prevMonth")}
+          >
+            <ChevronLeft className="w-4 h-4 rtl:hidden" />
+            <ChevronRight className="w-4 h-4 ltr:hidden" />
+          </button>
+          <div className="text-center flex-1">
+            <p className="font-heading text-lg font-semibold text-[#2D2A26]">
+              {monthName(t, month)} {year}
+            </p>
+            <p className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+              {t("budget.forecast.pickMonth")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => stepMonth(1)}
+            className="w-9 h-9 rounded-full bg-white hover:bg-[#E5E2DC] flex items-center justify-center text-[#2D2A26]"
+            data-testid="forecast-next-month"
+            aria-label={t("forecast.nextMonth")}
+          >
+            <ChevronRight className="w-4 h-4 rtl:hidden" />
+            <ChevronLeft className="w-4 h-4 ltr:hidden" />
+          </button>
+        </div>
+
+        {/* Result */}
+        {loading || !fc ? (
+          <div className="py-10 text-center text-[#7A7571]">
+            <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+          </div>
+        ) : (
+          <>
+            {/* Headline remaining banner */}
+            <div
+              className={`rounded-2xl p-4 text-center border ${
+                fc.remaining >= 0
+                  ? "bg-emerald-50 border-emerald-200"
+                  : "bg-rose-50 border-rose-200"
+              }`}
+              data-testid="forecast-result-banner"
+            >
+              <p className="text-[10px] uppercase tracking-[0.18em] font-semibold text-[#7A7571]">
+                {t("budget.forecast.expectedRemaining")}
+              </p>
+              <p
+                className={`font-heading text-3xl font-bold mt-1 leading-none ${
+                  fc.remaining >= 0 ? "text-emerald-700" : "text-rose-700"
+                }`}
+              >
+                {fmtMoney(fc.remaining, locale)}
+              </p>
+              <p className="text-[11px] text-[#7A7571] mt-1">
+                {monthName(t, fc.month)} {fc.year}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <ForecastRow icon={TrendingUp} label={t("budget.forecast.income")} value={fc.income_total} locale={locale} tone="positive" />
+              <ForecastRow icon={Receipt} label={t("budget.forecast.bills")} value={fc.bills_total} locale={locale} />
+              <ForecastRow icon={Banknote} label={t("budget.forecast.loanPayments")} value={fc.loans_total} locale={locale} />
+              <ForecastRow icon={HandCoins} label={t("budget.forecast.debtsDue")} value={fc.debts_total} locale={locale} />
+              <ForecastRow icon={Wallet} label={t("budget.forecast.totalObligations")} value={fc.obligations_total} locale={locale} tone="negative" />
+            </div>
+
+            {/* Delta vs current month */}
+            {delta && (
+              <div className="rounded-2xl bg-[#F3F0EA]/60 border border-[#E5E2DC] p-3.5">
+                <p className="text-[10px] uppercase tracking-wider text-[#7A7571] font-semibold">
+                  {t("budget.forecast.comparedToCurrent")}
+                </p>
+                <p
+                  className={`text-base font-heading font-semibold mt-0.5 ${
+                    delta.remaining >= 0 ? "text-emerald-700" : "text-rose-700"
+                  }`}
+                >
+                  {delta.remaining >= 0 ? "+" : ""}
+                  {fmtMoney(delta.remaining, locale)}
+                </p>
+                {changes && (changes.loans_ended.length > 0 || changes.bills_expired.length > 0) && (
+                  <p className="text-[11px] text-[#5C5853] mt-1.5 leading-relaxed">
+                    <span className="font-semibold">{t("budget.forecast.reason")}:</span>{" "}
+                    {[
+                      ...changes.loans_ended.map((ln) => t("budget.forecast.loanEnded", { name: ln.name })),
+                      ...changes.bills_expired.map((b) => t("budget.forecast.billExpired", { name: b.name })),
+                    ].join(" · ")}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 6-month outlook */}
+            <div>
+              {!showRange ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={loadRange}
+                  className="w-full rounded-full border-[#E5E2DC]"
+                  data-testid="forecast-range-btn"
+                >
+                  <CalendarClock className="w-4 h-4 ltr:mr-1.5 rtl:ml-1.5" />
+                  {t("budget.forecast.show6Months")}
+                </Button>
+              ) : (
+                <div className="rounded-2xl bg-white border border-[#EFEBE4] overflow-hidden">
+                  <p className="text-[10px] uppercase tracking-wider text-[#7A7571] font-semibold px-3.5 pt-3">
+                    {t("budget.forecast.next6Months")}
+                  </p>
+                  {!range ? (
+                    <div className="px-3.5 py-4 text-center">
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto text-[#7A7571]" />
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-[#EFEBE4]" data-testid="forecast-range-list">
+                      {range.months.map((m) => (
+                        <li
+                          key={`${m.year}-${m.month}`}
+                          className="flex items-center justify-between gap-3 px-3.5 py-2.5"
+                          data-testid={`forecast-range-${m.year}-${m.month}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => { setYear(m.year); setMonth(m.month); }}
+                            className="text-sm text-[#3F3A36] hover:underline text-left rtl:text-right"
+                          >
+                            {monthName(t, m.month)} {m.year}
+                          </button>
+                          <span
+                            className={`text-sm font-heading font-semibold ${
+                              m.remaining >= 0 ? "text-emerald-700" : "text-rose-700"
+                            }`}
+                          >
+                            {fmtMoney(m.remaining, locale)} {t("budget.forecast.remainingSuffix")}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+            onClick={() => onOpenChange(false)}
+            data-testid="forecast-close-btn"
+          >
+            {t("btn.close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ---------- Expiring contracts alert (3m / 1m / 2w) ----------
+const BUCKET_THEME = {
+  "3_months": { bg: "#FEF3C7", fg: "#92400E", ring: "#F59E0B" },
+  "1_month": { bg: "#FED7AA", fg: "#9A3412", ring: "#EA580C" },
+  "2_weeks": { bg: "#FEE2E2", fg: "#991B1B", ring: "#DC2626" },
+};
+
+const ExpiringContractsAlert = ({ items, t, locale, onOpenForecast }) => {
+  if (!items || items.length === 0) return null;
+  return (
+    <div
+      className="rounded-3xl border p-3.5 bg-white border-[#FBCFE8]"
+      data-testid="budget-expiring-alert"
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Bell className="w-4 h-4 text-[#DC2626]" strokeWidth={2} />
+        <h3 className="font-heading text-sm font-semibold text-[#2D2A26] flex-1">
+          {t("budget.contracts.title")}
+        </h3>
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#FEE2E2] text-[#991B1B]">
+          {items.length}
+        </span>
+      </div>
+      <ul className="space-y-1.5">
+        {items.slice(0, 5).map((it) => {
+          const theme = BUCKET_THEME[it.bucket] || BUCKET_THEME["3_months"];
+          return (
+            <li
+              key={it.id}
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#FAF9F6] border border-[#EFEBE4]"
+              data-testid={`budget-expiring-row-${it.id}`}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[#2D2A26] card-title">
+                  {it.name}
+                </p>
+                <p className="text-[11px] text-[#7A7571]">
+                  {t("budget.contracts.endsOn", { date: it.end_date })}
+                  {it.auto_renew && (
+                    <span className="ltr:ml-1.5 rtl:mr-1.5 text-[10px] font-semibold text-emerald-700">
+                      · {t("budget.contracts.autoRenew")}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <span
+                className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full whitespace-nowrap"
+                style={{ backgroundColor: theme.bg, color: theme.fg }}
+              >
+                {t(`budget.contracts.bucket.${it.bucket}`, { days: it.days_left })}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {onOpenForecast && (
+        <button
+          type="button"
+          onClick={onOpenForecast}
+          className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-[#7C3AED] hover:underline"
+          data-testid="budget-expiring-open-forecast"
+        >
+          {t("budget.contracts.openForecast")} →
+        </button>
+      )}
+    </div>
+  );
+};
+
 // ---------- Main page ----------
 const HomeBudget = () => {
   const navigate = useNavigate();
@@ -548,6 +918,8 @@ const HomeBudget = () => {
   const [editorKind, setEditorKind] = useState(null); // 'income' | 'expenses' | ...
   const [editorInitial, setEditorInitial] = useState(null);
   const [walletFilter, setWalletFilter] = useState("all"); // all | bahaa | theresa | shared
+  const [forecastOpen, setForecastOpen] = useState(false);
+  const [expiring, setExpiring] = useState([]);
 
   const apis = useMemo(
     () => ({
@@ -563,16 +935,18 @@ const HomeBudget = () => {
   const refresh = async () => {
     setLoading(true);
     try {
-      const [s, inc, exp, bills, debts, loans] = await Promise.all([
+      const [s, inc, exp, bills, debts, loans, exp_contracts] = await Promise.all([
         fetchBudgetSummary(),
         budgetIncome.list(),
         budgetExpenses.list(),
         budgetBills.list(),
         budgetDebts.list(),
         budgetLoans.list(),
+        fetchExpiringContracts(),
       ]);
       setSummary(s);
       setItems({ income: inc, expenses: exp, bills, debts, loans });
+      setExpiring(exp_contracts);
     } finally {
       setLoading(false);
     }
@@ -929,6 +1303,35 @@ const HomeBudget = () => {
             {/* Family Dashboard — top-level per-wallet summary */}
             <FamilyDashboard summary={summary} t={t} locale={locale} />
 
+            {/* Expiring contracts reminder — only renders when there is at least one. */}
+            <ExpiringContractsAlert
+              items={expiring}
+              t={t}
+              locale={locale}
+              onOpenForecast={() => setForecastOpen(true)}
+            />
+
+            {/* Financial Forecast launcher */}
+            <button
+              type="button"
+              onClick={() => setForecastOpen(true)}
+              className="w-full rounded-3xl border border-[#E5E2DC] bg-gradient-to-br from-white to-[#F5F0FF] p-4 flex items-center gap-3 active:scale-[0.99] transition shadow-[0_4px_16px_-10px_rgba(124,58,237,0.25)]"
+              data-testid="budget-forecast-btn"
+            >
+              <div className="w-10 h-10 rounded-2xl bg-[#7C3AED] flex items-center justify-center text-white shadow-sm">
+                <Sparkles className="w-5 h-5" strokeWidth={2} />
+              </div>
+              <div className="flex-1 text-left rtl:text-right">
+                <p className="font-heading text-sm font-semibold text-[#2D2A26]">
+                  {t("budget.forecast.title")}
+                </p>
+                <p className="text-[11px] text-[#7A7571]">
+                  {t("budget.forecast.subtitle")}
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-[#7A7571] rtl:rotate-180" />
+            </button>
+
             {/* Summary tiles */}
             <div className="grid grid-cols-2 gap-2.5">
               <Tile
@@ -1128,6 +1531,9 @@ const HomeBudget = () => {
           onSave={saveEntry}
         />
       )}
+
+      {/* Financial Forecast dialog */}
+      <ForecastDialog open={forecastOpen} onOpenChange={setForecastOpen} />
     </div>
   );
 };

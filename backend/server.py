@@ -1253,6 +1253,11 @@ class Bill(BaseModel):
     due_date: Optional[str] = None  # next due date (YYYY-MM-DD)
     last_paid_at: Optional[str] = None
     is_paid: bool = False
+    # Contract lifecycle — used by the financial forecast to decide whether
+    # this bill is still active in a given future month.
+    start_date: Optional[str] = None  # YYYY-MM-DD
+    end_date: Optional[str] = None    # YYYY-MM-DD
+    auto_renew: bool = False
     notes: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -1264,6 +1269,9 @@ class BillCreate(BaseModel):
     bill_type: str
     owner: Optional[str] = "shared"
     due_date: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    auto_renew: Optional[bool] = False
     notes: str = ""
 
 
@@ -1275,6 +1283,9 @@ class BillUpdate(BaseModel):
     due_date: Optional[str] = None
     last_paid_at: Optional[str] = None
     is_paid: Optional[bool] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    auto_renew: Optional[bool] = None
     notes: Optional[str] = None
 
 
@@ -1921,6 +1932,250 @@ async def delete_shopping_item(item_id: str):
 async def finish_shopping():
     res = await db.shopping_items.delete_many({"purchased": True})
     return {"ok": True, "removed": res.deleted_count}
+
+
+# ============= Financial Forecast =============
+# Predicts the budget situation for any future month using:
+#   - recurring income (average of last 3 completed months)
+#   - bills active in that month (respecting start_date / end_date / auto_renew)
+#   - loan installments still running that month (start_date + term_months)
+#   - debts whose due_date falls inside the month and not yet paid
+#
+# IMPORTANT: only the monthly_payment of a loan is counted — never the
+# remaining principal. That matches the rest of the budget engine.
+
+def _parse_iso_date(value: Optional[str]):
+    """Parse YYYY-MM-DD or full ISO datetime to a date. Returns None if invalid."""
+    if not value:
+        return None
+    try:
+        s = str(value)
+        # Accept full datetime strings too — keep only the date part.
+        if "T" in s:
+            s = s.split("T")[0]
+        if "Z" in s:
+            s = s.split("Z")[0]
+        return datetime.strptime(s[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _add_months(year: int, month: int, delta: int):
+    """Return (year, month) after adding delta months."""
+    idx = (year * 12 + (month - 1)) + delta
+    return idx // 12, (idx % 12) + 1
+
+
+def _month_first_last(year: int, month: int):
+    """Return (first_day, last_day) as date objects for a calendar month."""
+    first = datetime(year, month, 1).date()
+    days = monthrange(year, month)[1]
+    last = datetime(year, month, days).date()
+    return first, last
+
+
+def _bill_active_in_month(bill: dict, year: int, month: int) -> bool:
+    """A recurring bill counts in (year, month) if its contract window covers
+    that month — or if it auto-renews past its declared end date."""
+    first, last = _month_first_last(year, month)
+    start = _parse_iso_date(bill.get("start_date"))
+    end = _parse_iso_date(bill.get("end_date"))
+    if start and start > last:
+        # Contract hasn't started yet for this month.
+        return False
+    if end and end < first:
+        # Contract already ended before this month — only count if auto-renew.
+        return bool(bill.get("auto_renew"))
+    return True
+
+
+def _loan_active_in_month(loan: dict, year: int, month: int) -> bool:
+    """Loan installment counts only when the loan is still running that month."""
+    first, _ = _month_first_last(year, month)
+    start = _parse_iso_date(loan.get("start_date"))
+    term = int(loan.get("term_months") or 0)
+    if not start or term <= 0:
+        # No start_date or term — assume still active (best effort).
+        return True
+    # Last installment month = start_month + (term - 1).
+    end_year, end_month = _add_months(start.year, start.month, term - 1)
+    end_first, end_last = _month_first_last(end_year, end_month)
+    return first <= end_last
+
+
+def _debts_due_in_month(debts: list, year: int, month: int) -> float:
+    """Sum remaining_amount of unpaid/partial debts due inside (year, month)."""
+    first, last = _month_first_last(year, month)
+    total = 0.0
+    for d in debts:
+        due = _parse_iso_date(d.get("due_date"))
+        if not due:
+            continue
+        if first <= due <= last and (d.get("status") != "paid"):
+            total += float(d.get("remaining_amount") or 0)
+    return total
+
+
+async def _recurring_income_estimate(target_year: int, target_month: int) -> float:
+    """Average of last 3 completed months' income totals.
+
+    We look back from the month *before* the target (so future months get the
+    full available history). If no history exists, fall back to whatever was
+    recorded for the current calendar month.
+    """
+    now = datetime.now(timezone.utc)
+    # End anchor — the latest completed month that's not the target itself.
+    anchor_y, anchor_m = now.year, now.month
+    # If target is in the past, anchor right before the target.
+    if (target_year, target_month) <= (anchor_y, anchor_m):
+        anchor_y, anchor_m = _add_months(target_year, target_month, -1)
+
+    totals = []
+    for i in range(3):
+        y, m = _add_months(anchor_y, anchor_m, -i)
+        s, e = _month_bounds(y, m)
+        totals.append(await _sum_entries(db.budget_income, s, e))
+    nonzero = [t for t in totals if t > 0]
+    if nonzero:
+        return sum(nonzero) / len(nonzero)
+    # Fallback — current month total (may be 0 for a brand-new app).
+    s, e = _month_bounds(now.year, now.month)
+    return await _sum_entries(db.budget_income, s, e)
+
+
+async def _forecast_for_month(year: int, month: int) -> dict:
+    bills = await db.budget_bills.find({}, {"_id": 0}).to_list(1000)
+    loans = await db.budget_loans.find({}, {"_id": 0}).to_list(500)
+    debts = await db.budget_debts.find({}, {"_id": 0}).to_list(500)
+
+    income_total = await _recurring_income_estimate(year, month)
+
+    bills_total = 0.0
+    active_bills = []
+    expired_bills = []
+    for b in bills:
+        if _bill_active_in_month(b, year, month):
+            cost = _bill_month_cost(b)
+            bills_total += cost
+            active_bills.append({"id": b.get("id"), "name": b.get("name"), "amount": round(cost, 2)})
+        else:
+            expired_bills.append({"id": b.get("id"), "name": b.get("name")})
+
+    loans_total = 0.0
+    active_loans = []
+    ended_loans = []
+    for ln in loans:
+        if _loan_active_in_month(ln, year, month):
+            pay = float(ln.get("monthly_payment") or 0)
+            loans_total += pay
+            active_loans.append({"id": ln.get("id"), "name": ln.get("name"), "amount": round(pay, 2)})
+        else:
+            ended_loans.append({"id": ln.get("id"), "name": ln.get("name")})
+
+    debts_total = _debts_due_in_month(debts, year, month)
+    obligations = bills_total + loans_total + debts_total
+    remaining = income_total - obligations
+
+    return {
+        "year": year,
+        "month": month,
+        "income_total": round(income_total, 2),
+        "bills_total": round(bills_total, 2),
+        "loans_total": round(loans_total, 2),
+        "debts_total": round(debts_total, 2),
+        "obligations_total": round(obligations, 2),
+        "remaining": round(remaining, 2),
+        "active_bills": active_bills,
+        "expired_bills": expired_bills,
+        "active_loans": active_loans,
+        "ended_loans": ended_loans,
+    }
+
+
+@api_router.get("/budget/forecast")
+async def budget_forecast(year: int, month: int):
+    """Single-month forecast with a comparison to the current calendar month."""
+    if month < 1 or month > 12:
+        raise HTTPException(400, "month must be between 1 and 12")
+    target = await _forecast_for_month(year, month)
+    now = datetime.now(timezone.utc)
+    current = await _forecast_for_month(now.year, now.month)
+
+    # Try to identify what changed between current month and the forecast.
+    ended_now = {ln["id"] for ln in current["active_loans"]} - {ln["id"] for ln in target["active_loans"]}
+    expired_now = {b["id"] for b in current["active_bills"]} - {b["id"] for b in target["active_bills"]}
+
+    return {
+        "forecast": target,
+        "current": {
+            "year": current["year"],
+            "month": current["month"],
+            "remaining": current["remaining"],
+            "obligations_total": current["obligations_total"],
+            "income_total": current["income_total"],
+        },
+        "delta": {
+            "remaining": round(target["remaining"] - current["remaining"], 2),
+            "obligations": round(target["obligations_total"] - current["obligations_total"], 2),
+        },
+        "changes": {
+            # IDs of loans/bills that exist now but not in the forecast month.
+            "loans_ended": [ln for ln in current["active_loans"] if ln["id"] in ended_now],
+            "bills_expired": [b for b in current["active_bills"] if b["id"] in expired_now],
+        },
+    }
+
+
+@api_router.get("/budget/forecast/range")
+async def budget_forecast_range(months: int = 6):
+    """Compact forecast for the next N months — used for the rolling preview."""
+    months = max(1, min(int(months or 6), 24))
+    now = datetime.now(timezone.utc)
+    out = []
+    for i in range(months):
+        y, m = _add_months(now.year, now.month, i + 1)
+        f = await _forecast_for_month(y, m)
+        out.append({
+            "year": y,
+            "month": m,
+            "income_total": f["income_total"],
+            "obligations_total": f["obligations_total"],
+            "remaining": f["remaining"],
+        })
+    return {"months": out}
+
+
+@api_router.get("/budget/contracts/expiring")
+async def budget_contracts_expiring():
+    """Bills whose contract end_date falls in the next 3 months. Buckets:
+       3 months, 1 month, 2 weeks — for the reminder UI."""
+    today = datetime.now(timezone.utc).date()
+    horizon = today + timedelta(days=92)
+    bills = await db.budget_bills.find({}, {"_id": 0}).to_list(1000)
+    expiring = []
+    for b in bills:
+        end = _parse_iso_date(b.get("end_date"))
+        if not end:
+            continue
+        if today <= end <= horizon:
+            days = (end - today).days
+            if days <= 14:
+                bucket = "2_weeks"
+            elif days <= 31:
+                bucket = "1_month"
+            else:
+                bucket = "3_months"
+            expiring.append({
+                "id": b.get("id"),
+                "name": b.get("name"),
+                "amount": float(b.get("amount") or 0),
+                "end_date": b.get("end_date"),
+                "auto_renew": bool(b.get("auto_renew")),
+                "days_left": days,
+                "bucket": bucket,
+            })
+    expiring.sort(key=lambda x: x["days_left"])
+    return {"expiring": expiring}
 
 
 # Include the router in the main app
