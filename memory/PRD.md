@@ -257,3 +257,16 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: 12 new `tp.familyView*` / `tp.viewingMember` / `tp.viewingFamily` / `tp.cantEdit/DeleteOthers` keys × EN / AR / DE.
 - **Tested**: backend pytest **14/14 PASSED**, Playwright frontend E2E **8/8 PASSED** (auto-anchor on current member, second member auto-appears in switcher + filter, coloured dots match API, multi-overlay with badge, admin can create event for another member with that member's colour, non-admin pills disabled + Family View hidden + owner select disabled, AR + DE translations leak-free).
 
+
+## Implemented (Feb 2026 — Member identity & avatars across the app)
+- **Backend**: `family_members.avatar` field (Optional, base64 data URL). `MemberCreate` + `MemberUpdate` both accept it; an empty string on PUT explicitly clears the avatar back to "use first-letter fallback". The `/api/auth/member/select` payload returns the full member doc (including avatar + color + is_family_admin), and authorization rules are unchanged.
+- **Frontend**:
+  - New reusable `<MemberBadge />` + `<MemberAvatar />` component (`/app/frontend/src/components/MemberBadge.jsx`) — avatar (image OR colour swatch with initial), name, and a small "ADMIN" chip when `is_family_admin`.
+  - New `fileToAvatarDataUrl()` helper (`/app/frontend/src/lib/imageUtils.js`) — centre-crops + resizes to 256px JPEG before encoding to base64 so payloads stay under ~30 KB.
+  - Identity strip in every authenticated page: WallBoard (`wall-member-strip`), TimePlan (`tp-member-strip`, compact), HomeBudget (`budget-member-strip`), MyMoney (`my-money-member-strip`, in BOTH admin-index and personal-ledger branches), FamilyMembers (`family-members-member-strip`).
+  - Family Members page: Add + Edit dialogs include `AvatarPicker` (file upload → resized base64, with Remove button); member rows render the new avatar (image OR colour-coded initial).
+  - Welcome toast: `mfml_welcomed_<member_id>` sessionStorage flag → first WallBoard visit fires a localized `welcome.back` toast (`Welcome back, X` / `أهلاً بعودتك، X` / `Willkommen zurück, X`).
+  - `auth.updateMember()` now refreshes the cached `mfml_member` if the caller edits themselves, so the header avatar/name updates instantly without re-login.
+- **i18n**: 7 new keys (`members.avatar.*`, `welcome.back`) × EN / AR / DE.
+- **Tested**: backend curl (POST avatar, PUT set, PUT clear-to-null, 403 cross-member). Frontend Playwright across iterations 7→8→9: **6/6 final expectations PASSED** — all 5 page strips resolve, welcome toast fires once per session per member, admin chip present for admins / absent for non-admins, cached-member refresh updates the header without re-login, AR + DE welcome strings render correctly.
+
