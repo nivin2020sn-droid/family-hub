@@ -207,3 +207,21 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **P1**: Refactor `server.py` (~2300 lines) into routers/models packages.
 - **P2**: Standalone Android sender app for GPS pings.
 - **P3**: SOS system tied to smartwatches / health data.
+
+## Implemented (Feb 2026 — Kids' Money / "My Money" — role-gated personal ledger)
+- **Permission split**: `role === "child"` now sees a SEPARATE "My Money" tile (data-testid `nav-my-money`) instead of the full Family Budget. Everyone else (parents/adults/admins) keeps the existing `nav-home-budget` tile. `HomeBudget` page redirects any child who deep-links to `/home-budget` straight to `/my-money`.
+- **New backend collection** `kids_money` (added to `SCOPED_COLLECTIONS` in `tenant.py`) — keeps every child's personal ledger isolated by `family_id` AND `member_id`. Never mixes with the family Budget collections.
+- **Endpoints** (all require a member token; account token rejected because it lacks `mid`/`mrole`/`fadmin`):
+  - `GET /api/kids-money/summary?member_id=` — child: forced to self. Admin: any kid in same family. Returns `{member, income, payments, balance, entries_count}`.
+  - `GET /api/kids-money/transactions?member_id=` — same auth rule, sorted by date desc.
+  - `POST /api/kids-money/transactions` — `{type: 'income'|'payment', amount > 0, description?, date?, notes?, member_id?(admin only)}`. Child cannot inject another `member_id`.
+  - `PUT /api/kids-money/transactions/{id}` — owner-child or family admin only.
+  - `DELETE /api/kids-money/transactions/{id}` — same auth.
+  - `GET /api/kids-money/kids` — admin-only directory of every `role:'child'` member + their balance.
+- **Frontend** (`/app/frontend/src/pages/MyMoney.jsx`):
+  - Child view: big balance card (green/rose/neutral based on sign), Income/Payments mini-stats, two big "Add income" / "Add payment" buttons, history list with per-row edit + delete.
+  - Admin view (no `?kid=` param): index of all kids in the family with balances; tap one to drill into their ledger (`/my-money?kid=<id>`). Adult/parent non-admin without a kid_id gets bounced.
+  - Wall Board Settings dialog now exposes "Kids' Money" entry to admins alongside "Manage family members".
+- **i18n**: 33 new `myMoney.*` + `nav.myMoney` keys × EN / AR / DE.
+- **Tested**: backend pytest **19/19 PASSED** (summary scoping, child self-forcing, admin override, balance math, amount/type validation, PUT/DELETE auth, `/kids` admin-only, multi-tenant isolation, adult self-scope). Frontend Playwright end-to-end **PASSED**: child nav swap, /home-budget→/my-money redirect, balance math after 20€ in / 8€ out = 12€, edit + delete persistence, admin drill-in with cross-member add, WallSettings entry, AR + DE label rendering.
+
