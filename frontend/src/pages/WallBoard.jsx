@@ -50,6 +50,7 @@ import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MemberBadge from "@/components/MemberBadge";
 import RecentActivityStrip from "@/components/RecentActivityStrip";
+import { useAppInfo } from "@/lib/useAppInfo";
 import FamilyMapCard from "@/components/FamilyMapCard";
 import WallBoardRoutines from "@/components/WallBoardRoutines";
 import {
@@ -1137,21 +1138,9 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
   const { t } = useI18n();
   const [confirm, setConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [appVersion, setAppVersion] = useState("");
+  const appVersion = useAppInfo().version || "";
   const me = getCurrentMember();
   const isFamilyAdmin = !!me?.is_family_admin;
-
-  // Fetch the live backend version once when the dialog opens so the chip
-  // is always accurate even after a deploy.
-  useEffect(() => {
-    if (!open) return;
-    let alive = true;
-    fetch(`${process.env.REACT_APP_BACKEND_URL}/api/auth/app/info`)
-      .then((r) => r.json())
-      .then((d) => { if (alive) setAppVersion(d?.version || ""); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [open]);
   const handleLogout = () => {
     if (!confirm) {
       setConfirm(true);

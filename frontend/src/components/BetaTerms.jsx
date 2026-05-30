@@ -92,11 +92,11 @@ const BetaTerms = ({ mode = "register", onBack, onAccept, appVersion }) => {
             </button>
           ) : <span />}
           <span
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold uppercase tracking-[0.18em]"
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-bold uppercase tracking-[0.18em] ${appVersion ? "" : "opacity-0"}`}
             data-testid="beta-version-chip"
           >
             <ShieldCheck className="w-3 h-3" strokeWidth={2.4} />
-            {t("beta.chip", { version: appVersion || "" })}
+            {t("beta.chip", { version: appVersion || "—" })}
           </span>
         </div>
       </div>

@@ -35,6 +35,7 @@ import {
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import BetaTerms from "@/components/BetaTerms";
+import { useAppInfo } from "@/lib/useAppInfo";
 
 const formatError = (err, fallback) => {
   const d = err?.response?.data?.detail;
@@ -153,19 +154,10 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
   // register form is even rendered. `consents` is null until that happens;
   // once accepted it holds the booleans we forward to the backend.
   const [consents, setConsents] = useState(null);
-  const [appVersion, setAppVersion] = useState("");
+  const appVersion = useAppInfo().version || "";
 
   const isRegister = mode === "register";
   const isForgot = mode === "forgot";
-
-  // Fetch the version once per mount so the chip on the gate stays accurate.
-  useEffect(() => {
-    if (!isRegister) return;
-    let alive = true;
-    const url = `${process.env.REACT_APP_BACKEND_URL}/api/auth/app/info`;
-    fetch(url).then((r) => r.json()).then((d) => { if (alive) setAppVersion(d?.version || ""); }).catch(() => {});
-    return () => { alive = false; };
-  }, [isRegister]);
 
   const submit = async (e) => {
     e?.preventDefault?.();

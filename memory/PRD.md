@@ -281,3 +281,20 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: 14 new `activity.*` keys × EN / AR / DE.
 - **Tested**: backend pytest **13/13 PASSED** (empty list for fresh admin, event/kids-money/goal logging, transition-only goal.completed, scope=self isolation, scope=family for admin, 403 for child, default limit + cap at 20, cross-family isolation). Frontend Playwright PASSED — strip renders under wall-member-strip, items match EN / AR / DE templates with relative-time suffix, empty-state renders nothing.
 
+
+## Implemented (Feb 2026 — Beta Terms / Privacy / Disclaimer gate)
+- **Backend** (`auth_module.py`):
+  - `RegisterPayload` now exposes `accepted_beta_terms`, `accepted_privacy_policy`, `accepted_disclaimer` (all default to `false`).
+  - The register handler rejects the request with **400 "You must accept the Beta Terms, Privacy Notice and Disclaimer to continue"** unless all three are `true`.
+  - On success a `consents` audit record is persisted on the account: `{accepted_beta_terms, accepted_privacy_policy, accepted_disclaimer, accepted_at, app_version}`.
+  - `APP_VERSION` (env-overridable, defaults `0.9.0-beta`) and `APP_STAGE` (`beta`) constants.
+  - New **`GET /api/auth/app/info`** returns `{name, version, stage}`. No auth required so the registration screen can read it.
+- **Frontend**:
+  - `BetaTerms.jsx` component renders three sections (Beta Notice, Privacy, Disclaimer) plus three consent checkboxes; the "Continue" button stays disabled until all three are ticked. `mode="register"` shows the checkboxes; `mode="view"` is read-only.
+  - `Login.jsx` swaps in the gate before the register form: `if (isRegister && !consents) return <BetaTerms onAccept={setConsents}/>`. The submit handler forwards the three booleans to `/api/auth/register`.
+  - New `/terms` route → `Terms.jsx` renders the same content in read-only mode for users who want to review what they agreed to.
+  - WallBoard Settings dialog gained `wall-beta-version` chip + `open-terms-btn` link to `/terms`.
+  - Shared `useAppInfo()` hook (`/app/frontend/src/lib/useAppInfo.js`) — module-level cache + in-flight de-dup so the three call-sites (gate, /terms, WallSettings) share a single network round-trip per session.
+- **i18n**: 18 new `beta.*` keys × EN / AR / DE (815 keys/language balanced). Bullet lists are pipe (`|`)-separated strings split into `<li>` rows by the component so translators edit one string per language.
+- **Tested**: backend pytest **6/6 PASSED** (app-info shape, 0/1/2/3 consents flows, no migration break for pre-existing accounts). Frontend Playwright PASSED end-to-end (account-type → BetaTerms gate → 3 ticks → register → member-select), `/terms` renders correctly in EN / AR / DE with 11 / 7 / 8 bullets, no raw key leaks, Settings chip + Terms link source-inspected and confirmed live.
+
