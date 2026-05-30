@@ -32,7 +32,7 @@ SCOPED_COLLECTIONS = {
     "budget_income", "budget_expenses", "budget_bills",
     "budget_debts", "budget_loans",
     # Kids' personal money (one ledger per child member)
-    "kids_money",
+    "kids_money", "kids_money_goals",
     # Wall Board
     "wall_settings", "wall_photos", "wall_goals", "wall_countdown",
     "wall_achievements", "wall_notes", "wall_family_events",

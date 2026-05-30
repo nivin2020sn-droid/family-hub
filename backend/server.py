@@ -2105,6 +2105,154 @@ async def list_kids_with_balances(token: dict = Depends(require_member_token)):
     return {"kids": out}
 
 
+# ----- Saving goals -----
+# Lightweight goals tied to a child's ledger. Progress is server-computed
+# from the child's CURRENT balance — independent goals (a child dreaming of
+# both a "Bike (80€)" and a "Toy (20€)" with 12€ balance sees each goal at
+# 12 / target). Goals can be manually marked complete (e.g. the kid bought
+# the bike) which freezes them at 100% and removes them from the active list.
+
+
+class KidsMoneyGoal(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    member_id: str
+    name: str
+    target_amount: float
+    icon: Optional[str] = "Target"
+    notes: str = ""
+    target_date: Optional[str] = None  # YYYY-MM-DD
+    is_complete: bool = False
+    completed_at: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class KidsMoneyGoalCreate(BaseModel):
+    name: str
+    target_amount: float
+    member_id: Optional[str] = None  # admin: target a specific child
+    icon: Optional[str] = "Target"
+    notes: Optional[str] = ""
+    target_date: Optional[str] = None
+
+
+class KidsMoneyGoalUpdate(BaseModel):
+    name: Optional[str] = None
+    target_amount: Optional[float] = None
+    icon: Optional[str] = None
+    notes: Optional[str] = None
+    target_date: Optional[str] = None
+    is_complete: Optional[bool] = None
+
+
+def _decorate_goal(goal: dict, balance: float) -> dict:
+    """Attach computed progress (saved / progress_pct) to a goal doc."""
+    target = float(goal.get("target_amount") or 0)
+    if goal.get("is_complete"):
+        saved = target
+    else:
+        saved = max(0.0, min(balance, target))
+    pct = (saved / target * 100.0) if target > 0 else 0.0
+    return {
+        **goal,
+        "saved": round(saved, 2),
+        "progress_pct": round(pct, 1),
+    }
+
+
+async def _current_balance(member_id: str) -> float:
+    entries = await db.kids_money.find(
+        {"member_id": member_id}, {"_id": 0, "type": 1, "amount": 1}
+    ).to_list(5000)
+    return _summarize_entries(entries)["balance"]
+
+
+@api_router.get("/kids-money/goals", response_model=List[dict])
+async def list_kids_money_goals(
+    member_id: Optional[str] = Query(None),
+    include_completed: bool = Query(True),
+    token: dict = Depends(require_member_token),
+):
+    target = _resolve_member_id(token, member_id)
+    await _resolve_child_member(token, target)
+    query: dict = {"member_id": target}
+    if not include_completed:
+        query["is_complete"] = {"$ne": True}
+    goals = await db.kids_money_goals.find(query, {"_id": 0}).sort("created_at", 1).to_list(200)
+    balance = await _current_balance(target)
+    return [_decorate_goal(g, balance) for g in goals]
+
+
+@api_router.post("/kids-money/goals", response_model=dict)
+async def create_kids_money_goal(
+    payload: KidsMoneyGoalCreate,
+    token: dict = Depends(require_member_token),
+):
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(400, "name is required")
+    if payload.target_amount is None or float(payload.target_amount) <= 0:
+        raise HTTPException(400, "target_amount must be positive")
+    target = _resolve_member_id(token, payload.member_id)
+    await _resolve_child_member(token, target)
+    obj = KidsMoneyGoal(
+        member_id=target,
+        name=payload.name.strip(),
+        target_amount=float(payload.target_amount),
+        icon=(payload.icon or "Target"),
+        notes=(payload.notes or "").strip(),
+        target_date=payload.target_date,
+    )
+    await db.kids_money_goals.insert_one(obj.model_dump())
+    balance = await _current_balance(target)
+    return _decorate_goal(obj.model_dump(), balance)
+
+
+@api_router.put("/kids-money/goals/{goal_id}", response_model=dict)
+async def update_kids_money_goal(
+    goal_id: str,
+    payload: KidsMoneyGoalUpdate,
+    token: dict = Depends(require_member_token),
+):
+    existing = await db.kids_money_goals.find_one({"id": goal_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    await _resolve_child_member(token, existing["member_id"])
+    update = payload.model_dump(exclude_unset=True)
+    if "name" in update:
+        if not update["name"] or not update["name"].strip():
+            raise HTTPException(400, "name cannot be empty")
+        update["name"] = update["name"].strip()
+    if "target_amount" in update and float(update["target_amount"]) <= 0:
+        raise HTTPException(400, "target_amount must be positive")
+    if "is_complete" in update:
+        flag = bool(update["is_complete"])
+        update["is_complete"] = flag
+        # Stamp / clear completed_at on transition.
+        if flag and not existing.get("is_complete"):
+            update["completed_at"] = datetime.now(timezone.utc).isoformat()
+        elif not flag and existing.get("is_complete"):
+            update["completed_at"] = None
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.kids_money_goals.update_one({"id": goal_id}, {"$set": update})
+    fresh = await db.kids_money_goals.find_one({"id": goal_id}, {"_id": 0})
+    balance = await _current_balance(existing["member_id"])
+    return _decorate_goal(fresh, balance)
+
+
+@api_router.delete("/kids-money/goals/{goal_id}")
+async def delete_kids_money_goal(
+    goal_id: str,
+    token: dict = Depends(require_member_token),
+):
+    existing = await db.kids_money_goals.find_one({"id": goal_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    await _resolve_child_member(token, existing["member_id"])
+    await db.kids_money_goals.delete_one({"id": goal_id})
+    return {"ok": True}
+
+
 # ============= Shopping List =============
 # Simple family-shared shopping list. Each item only tracks whether it has been
 # purchased. "Finish shopping" removes purchased items and keeps the rest.

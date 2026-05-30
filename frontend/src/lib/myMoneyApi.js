@@ -45,3 +45,28 @@ export async function fetchAllKids() {
   const { data } = await axios.get(`${baseURL}/kids`);
   return data?.kids || [];
 }
+
+// ---------- Saving goals ----------
+export async function fetchGoals(memberId, { includeCompleted = true } = {}) {
+  const params = {
+    ...(memberId ? { member_id: memberId } : {}),
+    include_completed: includeCompleted,
+  };
+  const { data } = await axios.get(`${baseURL}/goals`, { params });
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createGoal(payload) {
+  const { data } = await axios.post(`${baseURL}/goals`, payload);
+  return data;
+}
+
+export async function updateGoal(id, payload) {
+  const { data } = await axios.put(`${baseURL}/goals/${id}`, payload);
+  return data;
+}
+
+export async function deleteGoal(id) {
+  await axios.delete(`${baseURL}/goals/${id}`);
+  return true;
+}

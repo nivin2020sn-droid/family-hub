@@ -1,0 +1,25 @@
+{
+  "summary": "Full backend + frontend testing of the Kids' Money 'Saving Goals' feature. Backend: 17/17 pytest cases passed (empty list, create with progress decoration 30/80=37.5%, blank/negative validation, child cross-target forced to self, complete freezes saved at target, re-open clears completed_at, PUT validation, include_completed=false filter, other-child & non-admin adult 403 on PUT/DELETE, admin can create/edit/delete any child's goal, multi-tenant isolation 404 across families, balance>target caps saved at target, delete removes goal). Frontend (Playwright mobile viewport): goals-section visible between add buttons and History; empty state ('No goals yet') renders; goals-add-btn opens goal-editor-dialog; creating Bike(80) with kid balance 30 yields a row with ~37% progress; editing to 'Bike Pro' target 60 updates row to 50%; goal-toggle marks done with DONE badge and 100%; re-toggle clears DONE; goal-delete-dialog → confirm removes row; Arabic + German render localized text with NO 'myMoney.goals.*' raw key leaks; family admin landing on /my-money?kid=<id> sees goals-section and successfully creates AdminGoal which shows 100% (saved capped at target since balance 30 > 15).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_kids_money_goals.py",
+    "/app/test_reports/pytest/kids_money_goals_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now 2662 lines — goals block adds ~150 more lines on top of the kids-money router. Strongly recommend splitting into /app/backend/routers/kids_money.py and kids_money_goals.py (exceeds the 700-line guideline).",
+    "MyMoney.jsx is now 797 lines — close to the 700-line guideline. The goal editor and transaction add/edit dialogs share structure (FieldLabel + Input + DialogFooter); consider extracting a generic FormDialog component.",
+    "PUT /api/kids-money/goals/{id} returns 200 on noop is_complete toggle (e.g. re-sending is_complete=False on an already-active goal does not touch completed_at — fine, but worth documenting). Also target_amount=0 path is rejected with 400 but None payloads pass through; tests confirm current behavior matches spec."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kids_money_goals.py"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (10/10 flows: section visible, empty state, create+progress, edit+progress, complete+badge+100%, re-open, delete, admin drill-in create, AR i18n, DE i18n)"},
+  "test_credentials": "Created fresh per run: qa-goals-<ts>@example.com / Pass1234! ; parent admin PIN 1234, child PIN 4321.",
+  "seed_data_creation": "Each backend pytest run registers a new family (TEST_GOALS_Family) with parent admin + two children + one adult. Frontend playwright run registers TEST_GOAL_UI family with parent + one child and seeds 30€ income on the child to validate progress math (30/80 = 37.5%).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Goals tests live in /app/backend/tests/test_kids_money_goals.py (parallel-safe, multi-tenant isolated). To re-run frontend, seed via API + write localStorage keys mfml_account_token, mfml_member_token, mfml_account, mfml_family, mfml_member, mfml_auth_ok=true, mfml_lang. Goal data-testids: goals-section, goals-add-btn, goal-editor-dialog, goal-name, goal-target, goal-target-date, goal-notes, goal-save, goal-row-{id}, goal-toggle-{id}, goal-edit-{id}, goal-delete-{id}, goal-delete-dialog, goal-delete-confirm. /auth/member/select returns the JWT under 'member_token'.",
+  "rca of the issue": "N/A — all expected behaviors verified; no bugs found."
+}

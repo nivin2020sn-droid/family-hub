@@ -17,7 +17,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Loader2, Plus, Trash2, Coins, Wallet, ArrowDownCircle,
-  ArrowUpCircle, AlertTriangle, ChevronRight, Pencil,
+  ArrowUpCircle, AlertTriangle, ChevronRight, Pencil, Target, CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ import { getMember } from "@/lib/auth";
 import {
   fetchSummary, fetchTransactions, createTransaction, updateTransaction,
   deleteTransaction, fetchAllKids,
+  fetchGoals, createGoal, updateGoal, deleteGoal,
 } from "@/lib/myMoneyApi";
 
 const formatError = (err, fb) => err?.response?.data?.detail || err?.message || fb;
@@ -95,18 +97,26 @@ const MyMoney = () => {
   const [edit, setEdit] = useState({ description: "", amount: "", date: "", notes: "", busy: false });
   const [delTarget, setDelTarget] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
+  // Saving goals
+  const [goals, setGoals] = useState([]);
+  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState({ id: null, name: "", target_amount: "", notes: "", target_date: "", busy: false });
+  const [goalDelTarget, setGoalDelTarget] = useState(null);
+  const [goalDelBusy, setGoalDelBusy] = useState(false);
 
   const refresh = async () => {
     if (!targetMemberId && !meIsChild) return;
     setLoading(true);
     try {
       const memberArg = meIsChild ? undefined : targetMemberId;
-      const [s, list] = await Promise.all([
+      const [s, list, goalsList] = await Promise.all([
         fetchSummary(memberArg),
         fetchTransactions(memberArg),
+        fetchGoals(memberArg),
       ]);
       setSummary(s);
       setTxs(list);
+      setGoals(goalsList);
     } catch (err) {
       toast.error(formatError(err, t("myMoney.error.load")));
     } finally {
@@ -204,6 +214,79 @@ const MyMoney = () => {
     income: summary?.income ?? 0,
     payments: summary?.payments ?? 0,
   }), [summary]);
+
+  // ----- Goal handlers -----
+  const openCreateGoal = () => {
+    setGoalDraft({ id: null, name: "", target_amount: "", notes: "", target_date: "", busy: false });
+    setGoalEditorOpen(true);
+  };
+
+  const openEditGoal = (g) => {
+    setGoalDraft({
+      id: g.id,
+      name: g.name || "",
+      target_amount: String(g.target_amount ?? ""),
+      notes: g.notes || "",
+      target_date: g.target_date || "",
+      busy: false,
+    });
+    setGoalEditorOpen(true);
+  };
+
+  const saveGoal = async (e) => {
+    e?.preventDefault?.();
+    if (goalDraft.busy) return;
+    const target = parseFloat(goalDraft.target_amount);
+    if (!goalDraft.name.trim()) return toast.error(t("myMoney.goals.error.name"));
+    if (!Number.isFinite(target) || target <= 0) return toast.error(t("myMoney.goals.error.target"));
+    setGoalDraft((s) => ({ ...s, busy: true }));
+    try {
+      const payload = {
+        name: goalDraft.name.trim(),
+        target_amount: target,
+        notes: goalDraft.notes.trim(),
+        target_date: goalDraft.target_date || null,
+        ...(meIsAdmin && !meIsChild ? { member_id: targetMemberId } : {}),
+      };
+      if (goalDraft.id) {
+        await updateGoal(goalDraft.id, payload);
+        toast.success(t("myMoney.goals.toast.updated"));
+      } else {
+        await createGoal(payload);
+        toast.success(t("myMoney.goals.toast.added"));
+      }
+      setGoalEditorOpen(false);
+      await refresh();
+    } catch (err) {
+      toast.error(formatError(err, t("myMoney.goals.error.save")));
+      setGoalDraft((s) => ({ ...s, busy: false }));
+    }
+  };
+
+  const toggleGoalComplete = async (g) => {
+    try {
+      await updateGoal(g.id, { is_complete: !g.is_complete });
+      toast.success(!g.is_complete ? t("myMoney.goals.toast.completed") : t("myMoney.goals.toast.reopened"));
+      await refresh();
+    } catch (err) {
+      toast.error(formatError(err, t("myMoney.goals.error.save")));
+    }
+  };
+
+  const confirmGoalDelete = async () => {
+    if (goalDelBusy || !goalDelTarget) return;
+    setGoalDelBusy(true);
+    try {
+      await deleteGoal(goalDelTarget.id);
+      toast.success(t("myMoney.goals.toast.deleted"));
+      setGoalDelTarget(null);
+      await refresh();
+    } catch (err) {
+      toast.error(formatError(err, t("myMoney.goals.error.delete")));
+    } finally {
+      setGoalDelBusy(false);
+    }
+  };
 
   if (!me) return null;
 
@@ -323,6 +406,95 @@ const MyMoney = () => {
             <Plus className="w-4 h-4" />
             {t("myMoney.addPayment")}
           </Button>
+        </div>
+
+        {/* Saving goals */}
+        <div className="rounded-3xl bg-white border border-[#E5E2DC] overflow-hidden" data-testid="goals-section">
+          <div className="px-4 py-3 border-b border-[#EFEBE4] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <h2 className="font-heading text-sm font-semibold text-[#2D2A26]">{t("myMoney.goals.title")}</h2>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={openCreateGoal}
+              className="rounded-full h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white text-xs gap-1"
+              data-testid="goals-add-btn"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {t("myMoney.goals.add")}
+            </Button>
+          </div>
+          {loading ? (
+            <div className="py-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-[#7A7571]" /></div>
+          ) : goals.length === 0 ? (
+            <div className="py-8 text-center px-4">
+              <Target className="w-8 h-8 mx-auto text-[#D1D5DB]" strokeWidth={1.5} />
+              <p className="mt-2 text-xs text-[#7A7571]">{t("myMoney.goals.empty")}</p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-[#EFEBE4]" data-testid="goals-list">
+              {goals.map((g) => {
+                const pct = Math.min(100, Math.max(0, g.progress_pct || 0));
+                const complete = !!g.is_complete;
+                const reached = pct >= 100 || complete;
+                const barColor = complete ? "bg-amber-500" : reached ? "bg-emerald-500" : "bg-amber-400";
+                return (
+                  <li key={g.id} className="px-4 py-3" data-testid={`goal-row-${g.id}`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center ${complete ? "bg-amber-100 text-amber-700" : "bg-amber-50 text-amber-600"}`}>
+                        {complete ? <CheckCircle2 className="w-4 h-4" /> : <Target className="w-4 h-4" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-semibold text-sm truncate ${complete ? "text-[#7A7571] line-through" : "text-[#2D2A26]"}`}>{g.name}</p>
+                        <p className="text-[10px] text-[#7A7571]">
+                          {formatAmount(locale, g.saved)} / {formatAmount(locale, g.target_amount)} €
+                          {complete && <span className="ltr:ml-1 rtl:mr-1 text-amber-700 font-bold uppercase tracking-wider">· {t("myMoney.goals.completed")}</span>}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGoalComplete(g)}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center ${complete ? "text-amber-600 hover:bg-amber-50" : "text-emerald-600 hover:bg-emerald-50"}`}
+                        data-testid={`goal-toggle-${g.id}`}
+                        aria-label={complete ? t("myMoney.goals.reopen") : t("myMoney.goals.markDone")}
+                        title={complete ? t("myMoney.goals.reopen") : t("myMoney.goals.markDone")}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditGoal(g)}
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-[#7A7571] hover:text-[#2D2A26] hover:bg-[#F3F0EA]"
+                        data-testid={`goal-edit-${g.id}`}
+                        aria-label={t("btn.edit")}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGoalDelTarget(g)}
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-rose-700 hover:bg-rose-50"
+                        data-testid={`goal-delete-${g.id}`}
+                        aria-label={t("btn.delete")}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="mt-2 h-2 w-full rounded-full bg-[#F3F0EA] overflow-hidden">
+                      <div
+                        className={`h-full ${barColor} transition-all`}
+                        style={{ width: `${pct}%` }}
+                        data-testid={`goal-progress-${g.id}`}
+                      />
+                    </div>
+                    <p className="mt-1 text-end text-[10px] font-mono text-[#7A7571]">{Math.round(pct)}%</p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
         {/* History */}
@@ -506,6 +678,82 @@ const MyMoney = () => {
             <Button type="button" variant="ghost" onClick={() => setDelTarget(null)} disabled={delBusy} className="rounded-full">{t("btn.cancel")}</Button>
             <Button type="button" onClick={confirmDelete} disabled={delBusy} className="rounded-full bg-rose-700 hover:bg-rose-800 text-white" data-testid="delete-confirm">
               {delBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                <><Trash2 className="w-4 h-4 ltr:mr-1 rtl:ml-1" />{t("btn.delete")}</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Goal editor (create + edit share the same form) */}
+      <Dialog open={goalEditorOpen} onOpenChange={setGoalEditorOpen}>
+        <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white" data-testid="goal-editor-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl flex items-center gap-2">
+              <Target className="w-5 h-5 text-amber-600" />
+              {goalDraft.id ? t("myMoney.goals.edit") : t("myMoney.goals.add")}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[#7A7571]">
+              {t("myMoney.goals.desc")}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveGoal} className="space-y-3">
+            <FieldLabel>{t("myMoney.goals.name")}</FieldLabel>
+            <Input
+              autoFocus value={goalDraft.name}
+              onChange={(e) => setGoalDraft((s) => ({ ...s, name: e.target.value }))}
+              placeholder={t("myMoney.goals.placeholder.name")}
+              className="rounded-xl h-11"
+              required data-testid="goal-name"
+            />
+            <FieldLabel>{t("myMoney.goals.target")}</FieldLabel>
+            <Input
+              type="number" step="0.01" min="0.01"
+              value={goalDraft.target_amount}
+              onChange={(e) => setGoalDraft((s) => ({ ...s, target_amount: e.target.value }))}
+              className="rounded-xl h-12 text-lg font-mono text-center"
+              required data-testid="goal-target"
+            />
+            <FieldLabel>{t("myMoney.goals.targetDate")}</FieldLabel>
+            <Input
+              type="date" value={goalDraft.target_date}
+              onChange={(e) => setGoalDraft((s) => ({ ...s, target_date: e.target.value }))}
+              className="rounded-xl h-11"
+              data-testid="goal-target-date"
+            />
+            <FieldLabel>{t("myMoney.goals.notes")}</FieldLabel>
+            <Input
+              value={goalDraft.notes}
+              onChange={(e) => setGoalDraft((s) => ({ ...s, notes: e.target.value }))}
+              className="rounded-xl h-11"
+              data-testid="goal-notes"
+            />
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="ghost" onClick={() => setGoalEditorOpen(false)} disabled={goalDraft.busy} className="rounded-full">{t("btn.cancel")}</Button>
+              <Button type="submit" disabled={goalDraft.busy} className="rounded-full bg-amber-500 hover:bg-amber-600 text-white" data-testid="goal-save">
+                {goalDraft.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : t("btn.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Goal delete confirmation */}
+      <Dialog open={!!goalDelTarget} onOpenChange={(v) => !v && setGoalDelTarget(null)}>
+        <DialogContent className="max-w-sm rounded-3xl border-2 border-rose-300 bg-white" data-testid="goal-delete-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-rose-700 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              {t("myMoney.goals.delete.title")}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-rose-900">
+              {goalDelTarget && t("myMoney.goals.delete.desc", { name: goalDelTarget.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setGoalDelTarget(null)} disabled={goalDelBusy} className="rounded-full">{t("btn.cancel")}</Button>
+            <Button type="button" onClick={confirmGoalDelete} disabled={goalDelBusy} className="rounded-full bg-rose-700 hover:bg-rose-800 text-white" data-testid="goal-delete-confirm">
+              {goalDelBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                 <><Trash2 className="w-4 h-4 ltr:mr-1 rtl:ml-1" />{t("btn.delete")}</>
               )}
             </Button>
