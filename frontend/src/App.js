@@ -12,6 +12,7 @@ import Routines from "@/pages/Routines";
 import HomeBudget from "@/pages/HomeBudget";
 import ShoppingList from "@/pages/ShoppingList";
 import Admin from "@/pages/Admin";
+import FamilyMembers from "@/pages/FamilyMembers";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -63,6 +64,14 @@ function App() {
                 element={
                   <RequireAuth>
                     <ShoppingList />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/family-members"
+                element={
+                  <RequireAuth>
+                    <FamilyMembers />
                   </RequireAuth>
                 }
               />

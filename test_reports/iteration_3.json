@@ -1,0 +1,29 @@
+{
+  "summary": "End-to-end testing of the Family Members feature. Backend pytest 9/9 PASSED (bootstrap admin promotion, 403 second-add via account token, member/select payload, full CRUD with member admin token, last-admin demote/delete protection, second-admin unlock, list-shape with no pin_hash leak, multi-tenant isolation between two families). Frontend Playwright E2E (412x915) executed full flow: /login → Family Account → Create new family → Add first parent (auto-promoted) → select admin with PIN → WallBoard → /family-members. On the page: list shows admin with YOU+ADMIN badges; Remove-admin button disabled for last admin; Add member dialog accepts name/role/pin and creates a new row; Make-admin promotes; Edit dialog renames + changes role; Change-PIN dialog updates PIN; Demote then Delete (with confirmation dialog) removes the member. Non-admin redirect verified: flipping is_family_admin=false in localStorage then visiting /family-members redirects to /. Arabic and German translations render correctly on the Family Members page (all members.* keys present in en/ar/de).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_family_members.py",
+    "/app/test_reports/pytest/family_members_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FamilyMembers.jsx uses a native <select> for the role picker (lines ~440-470 area) instead of the shadcn Select component used elsewhere in the app — minor design inconsistency.",
+    "/api/family/members PUT accepts {pin: '...'} which is hashed and saved into pin_hash — works, but consider adding minimum-length validation server-side (currently accepts e.g. 1-digit PIN). Frontend enforces >=4 digits, server should mirror.",
+    "When the only admin tries to demote themselves the backend returns 400 — the UI guards by disabling the button (good), but the demote API call is not made; still, a manual API call would yield the right error. Defense-in-depth is in place."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_family_members.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all flows in scope)"},
+  "test_credentials": "Fresh accounts created at runtime: qa-fam-<timestamp>@example.com / Pass1234! — bootstrap parent name 'QA Admin' / PIN 1234. Auto-cleaned (registered only for the test run; family rows remain in DB but are TEST_ named).",
+  "seed_data_creation": "Each test registers a fresh family with a unique email; no shared seed used. TEST_-prefixed member names used inside the families. No production data touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_family_members.py is the regression suite for the Family Members CRUD + last-admin guards + multi-tenant isolation. Run with REACT_APP_BACKEND_URL exported. Frontend flow: login → Family Account → Create new family → register form (testids: register-family-name, register-email, register-password, register-confirm) → 'Add first parent' button → fill bootstrap-name + bootstrap-pin → Save → click member tile → enter PIN → WallBoard → goto /family-members. Testids on the page: family-members-page, members-add-btn, members-add-dialog, add-name, add-role, add-pin, add-grant-admin, add-submit, member-row-<id>, member-edit-<id>, member-pin-<id>, member-promote-<id>, member-demote-<id>, member-delete-<id>, edit-name, edit-role, edit-grant-admin, edit-submit, pin-input, pin-save, members-delete-dialog, delete-confirm. Language switch: localStorage 'mfml_lang' = 'en'|'ar'|'de'.",
+  "rca of the issue": "N/A — no defects found. The only test-script-level false negative was: my assertion `'QA Child2' not in body` after delete returned False because the toast message 'QA Child2 deleted' still contained the name when the DOM was snapshotted; the deletion itself succeeded (screenshots confirmed only QA Admin remained on the page)."
+}
