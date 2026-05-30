@@ -68,12 +68,14 @@ class MemberCreate(BaseModel):
     name: str
     role: str
     pin: str
+    is_family_admin: Optional[bool] = False
 
 
 class MemberUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     pin: Optional[str] = None
+    is_family_admin: Optional[bool] = None
 
 
 class MemberSelectPayload(BaseModel):
@@ -116,7 +118,7 @@ def create_account_token(account_id: str, family_id: str, role: str) -> str:
     )
 
 
-def create_member_token(account_id: str, family_id: str, member_id: str, member_role: str) -> str:
+def create_member_token(account_id: str, family_id: str, member_id: str, member_role: str, is_admin: bool = False) -> str:
     return _encode_token(
         {
             "type": "member",
@@ -124,6 +126,7 @@ def create_member_token(account_id: str, family_id: str, member_id: str, member_
             "fid": family_id,
             "mid": member_id,
             "mrole": member_role,
+            "fadmin": bool(is_admin),
         },
         MEMBER_TOKEN_MINUTES,
     )
@@ -380,7 +383,9 @@ def build_auth_router(db) -> APIRouter:
             raise HTTPException(status_code=401, detail="Wrong PIN")
         await _clear_attempts(identifier)
         member_token = create_member_token(
-            token["sub"], token["fid"], member["id"], member.get("role", "other")
+            token["sub"], token["fid"], member["id"],
+            member.get("role", "other"),
+            bool(member.get("is_family_admin")),
         )
         safe = {k: v for k, v in member.items() if k != "pin_hash"}
         return {
@@ -393,27 +398,42 @@ def build_auth_router(db) -> APIRouter:
 
 
 def build_family_router(db) -> APIRouter:
-    """Family-management routes — listing/adding/editing members. Parent-only
-    for create/update/delete; any account-token holder can list."""
+    """Family-management routes — listing/adding/editing members.
+
+    Permission model:
+      * Any account-token holder OR member-token holder can LIST members
+        (so the "Who are you?" screen works before a member is selected).
+      * Mutating routes (create / update / delete / toggle admin) require
+        the caller to either:
+          - be the account owner and the family has no admin yet (bootstrap),
+          - or hold a member token with `fadmin=true`.
+      * The last family admin can never be removed or demoted.
+    """
     router = APIRouter(prefix="/family", tags=["family"])
     members = db.family_members
 
-    async def _ensure_parent(token: dict) -> None:
-        """For account-token-based access we treat the owner of the account
-        as the implicit parent. Once a parent member exists, only parents
-        can manage other members."""
-        if token.get("role") == "admin":
-            raise HTTPException(status_code=403, detail="Admins cannot edit families")
-        parent_exists = await members.find_one(
-            {"family_id": token["fid"], "role": "parent"}, {"_id": 0}
+    async def _admin_count(family_id: str) -> int:
+        return await members.count_documents(
+            {"family_id": family_id, "is_family_admin": True}
         )
-        # If no parent member exists yet, the first member created by the
-        # account owner is bootstrap-allowed (so they can seed Parent #1).
-        if not parent_exists:
+
+    async def _ensure_family_admin(token: dict) -> None:
+        if token.get("role") == "admin":
+            raise HTTPException(status_code=403, detail="System admins cannot edit families")
+        admin_count = await _admin_count(token["fid"])
+        # Bootstrap case — no family admin yet → only the account OWNER token
+        # can seed the first one (so a random adult/child can't grant
+        # themselves admin via an account token they shouldn't have).
+        if admin_count == 0:
+            if token.get("type") != "account":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Sign in with the account owner to add the first family admin",
+                )
             return
-        # Once parents exist, the device must be in a parent member session.
-        if token.get("type") != "member" or token.get("mrole") != "parent":
-            raise HTTPException(status_code=403, detail="Only parents can manage members")
+        # Normal case — requester must be a family admin (member token).
+        if not (token.get("type") == "member" and token.get("fadmin")):
+            raise HTTPException(status_code=403, detail="Family admin permission required")
 
     def _accept_any_token(authorization: Optional[str] = Header(None)) -> dict:
         token = _extract_bearer(authorization)
@@ -424,10 +444,12 @@ def build_family_router(db) -> APIRouter:
 
     @router.get("/members")
     async def list_members(token: dict = Depends(_accept_any_token)):
-        # Children only see basic name+role of others (no PIN exposed ever).
         rows = await members.find(
             {"family_id": token["fid"]}, {"_id": 0, "pin_hash": 0}
         ).sort("created_at", 1).to_list(100)
+        # Normalize the field so old docs without it look like non-admins.
+        for r in rows:
+            r["is_family_admin"] = bool(r.get("is_family_admin"))
         return rows
 
     @router.post("/members")
@@ -435,25 +457,33 @@ def build_family_router(db) -> APIRouter:
         payload: MemberCreate,
         token: dict = Depends(_accept_any_token),
     ):
-        await _ensure_parent(token)
-        role = payload.role.lower().strip()
+        await _ensure_family_admin(token)
+        role = (payload.role or "parent").lower().strip()
         if role not in VALID_ROLES:
             raise HTTPException(status_code=400, detail=f"role must be one of {sorted(VALID_ROLES)}")
         if not payload.pin or not payload.pin.strip():
             raise HTTPException(status_code=400, detail="PIN is required")
+
+        is_admin_flag = bool(payload.is_family_admin)
+        # Bootstrap: when no admin exists yet, the FIRST member created must
+        # become a family admin regardless of what the caller sent — otherwise
+        # the family would be permanently locked out of management.
+        if (await _admin_count(token["fid"])) == 0:
+            is_admin_flag = True
+
         member_id = str(uuid.uuid4())
         doc = {
             "id": member_id,
             "family_id": token["fid"],
             "name": payload.name.strip(),
             "role": role,
+            "is_family_admin": is_admin_flag,
             "pin_hash": hash_secret(payload.pin.strip()),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await members.insert_one(doc)
         doc.pop("_id", None)
-        safe = {k: v for k, v in doc.items() if k != "pin_hash"}
-        return safe
+        return {k: v for k, v in doc.items() if k != "pin_hash"}
 
     @router.put("/members/{member_id}")
     async def update_member(
@@ -461,12 +491,13 @@ def build_family_router(db) -> APIRouter:
         payload: MemberUpdate,
         token: dict = Depends(_accept_any_token),
     ):
-        await _ensure_parent(token)
+        await _ensure_family_admin(token)
         existing = await members.find_one(
             {"id": member_id, "family_id": token["fid"]}, {"_id": 0}
         )
         if not existing:
             raise HTTPException(status_code=404, detail="Member not found")
+
         update = {}
         if payload.name is not None:
             update["name"] = payload.name.strip()
@@ -479,26 +510,42 @@ def build_family_router(db) -> APIRouter:
             if not payload.pin.strip():
                 raise HTTPException(status_code=400, detail="PIN cannot be empty")
             update["pin_hash"] = hash_secret(payload.pin.strip())
+        if payload.is_family_admin is not None:
+            new_flag = bool(payload.is_family_admin)
+            # Block demoting the last family admin.
+            if existing.get("is_family_admin") and not new_flag:
+                if await _admin_count(token["fid"]) <= 1:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot remove admin rights from the last family admin",
+                    )
+            update["is_family_admin"] = new_flag
+
         if update:
-            await members.update_one({"id": member_id}, {"$set": update})
-        fresh = await members.find_one({"id": member_id}, {"_id": 0, "pin_hash": 0})
+            await members.update_one({"id": member_id, "family_id": token["fid"]}, {"$set": update})
+        fresh = await members.find_one(
+            {"id": member_id, "family_id": token["fid"]}, {"_id": 0, "pin_hash": 0}
+        )
+        fresh["is_family_admin"] = bool(fresh.get("is_family_admin"))
         return fresh
 
     @router.delete("/members/{member_id}")
     async def delete_member(member_id: str, token: dict = Depends(_accept_any_token)):
-        await _ensure_parent(token)
-        # Prevent removing the last parent — keeps the family manageable.
+        await _ensure_family_admin(token)
         target = await members.find_one(
             {"id": member_id, "family_id": token["fid"]}, {"_id": 0}
         )
         if not target:
             raise HTTPException(status_code=404, detail="Member not found")
-        if target.get("role") == "parent":
-            parents = await members.count_documents(
-                {"family_id": token["fid"], "role": "parent"}
-            )
-            if parents <= 1:
-                raise HTTPException(status_code=400, detail="Cannot remove the last parent")
+        if target.get("is_family_admin"):
+            # Block deleting the last admin so the family never becomes
+            # unmanageable. This also covers the self-delete case (the
+            # only admin trying to remove themselves).
+            if await _admin_count(token["fid"]) <= 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete the last family admin",
+                )
         await members.delete_one({"id": member_id, "family_id": token["fid"]})
         return {"ok": True}
 
@@ -546,6 +593,7 @@ def build_admin_router(db) -> APIRouter:
             "family_id": family_id,
             "name": name,
             "role": role,
+            "is_family_admin": bool(body.get("is_family_admin")),
             "pin_hash": hash_secret(pin),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "seeded_by": "admin",
@@ -824,6 +872,18 @@ async def ensure_indexes(db) -> None:
     await db.family_members.create_index([("family_id", 1)])
     await db.recovery_codes.create_index("expires_at", expireAfterSeconds=0)
     await db.login_attempts.create_index("identifier")
+    # Migrate legacy members: anyone whose role is "parent" but who has no
+    # `is_family_admin` flag becomes a family admin automatically. This keeps
+    # already-active families manageable after the permission model change.
+    await db.family_members.update_many(
+        {"role": "parent", "is_family_admin": {"$exists": False}},
+        {"$set": {"is_family_admin": True}},
+    )
+    # Everyone else (still missing the flag) becomes a non-admin member.
+    await db.family_members.update_many(
+        {"is_family_admin": {"$exists": False}},
+        {"$set": {"is_family_admin": False}},
+    )
 
 
 async def seed_admin(db) -> None:
