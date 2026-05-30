@@ -443,6 +443,25 @@ def build_family_router(db) -> APIRouter:
     """
     router = APIRouter(prefix="/family", tags=["family"])
     members = db.family_members
+    activity_log = db.activity_log
+
+    async def _log_activity(token: dict, kind: str, payload: dict) -> None:
+        """Best-effort write to the per-family activity feed. Skipped when
+        the caller is using an account token (no `mid` to attribute to)."""
+        try:
+            actor_id = token.get("mid")
+            if not actor_id:
+                return
+            await activity_log.insert_one({
+                "id": str(uuid.uuid4()),
+                "family_id": token["fid"],
+                "kind": kind,
+                "payload": payload or {},
+                "member_id": actor_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
 
     async def _admin_count(family_id: str) -> int:
         return await members.count_documents(
@@ -532,6 +551,12 @@ def build_family_router(db) -> APIRouter:
         }
         await members.insert_one(doc)
         doc.pop("_id", None)
+        await _log_activity(token, "member.added", {
+            "name": doc["name"],
+            "member_id": member_id,
+            "role": doc["role"],
+            "is_family_admin": doc["is_family_admin"],
+        })
         return {k: v for k, v in doc.items() if k != "pin_hash"}
 
     @router.put("/members/{member_id}")
@@ -587,6 +612,13 @@ def build_family_router(db) -> APIRouter:
             {"id": member_id, "family_id": token["fid"]}, {"_id": 0, "pin_hash": 0}
         )
         fresh["is_family_admin"] = bool(fresh.get("is_family_admin"))
+        # Log only the admin-flag transitions (the user-visible interesting
+        # case). Name/role/avatar edits stay quiet to keep the feed clean.
+        if "is_family_admin" in update:
+            if update["is_family_admin"] and not existing.get("is_family_admin"):
+                await _log_activity(token, "member.promoted", {"name": fresh.get("name"), "member_id": member_id})
+            elif (not update["is_family_admin"]) and existing.get("is_family_admin"):
+                await _log_activity(token, "member.demoted", {"name": fresh.get("name"), "member_id": member_id})
         return fresh
 
     @router.delete("/members/{member_id}")
@@ -607,6 +639,10 @@ def build_family_router(db) -> APIRouter:
                     detail="Cannot delete the last family admin",
                 )
         await members.delete_one({"id": member_id, "family_id": token["fid"]})
+        await _log_activity(token, "member.deleted", {
+            "name": target.get("name"),
+            "member_id": member_id,
+        })
         return {"ok": True}
 
     return router

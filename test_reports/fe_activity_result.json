@@ -1,0 +1,50 @@
+{
+  "languages": {
+    "en": {
+      "rendered": true,
+      "items": [
+        [
+          "activity-item-event.created",
+          "Added event \"Morning work\"\n2 seconds ago"
+        ],
+        [
+          "activity-item-member.added",
+          "Added Suleiman to the family\n2 seconds ago"
+        ]
+      ],
+      "leak_raw_key": false,
+      "inside_wall_member_strip": true
+    },
+    "ar": {
+      "rendered": true,
+      "items": [
+        [
+          "activity-item-event.created",
+          "أضفت حدث «Morning work»\nقبل 3 ثوانِ"
+        ],
+        [
+          "activity-item-member.added",
+          "أضفت Suleiman للعائلة\nقبل 3 ثوانِ"
+        ]
+      ],
+      "leak_raw_key": false,
+      "inside_wall_member_strip": true
+    },
+    "de": {
+      "rendered": true,
+      "items": [
+        [
+          "activity-item-event.created",
+          "Ereignis \"Morning work\" hinzugefügt\nvor 4 Sekunden"
+        ],
+        [
+          "activity-item-member.added",
+          "Suleiman zur Familie hinzugefügt\nvor 4 Sekunden"
+        ]
+      ],
+      "leak_raw_key": false,
+      "inside_wall_member_strip": true
+    }
+  },
+  "empty_state_strip_or_loading_present": false
+}

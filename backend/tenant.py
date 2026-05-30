@@ -33,6 +33,8 @@ SCOPED_COLLECTIONS = {
     "budget_debts", "budget_loans",
     # Kids' personal money (one ledger per child member)
     "kids_money", "kids_money_goals",
+    # Per-member activity feed for the Wall Board "Recent activity" strip.
+    "activity_log",
     # Wall Board
     "wall_settings", "wall_photos", "wall_goals", "wall_countdown",
     "wall_achievements", "wall_notes", "wall_family_events",

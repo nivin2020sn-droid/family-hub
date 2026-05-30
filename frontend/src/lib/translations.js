@@ -794,6 +794,20 @@ export const TRANSLATIONS = {
 
     "welcome.back": "Welcome back, {name}",
 
+    "activity.title": "Recent activity by you",
+    "activity.loading": "Loading recent activity…",
+    "activity.event.created": "Added event \"{title}\"",
+    "activity.event.deleted": "Removed event \"{title}\"",
+    "activity.kids.income": "Added income \"{description}\" ({amount} €)",
+    "activity.kids.payment": "Logged payment \"{description}\" ({amount} €)",
+    "activity.goal.created": "Set a new goal: {name}",
+    "activity.goal.completed": "Reached your goal: {name} 🎉",
+    "activity.member.added": "Added {name} to the family",
+    "activity.member.promoted": "Made {name} a family admin",
+    "activity.member.demoted": "Removed admin rights from {name}",
+    "activity.member.deleted": "Removed {name} from the family",
+    "activity.generic": "Activity recorded",
+
     "nav.myMoney": "My Money",
     "myMoney.title": "My Money",
     "myMoney.adminTitle": "Kids' Money",
@@ -1619,6 +1633,20 @@ export const TRANSLATIONS = {
 
     "welcome.back": "أهلاً بعودتك، {name}",
 
+    "activity.title": "آخر نشاطاتك",
+    "activity.loading": "جارٍ تحميل النشاطات…",
+    "activity.event.created": "أضفت حدث «{title}»",
+    "activity.event.deleted": "حذفت حدث «{title}»",
+    "activity.kids.income": "أضفت دخلاً «{description}» ({amount} €)",
+    "activity.kids.payment": "سجّلت مدفوعات «{description}» ({amount} €)",
+    "activity.goal.created": "أضفت هدفاً جديداً: {name}",
+    "activity.goal.completed": "وصلت إلى هدفك: {name} 🎉",
+    "activity.member.added": "أضفت {name} للعائلة",
+    "activity.member.promoted": "منحت {name} صلاحية المسؤول",
+    "activity.member.demoted": "ألغيت صلاحية مسؤول {name}",
+    "activity.member.deleted": "أزلت {name} من العائلة",
+    "activity.generic": "تم تسجيل نشاط",
+
     "nav.myMoney": "مصروفي",
     "myMoney.title": "مصروفي",
     "myMoney.adminTitle": "مصاريف الأطفال",
@@ -2443,6 +2471,20 @@ export const TRANSLATIONS = {
     "members.avatar.invalid": "Diese Datei ist kein gültiges Bild",
 
     "welcome.back": "Willkommen zurück, {name}",
+
+    "activity.title": "Deine letzten Aktivitäten",
+    "activity.loading": "Aktivitäten werden geladen…",
+    "activity.event.created": "Ereignis \"{title}\" hinzugefügt",
+    "activity.event.deleted": "Ereignis \"{title}\" gelöscht",
+    "activity.kids.income": "Einnahme \"{description}\" hinzugefügt ({amount} €)",
+    "activity.kids.payment": "Ausgabe \"{description}\" erfasst ({amount} €)",
+    "activity.goal.created": "Neues Ziel gesetzt: {name}",
+    "activity.goal.completed": "Ziel erreicht: {name} 🎉",
+    "activity.member.added": "{name} zur Familie hinzugefügt",
+    "activity.member.promoted": "{name} zum Familien-Admin gemacht",
+    "activity.member.demoted": "{name} die Admin-Rechte entzogen",
+    "activity.member.deleted": "{name} aus der Familie entfernt",
+    "activity.generic": "Aktivität erfasst",
 
     "nav.myMoney": "Mein Geld",
     "myMoney.title": "Mein Geld",

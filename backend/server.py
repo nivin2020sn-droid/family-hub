@@ -518,6 +518,12 @@ async def create_event(
     data["owner_member_id"] = requested_owner
     obj = Event(**data)
     await db.events.insert_one(obj.model_dump())
+    await log_activity(token, "event.created", {
+        "title": obj.title,
+        "date": obj.date,
+        "owner_member_id": requested_owner,
+        "event_id": obj.id,
+    })
     return obj
 
 
@@ -572,8 +578,13 @@ async def update_event(
 async def delete_event(
     event_id: str, token: dict = Depends(require_member_token)
 ):
-    await _ensure_event_writable(event_id, token)
+    existing = await _ensure_event_writable(event_id, token)
     await db.events.delete_one({"id": event_id})
+    await log_activity(token, "event.deleted", {
+        "title": existing.get("title"),
+        "date": existing.get("date"),
+        "event_id": event_id,
+    })
     return {"ok": True}
 
 
@@ -2139,6 +2150,11 @@ async def create_kids_money(
         notes=(payload.notes or "").strip(),
     )
     await db.kids_money.insert_one(obj.model_dump())
+    await log_activity(token, f"kids_money.{obj.type}.added", {
+        "amount": obj.amount,
+        "description": obj.description,
+        "for_member_id": target,
+    })
     return obj
 
 
@@ -2301,6 +2317,11 @@ async def create_kids_money_goal(
     )
     await db.kids_money_goals.insert_one(obj.model_dump())
     balance = await _current_balance(target)
+    await log_activity(token, "goal.created", {
+        "name": obj.name,
+        "target_amount": obj.target_amount,
+        "for_member_id": target,
+    })
     return _decorate_goal(obj.model_dump(), balance)
 
 
@@ -2333,6 +2354,14 @@ async def update_kids_money_goal(
     await db.kids_money_goals.update_one({"id": goal_id}, {"$set": update})
     fresh = await db.kids_money_goals.find_one({"id": goal_id}, {"_id": 0})
     balance = await _current_balance(existing["member_id"])
+    # Log only the meaningful "completed" transition; other edits stay quiet
+    # to avoid cluttering the activity feed.
+    if "is_complete" in update and update["is_complete"] and not existing.get("is_complete"):
+        await log_activity(token, "goal.completed", {
+            "name": fresh.get("name"),
+            "target_amount": fresh.get("target_amount"),
+            "for_member_id": existing["member_id"],
+        })
     return _decorate_goal(fresh, balance)
 
 
@@ -2347,6 +2376,55 @@ async def delete_kids_money_goal(
     await _resolve_child_member(token, existing["member_id"])
     await db.kids_money_goals.delete_one({"id": goal_id})
     return {"ok": True}
+
+
+# ============= Activity Feed =============
+# Lightweight per-family/per-member activity log so the Wall Board can show a
+# "Recent activity by you" strip. We deliberately store STRUCTURED payload
+# fields (title, name, amount, …) instead of pre-formatted strings so the
+# frontend can localise the rendered text to EN / AR / DE on the fly.
+#
+# Writes happen via `log_activity(token, kind, payload)` from inside the
+# endpoints that mutate user data. Failures NEVER bubble up to the caller —
+# the user-visible action must succeed even if the log write fails.
+
+ACTIVITY_LIMIT = 20  # safety cap on a single fetch
+
+
+async def log_activity(token: dict, kind: str, payload: Optional[dict] = None) -> None:
+    """Append an activity entry attributed to the caller. Best-effort."""
+    try:
+        member_id = token.get("mid")
+        if not member_id:
+            return  # account-only token → not attributable to a member
+        await db.activity_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "kind": kind,
+            "payload": payload or {},
+            "member_id": member_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:  # pragma: no cover — logging is best-effort
+        logging.getLogger(__name__).warning("log_activity failed: %s", exc)
+
+
+@api_router.get("/activity/recent")
+async def recent_activity(
+    limit: int = 3,
+    scope: str = "self",  # "self" (default) | "family" (admin only)
+    token: dict = Depends(require_member_token),
+):
+    limit = max(1, min(limit, ACTIVITY_LIMIT))
+    query: dict = {}
+    if scope == "family":
+        if not bool(token.get("fadmin")):
+            raise HTTPException(status_code=403, detail="Family admin permission required")
+    else:
+        member_id = token.get("mid")
+        if member_id:
+            query["member_id"] = member_id
+    rows = await db.activity_log.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"items": rows}
 
 
 # ============= Shopping List =============

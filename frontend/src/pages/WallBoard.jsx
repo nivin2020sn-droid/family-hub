@@ -49,6 +49,7 @@ import { logout as authLogout, getMember as getCurrentMember } from "@/lib/auth"
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MemberBadge from "@/components/MemberBadge";
+import RecentActivityStrip from "@/components/RecentActivityStrip";
 import FamilyMapCard from "@/components/FamilyMapCard";
 import WallBoardRoutines from "@/components/WallBoardRoutines";
 import {
@@ -1730,8 +1731,9 @@ const WallBoard = () => {
       <div className="max-w-md mx-auto px-4 pt-4">
         {/* Member identity strip — keeps the user grounded in whose account they're in. */}
         {currentMember && (
-          <div className="mb-3" data-testid="wall-member-strip">
+          <div className="mb-3 space-y-2" data-testid="wall-member-strip">
             <MemberBadge member={currentMember} />
+            <RecentActivityStrip limit={3} />
           </div>
         )}
         {/* Hero */}
