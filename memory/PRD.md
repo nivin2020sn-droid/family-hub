@@ -359,3 +359,34 @@ The "Personal Account" option on the login screen was a placeholder (showed a "c
 **Tested**: backend pytest **23/23 PASSED** total — 6 new in `tests/test_single_account.py` (register both-tokens, email-localpart fallback, login both-tokens, single wallet only, upgrade flip, upgrade re-attempt 400, empty-name 400) + the existing 15 tenant isolation + 2 budget owner suites. Playwright screenshots confirm: single-account `/` (no FamilyMap, no "Manage family members" in Settings, **"Upgrade to Family Account"** button visible), `/home-budget` ("Dashboard" title, one wallet, no shared-expenses tile, no wallet filter), `/time-plan` (no member switcher, no Family View, no Manage Family Members link).
 
 **Affected files**: `/app/backend/auth_module.py`, `/app/backend/tests/test_single_account.py` (new), `/app/frontend/src/lib/auth.js`, `/app/frontend/src/pages/Login.jsx`, `/app/frontend/src/pages/WallBoard.jsx`, `/app/frontend/src/pages/TimePlan.jsx`, `/app/frontend/src/pages/HomeBudget.jsx`, `/app/frontend/src/pages/FamilyMembers.jsx`, `/app/frontend/src/lib/translations.js`.
+
+
+## Implemented (Feb 2026 — Single-Account UX: personalize the Wall Board)
+Single accounts were functionally complete but the Wall Board still read like a family page (hero said "Together We Build Beautiful Memories", section titles said "Our Goals" / "Family Events", empty states said "Write the first message for your family"). This pass swaps every family-flavoured surface to a self-focused variant **only when `family.account_type === "single"`**. Family accounts are untouched.
+
+**Backend** (`server.py`):
+- `WallSettings` model defaults flipped from English literals (`"Together We Build Beautiful Memories"`, `"Our Family, Our Dreams, Our Happiness"`, `"Message of the Day"`) to empty strings. The frontend now controls the visible copy via i18n + the `||` fallback to `t("hero.defaultTitle"[.single])`.
+- New one-time **migration step 7** in `migrate_legacy_to_nasser`: scrubs the three legacy English strings out of every existing `wall_settings` row (the run after deploy cleared **41 rows** — 14 hero_title + 14 hero_subtitle + 13 message_title — across all families). Custom user-saved strings are preserved.
+
+**Frontend WallBoard** (`pages/WallBoard.jsx`):
+- New `isSingle = isSingleAccount()` flag + `tS(key)` helper (returns `t("<key>.single")` for personal accounts, falls back to base key otherwise) so every single-aware string is one-call away.
+- Above the hero: brand-new **single-account welcome strip** (`<MemberAvatar /> + "Welcome, <name>" / "Have a great day"`, `data-testid="single-welcome-strip"`). Replaces the family `MemberBadge` + `RecentActivityStrip` block for single users only.
+- Hero card: in single mode the default title becomes "Organize your day, reach your goals", subtitle becomes "All your plans, notes, and tasks in one place", placeholder becomes "Tap edit to add a cover photo", `alt` becomes "Cover" and the pink heart icon is dropped from the title row.
+- Hero editor dialog: title / description / image label / placeholders all switch via the new `isSingle` prop (now passed in by the page).
+- Section titles wired through `tS("section.*")`: `My Daily Note` / `My Photos` / `My Goals` / `My Events` / `My Notes` / `My Achievements` (and AR / DE equivalents below).
+- Empty states wired through `tS("empty.message")` + `tS("empty.familyEvents")`: "Write your first note." / "No upcoming events yet." (instead of family copy).
+
+**i18n** — 32 new keys × 3 languages, all suffixed `.single`:
+- Hero: `hero.editTitle.single`, `hero.editDesc.single`, `hero.familyPhoto.single`, `hero.defaultTitle.single`, `hero.defaultSubtitle.single`, `hero.tapToAdd.single`.
+- Welcome strip: `wallboard.welcome.single` (param `{name}`), `wallboard.welcomeSub.single`.
+- Sections: `section.message.single`, `section.photo.single`, `section.goals.single`, `section.familyEvents.single`, `section.notes.single`, `section.achievements.single`.
+- Empty states: `empty.message.single`, `empty.message.add.single`, `empty.familyEvents.single`.
+- Translations in EN + AR (the user's primary language) + DE.
+
+**Verified** (Playwright on https://family-timeplan.preview.emergentagent.com/, viewport 420×1500):
+- **Single AR**: welcome strip `مرحباً Layla / نتمنى لك يوماً سعيداً`, hero `نظّم يومك وحقّق أهدافك / كل خططك وملاحظاتك ومهامك في مكان واحد`, `روتيني / ملاحظتي اليومية / صوري`. ✅
+- **Single EN**: `Welcome, Layla / Have a great day`, `Organize your day, reach your goals / All your plans, notes, and tasks in one place`, `Tap edit to add a cover photo`, `My Routines / My Daily Note / My Photos / Write the first message…` (wait — empty state for single also updated). ✅
+- **Family EN** (regression): unchanged — old hero copy + heart icon, Family Map card, member badge + recent activity strip all intact. ✅
+- Backend pytest **23/23 PASSED** unchanged. Wall-settings migration ran cleanly on startup (logged in `backend.err.log`).
+
+**Affected files**: `/app/backend/server.py` (model defaults + migration step 7), `/app/frontend/src/pages/WallBoard.jsx` (welcome strip, `isSingle`/`tS`, hero + sections + empty states), `/app/frontend/src/lib/translations.js` (32 new keys × EN/AR/DE).

@@ -134,10 +134,14 @@ class EventUpdate(BaseModel):
 
 class WallSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    hero_title: str = "Together We Build Beautiful Memories"
-    hero_subtitle: str = "Our Family, Our Dreams, Our Happiness"
+    # Defaults are empty so the frontend can fall back to localized
+    # placeholders (`t("hero.defaultTitle")` / `.single`). When a user
+    # explicitly saves a custom string we store it verbatim; the empty
+    # default means "use the current language's wording".
+    hero_title: str = ""
+    hero_subtitle: str = ""
     hero_photo: Optional[str] = None  # base64 data URL or remote URL
-    message_title: str = "Message of the Day"
+    message_title: str = ""
     message_text: str = ""
 
 
@@ -3003,3 +3007,25 @@ async def migrate_legacy_to_nasser(rdb):
                         "[MIGRATE] %s: remapped %d '%s' rows to member %s in family %s",
                         col_name, res.modified_count, legacy_name, new_owner, fid_b,
                     )
+
+    # 7) Wall-settings default cleanup. Older versions baked English defaults
+    # ("Together We Build Beautiful Memories", "Message of the Day", "Our
+    # Family, Our Dreams, Our Happiness") straight into the DB on first
+    # access. That bypasses i18n and looks broken in Arabic / German /
+    # single-account mode. Clear them so the frontend can fall back to the
+    # localized placeholders. Custom user strings are left intact.
+    legacy_wall_defaults = {
+        "hero_title": "Together We Build Beautiful Memories",
+        "hero_subtitle": "Our Family, Our Dreams, Our Happiness",
+        "message_title": "Message of the Day",
+    }
+    for field, legacy_value in legacy_wall_defaults.items():
+        res = await rdb.wall_settings.update_many(
+            {field: legacy_value},
+            {"$set": {field: ""}},
+        )
+        if res.modified_count:
+            logger.warning(
+                "[MIGRATE] wall_settings.%s: cleared %d legacy-default rows",
+                field, res.modified_count,
+            )

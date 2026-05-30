@@ -48,7 +48,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { logout as authLogout, getMember as getCurrentMember, isSingleAccount, upgradeToFamily } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import MemberBadge from "@/components/MemberBadge";
+import MemberBadge, { MemberAvatar } from "@/components/MemberBadge";
 import RecentActivityStrip from "@/components/RecentActivityStrip";
 import { useAppInfo } from "@/lib/useAppInfo";
 import FamilyMapCard from "@/components/FamilyMapCard";
@@ -283,8 +283,10 @@ const BottomNavItem = ({ icon: Icon, label, active, onClick, testid }) => (
 );
 
 // ---------- Hero editor ----------
-const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
+const HeroEditor = ({ open, onOpenChange, settings, onSave, isSingle = false }) => {
   const { t } = useI18n();
+  // Single-aware translation: hero copy is rephrased for personal accounts.
+  const tS = (k) => t(isSingle ? `${k}.single` : k);
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [photo, setPhoto] = useState(null);
@@ -327,14 +329,14 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-3xl border border-[#E5E2DC] bg-white" data-testid="hero-editor">
         <DialogHeader>
-          <DialogTitle>{t("hero.editTitle")}</DialogTitle>
+          <DialogTitle>{tS("hero.editTitle")}</DialogTitle>
           <DialogDescription className="text-xs text-[#7A7571]">
-            {t("hero.editDesc")}
+            {tS("hero.editDesc")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{t("hero.familyPhoto")}</Label>
+            <Label className="text-xs uppercase tracking-wider text-[#7A7571]">{tS("hero.familyPhoto")}</Label>
             <div className="mt-2 rounded-2xl overflow-hidden bg-[#F3F0EA] aspect-[16/9] flex items-center justify-center relative">
               {photo ? (
                 <img src={photo} alt="" className="w-full h-full object-cover" />
@@ -374,7 +376,7 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
               onChange={(e) => setTitle(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="hero-title-input"
-              placeholder={t("hero.defaultTitle")}
+              placeholder={tS("hero.defaultTitle")}
             />
           </div>
           <div>
@@ -384,7 +386,7 @@ const HeroEditor = ({ open, onOpenChange, settings, onSave }) => {
               onChange={(e) => setSubtitle(e.target.value)}
               className="rounded-2xl mt-1.5"
               data-testid="hero-subtitle-input"
-              placeholder={t("hero.defaultSubtitle")}
+              placeholder={tS("hero.defaultSubtitle")}
             />
           </div>
         </div>
@@ -1564,6 +1566,12 @@ const WallBoard = () => {
   const currentMember = getCurrentMember();
   const isChildMember = currentMember?.role === "child";
   const isFamilyAdminMember = !!currentMember?.is_family_admin;
+  // Personal-mode flag: when true, every family-oriented label, default
+  // copy, and hero asset on this page switches to a self-focused variant.
+  const isSingle = isSingleAccount();
+  // tS = "translate, single-aware": returns the `<key>.single` translation
+  // when the account is personal, otherwise falls back to the base key.
+  const tS = (key, vars) => t(isSingle ? `${key}.single` : key, vars);
 
   // Welcome toast — fire once per browser session per member so the user
   // immediately recognises whose account they are in. Stored in
@@ -1837,8 +1845,29 @@ const WallBoard = () => {
       </div>
 
       <div className="max-w-md mx-auto px-4 pt-4">
-        {/* Member identity strip — keeps the user grounded in whose account they're in. */}
-        {currentMember && (
+        {/* Single-account welcome strip — avatar + personal greeting.
+            Replaces the family-member identity badge for personal accounts. */}
+        {isSingle && currentMember && (
+          <div
+            className="mb-3 flex items-center gap-3 bg-white/90 backdrop-blur rounded-2xl border border-[#EFEBE4] p-3"
+            data-testid="single-welcome-strip"
+          >
+            <MemberAvatar member={currentMember} size={44} />
+            <div className="min-w-0">
+              <p className="font-heading text-base font-semibold text-[#2D2A26] leading-tight truncate">
+                {t("wallboard.welcome.single", { name: currentMember.name || "" })}
+              </p>
+              <p className="text-[11px] text-[#7A7571] mt-0.5">
+                {t("wallboard.welcomeSub.single")}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Member identity strip — keeps the user grounded in whose account they're in.
+            For family accounts this shows the member badge + recent activity. For
+            single accounts we already render the personal welcome above. */}
+        {!isSingle && currentMember && (
           <div className="mb-3 space-y-2" data-testid="wall-member-strip">
             <MemberBadge member={currentMember} />
             <RecentActivityStrip limit={3} />
@@ -1855,13 +1884,13 @@ const WallBoard = () => {
           {settings.hero_photo ? (
             <img
               src={settings.hero_photo}
-              alt="Our family"
+              alt={isSingle ? "Cover" : "Our family"}
               className="absolute inset-0 w-full h-full object-cover"
               loading="lazy"
             />
           ) : (
             <div className="absolute inset-0 bg-gradient-to-br from-[#FCE7E9] via-[#F3F0EA] to-[#E0F0FB] flex items-center justify-center">
-              <p className="text-xs text-[#7A7571]">{t("hero.tapToAdd")}</p>
+              <p className="text-xs text-[#7A7571]">{tS("hero.tapToAdd")}</p>
             </div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
@@ -1876,11 +1905,11 @@ const WallBoard = () => {
           </button>
           <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5 text-white">
             <h2 className="font-heading text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-              {settings.hero_title || t("hero.defaultTitle")}
-              <Heart className="w-4 h-4 fill-[#F472B6] text-[#F472B6]" />
+              {settings.hero_title || tS("hero.defaultTitle")}
+              {!isSingle && <Heart className="w-4 h-4 fill-[#F472B6] text-[#F472B6]" />}
             </h2>
             <p className="text-xs sm:text-sm text-white/90 mt-1.5 leading-relaxed">
-              {settings.hero_subtitle || t("hero.defaultSubtitle")}
+              {settings.hero_subtitle || tS("hero.defaultSubtitle")}
             </p>
           </div>
         </motion.div>
@@ -1896,7 +1925,7 @@ const WallBoard = () => {
           {/* Message of the Day */}
           <SectionCard
             icon={Heart}
-            title={settings.message_title || t("section.message")}
+            title={settings.message_title || tS("section.message")}
             accent="#FCE7E9"
             iconBg="#E11D48"
             onEdit={() => setMsgOpen(true)}
@@ -1912,9 +1941,9 @@ const WallBoard = () => {
               </div>
             ) : (
               <EmptyState
-                text={t("empty.message")}
+                text={tS("empty.message")}
                 onAdd={() => setMsgOpen(true)}
-                label={t("empty.message.add")}
+                label={tS("empty.message.add")}
               />
             )}
           </SectionCard>
@@ -1922,7 +1951,7 @@ const WallBoard = () => {
           {/* Photo of the Day */}
           <SectionCard
             icon={ImageIcon}
-            title={t("section.photo")}
+            title={tS("section.photo")}
             accent="#E0F0FB"
             iconBg="#2563EB"
             onAdd={() => photoInputRef.current?.click()}
@@ -1998,7 +2027,7 @@ const WallBoard = () => {
           {/* Our Goals */}
           <SectionCard
             icon={Target}
-            title={t("section.goals")}
+            title={tS("section.goals")}
             accent="#E3F1E0"
             iconBg="#16A34A"
             onAdd={() => setGoalEditor({ open: true, item: null })}
@@ -2140,7 +2169,7 @@ const WallBoard = () => {
           {/* Family Events */}
           <SectionCard
             icon={CalendarHeart}
-            title={t("section.familyEvents")}
+            title={tS("section.familyEvents")}
             accent="#FDE7F1"
             iconBg="#DB2777"
             onAdd={() => setFeEditor({ open: true, item: null })}
@@ -2148,7 +2177,7 @@ const WallBoard = () => {
           >
             {upcomingFamilyEvents.length === 0 ? (
               <EmptyState
-                text={t("empty.familyEvents")}
+                text={tS("empty.familyEvents")}
                 onAdd={() => setFeEditor({ open: true, item: null })}
                 label={t("empty.familyEvents.add")}
               />
@@ -2205,7 +2234,7 @@ const WallBoard = () => {
           {/* Quick Notes */}
           <SectionCard
             icon={StickyNote}
-            title={t("section.notes")}
+            title={tS("section.notes")}
             accent="#FBF1D8"
             iconBg="#CA8A04"
             onAdd={() => setNoteEditor({ open: true, item: null })}
@@ -2255,7 +2284,7 @@ const WallBoard = () => {
           {/* Achievements */}
           <SectionCard
             icon={Trophy}
-            title={t("section.achievements")}
+            title={tS("section.achievements")}
             accent="#E6EEF8"
             iconBg="#2563EB"
             onAdd={() => setAchEditor({ open: true, item: null })}
@@ -2367,7 +2396,7 @@ const WallBoard = () => {
       </nav>
 
       {/* Editors */}
-      <HeroEditor open={heroOpen} onOpenChange={setHeroOpen} settings={settings} onSave={saveSettings} />
+      <HeroEditor open={heroOpen} onOpenChange={setHeroOpen} settings={settings} onSave={saveSettings} isSingle={isSingle} />
       <MessageEditor open={msgOpen} onOpenChange={setMsgOpen} settings={settings} onSave={saveSettings} />
       <GoalEditor
         open={goalEditor.open}
