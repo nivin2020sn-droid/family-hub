@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -45,6 +45,7 @@ from auth_module import (
     ensure_indexes as auth_ensure_indexes,
     seed_admin as auth_seed_admin,
     seed_default_family as auth_seed_default_family,
+    require_member_token,
 )
 
 # Auth/admin routers need cross-tenant access → raw_db, not the scoped wrapper.
@@ -1895,6 +1896,213 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
         "comparisons": comparisons,
         "loan_progress": loan_progress,
     }
+
+
+# ============= Kids' Money ("My Money") =============
+# Each entry belongs to ONE family member (the child) and records either an
+# income (allowance, gift, eid money) or a payment (toy, snack, school).
+# Privacy rules enforced server-side:
+#   - A child can ONLY see / mutate their own entries.
+#   - A family admin can read every child's ledger AND mutate any entry.
+#   - Adults / parents (non-admin) cannot read other children's ledgers.
+
+KIDS_MONEY_TYPES = {"income", "payment"}
+
+
+class KidsMoneyEntry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    member_id: str  # owning child
+    type: str  # "income" | "payment"
+    description: str = ""
+    amount: float
+    date: str  # ISO date or datetime
+    notes: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class KidsMoneyEntryCreate(BaseModel):
+    type: str
+    amount: float
+    description: Optional[str] = ""
+    member_id: Optional[str] = None  # admin only: target a specific child
+    date: Optional[str] = None
+    notes: Optional[str] = ""
+
+
+class KidsMoneyEntryUpdate(BaseModel):
+    type: Optional[str] = None
+    amount: Optional[float] = None
+    description: Optional[str] = None
+    date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _resolve_member_id(token: dict, requested: Optional[str]) -> str:
+    """Decide which member_id a kids-money operation applies to.
+
+    - Family admin may target any member by passing `requested`.
+    - Anyone else (children, adults, parents without admin) is locked to
+      their own member_id, regardless of what the client sent.
+    """
+    is_admin = bool(token.get("fadmin"))
+    self_id = token.get("mid")
+    if is_admin and requested:
+        return requested
+    if not self_id:
+        raise HTTPException(status_code=401, detail="Member context missing")
+    return self_id
+
+
+async def _resolve_child_member(token: dict, target_id: str) -> dict:
+    """Fetch the family member that owns the ledger. Enforces:
+
+    - The target must belong to the current family (handled by `family_id`).
+    - If the caller is NOT a family admin they may only operate on themselves.
+    """
+    is_admin = bool(token.get("fadmin"))
+    if not is_admin and token.get("mid") != target_id:
+        raise HTTPException(status_code=403, detail="Cannot access another member's money")
+    member = await raw_db.family_members.find_one(
+        {"id": target_id, "family_id": token["fid"]}, {"_id": 0, "pin_hash": 0}
+    )
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return member
+
+
+def _summarize_entries(entries: list) -> dict:
+    income = 0.0
+    payments = 0.0
+    for e in entries:
+        amt = float(e.get("amount") or 0)
+        if e.get("type") == "income":
+            income += amt
+        elif e.get("type") == "payment":
+            payments += amt
+    return {
+        "income": round(income, 2),
+        "payments": round(payments, 2),
+        "balance": round(income - payments, 2),
+    }
+
+
+@api_router.get("/kids-money/summary")
+async def kids_money_summary(
+    member_id: Optional[str] = Query(None),
+    token: dict = Depends(require_member_token),
+):
+    target = _resolve_member_id(token, member_id)
+    member = await _resolve_child_member(token, target)
+    entries = await db.kids_money.find(
+        {"member_id": target}, {"_id": 0}
+    ).to_list(5000)
+    summary = _summarize_entries(entries)
+    return {
+        "member": {
+            "id": member["id"],
+            "name": member.get("name"),
+            "role": member.get("role"),
+        },
+        **summary,
+        "entries_count": len(entries),
+    }
+
+
+@api_router.get("/kids-money/transactions", response_model=List[KidsMoneyEntry])
+async def list_kids_money(
+    member_id: Optional[str] = Query(None),
+    token: dict = Depends(require_member_token),
+):
+    target = _resolve_member_id(token, member_id)
+    await _resolve_child_member(token, target)
+    items = await db.kids_money.find(
+        {"member_id": target}, {"_id": 0}
+    ).sort("date", -1).to_list(5000)
+    return items
+
+
+@api_router.post("/kids-money/transactions", response_model=KidsMoneyEntry)
+async def create_kids_money(
+    payload: KidsMoneyEntryCreate,
+    token: dict = Depends(require_member_token),
+):
+    if payload.type not in KIDS_MONEY_TYPES:
+        raise HTTPException(400, f"type must be one of {sorted(KIDS_MONEY_TYPES)}")
+    if payload.amount is None or float(payload.amount) <= 0:
+        raise HTTPException(400, "amount must be positive")
+    target = _resolve_member_id(token, payload.member_id)
+    await _resolve_child_member(token, target)
+    obj = KidsMoneyEntry(
+        member_id=target,
+        type=payload.type,
+        description=(payload.description or "").strip(),
+        amount=float(payload.amount),
+        date=payload.date or datetime.now(timezone.utc).isoformat(),
+        notes=(payload.notes or "").strip(),
+    )
+    await db.kids_money.insert_one(obj.model_dump())
+    return obj
+
+
+@api_router.put("/kids-money/transactions/{entry_id}", response_model=KidsMoneyEntry)
+async def update_kids_money(
+    entry_id: str,
+    payload: KidsMoneyEntryUpdate,
+    token: dict = Depends(require_member_token),
+):
+    existing = await db.kids_money.find_one({"id": entry_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    # Authorization: same family + (admin OR owner)
+    await _resolve_child_member(token, existing["member_id"])
+    update = payload.model_dump(exclude_unset=True)
+    if "type" in update and update["type"] not in KIDS_MONEY_TYPES:
+        raise HTTPException(400, "invalid type")
+    if "amount" in update and float(update["amount"]) <= 0:
+        raise HTTPException(400, "amount must be positive")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.kids_money.update_one({"id": entry_id}, {"$set": update})
+    fresh = await db.kids_money.find_one({"id": entry_id}, {"_id": 0})
+    return fresh
+
+
+@api_router.delete("/kids-money/transactions/{entry_id}")
+async def delete_kids_money(
+    entry_id: str,
+    token: dict = Depends(require_member_token),
+):
+    existing = await db.kids_money.find_one({"id": entry_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    await _resolve_child_member(token, existing["member_id"])
+    await db.kids_money.delete_one({"id": entry_id})
+    return {"ok": True}
+
+
+@api_router.get("/kids-money/kids")
+async def list_kids_with_balances(token: dict = Depends(require_member_token)):
+    """Admin-only directory of every child in the family + their balance."""
+    if not token.get("fadmin"):
+        raise HTTPException(status_code=403, detail="Family admin permission required")
+    members = await raw_db.family_members.find(
+        {"family_id": token["fid"], "role": "child"},
+        {"_id": 0, "pin_hash": 0},
+    ).sort("created_at", 1).to_list(200)
+    out = []
+    for m in members:
+        entries = await db.kids_money.find(
+            {"member_id": m["id"]}, {"_id": 0}
+        ).to_list(5000)
+        out.append({
+            "id": m["id"],
+            "name": m.get("name"),
+            "role": m.get("role"),
+            **_summarize_entries(entries),
+            "entries_count": len(entries),
+        })
+    return {"kids": out}
 
 
 # ============= Shopping List =============

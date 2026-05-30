@@ -30,6 +30,7 @@ import {
   ChevronRight,
   ShoppingCart,
   Users as UsersIcon,
+  Coins,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -1209,6 +1210,18 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
               {t("members.manage")}
             </Button>
           )}
+          {isFamilyAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { onOpenChange(false); navigate("/my-money"); }}
+              className="w-full rounded-2xl border-[#E5E2DC] text-[#2D2A26] hover:bg-[#F3F0EA] justify-start gap-2"
+              data-testid="open-kids-money-btn"
+            >
+              <Coins className="w-4 h-4" strokeWidth={2} />
+              {t("myMoney.adminTitle")}
+            </Button>
+          )}
         </div>
         <div className="px-6 pb-5 pt-1 border-t border-[#E5E2DC] bg-[#FAF9F6]">
           <button
@@ -1435,6 +1448,12 @@ const WallBoard = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useI18n();
+  // Permissions: children get a private "My Money" tile instead of the full
+  // Family Budget. Family admins always see the full budget and can also
+  // supervise kids' money via /my-money.
+  const currentMember = getCurrentMember();
+  const isChildMember = currentMember?.role === "child";
+  const isFamilyAdminMember = !!currentMember?.is_family_admin;
 
   const [settings, setSettings] = useState(() => wallSettings.cached());
   const [photos, setPhotos] = useState(() => wallPhotos.cached());
@@ -2181,13 +2200,23 @@ const WallBoard = () => {
             onClick={() => navigate("/time-plan")}
             testid="nav-time-plan"
           />
-          <BottomNavItem
-            icon={Wallet}
-            label={t("nav.homeBudget")}
-            active={isActive("/home-budget")}
-            onClick={() => navigate("/home-budget")}
-            testid="nav-home-budget"
-          />
+          {isChildMember ? (
+            <BottomNavItem
+              icon={Coins}
+              label={t("nav.myMoney")}
+              active={isActive("/my-money")}
+              onClick={() => navigate("/my-money")}
+              testid="nav-my-money"
+            />
+          ) : (
+            <BottomNavItem
+              icon={Wallet}
+              label={t("nav.homeBudget")}
+              active={isActive("/home-budget")}
+              onClick={() => navigate("/home-budget")}
+              testid="nav-home-budget"
+            />
+          )}
           <BottomNavItem
             icon={Heart}
             label={t("nav.wallBoard")}

@@ -13,6 +13,7 @@ import HomeBudget from "@/pages/HomeBudget";
 import ShoppingList from "@/pages/ShoppingList";
 import Admin from "@/pages/Admin";
 import FamilyMembers from "@/pages/FamilyMembers";
+import MyMoney from "@/pages/MyMoney";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -72,6 +73,14 @@ function App() {
                 element={
                   <RequireAuth>
                     <FamilyMembers />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/my-money"
+                element={
+                  <RequireAuth>
+                    <MyMoney />
                   </RequireAuth>
                 }
               />

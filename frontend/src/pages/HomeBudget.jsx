@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dialog";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useI18n } from "@/lib/i18n";
+import { getMember } from "@/lib/auth";
 import {
   budgetIncome,
   budgetExpenses,
@@ -902,6 +903,15 @@ const ExpiringContractsAlert = ({ items, t, locale, onOpenForecast }) => {
 const HomeBudget = () => {
   const navigate = useNavigate();
   const { t, locale } = useI18n();
+  // Children must NEVER see the family budget — they get a private "My Money"
+  // ledger instead. Bounce them back to that page if they hit /home-budget
+  // directly (deep-link, browser back button, etc.).
+  useEffect(() => {
+    const me = getMember();
+    if (me?.role === "child" && !me?.is_family_admin) {
+      navigate("/my-money", { replace: true });
+    }
+  }, [navigate]);
   const [summary, setSummary] = useState(null);
   const [tab, setTab] = useState("income");
   const [items, setItems] = useState({
