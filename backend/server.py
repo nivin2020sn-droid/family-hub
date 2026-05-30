@@ -26,6 +26,20 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Multi-tenant auth routers (defined in /app/backend/auth_module.py).
+from auth_module import (
+    build_auth_router,
+    build_family_router,
+    build_admin_router,
+    ensure_indexes as auth_ensure_indexes,
+    seed_admin as auth_seed_admin,
+    seed_default_family as auth_seed_default_family,
+)
+
+api_router.include_router(build_auth_router(db))
+api_router.include_router(build_family_router(db))
+api_router.include_router(build_admin_router(db))
+
 
 # ============= Models =============
 
@@ -2200,3 +2214,14 @@ logger = logging.getLogger(__name__)
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+
+@app.on_event("startup")
+async def on_startup():
+    """One-time bootstrap for the multi-tenant auth system."""
+    try:
+        await auth_ensure_indexes(db)
+        await auth_seed_admin(db)
+        await auth_seed_default_family(db)
+    except Exception as exc:  # never fail to start because of seed errors
+        logger.exception("Auth bootstrap failed: %s", exc)

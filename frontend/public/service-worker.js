@@ -4,7 +4,7 @@
    media as a stale-while-revalidate. API calls go through the network and
    fall back to cache only when offline.
 */
-const CACHE_VERSION = "mfml-cache-v3";
+const CACHE_VERSION = "mfml-cache-v4";
 
 self.addEventListener("install", (event) => {
   // Activate new SW immediately on install
@@ -46,6 +46,11 @@ self.addEventListener("fetch", (event) => {
 
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
+
+  // API calls — always go to network. Never cache (returns stale data on
+  // mutations, e.g. after POST/PATCH/DELETE the next GET would serve the
+  // pre-mutation snapshot).
+  if (url.pathname.startsWith("/api/")) return;
 
   // NETWORK-FIRST for navigation requests, JS, CSS — never serve stale code
   if (isNavigation(req) || isCodeAsset(url)) {

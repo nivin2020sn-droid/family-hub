@@ -5,6 +5,7 @@ import WallBoard from "@/pages/WallBoard";
 import Routines from "@/pages/Routines";
 import HomeBudget from "@/pages/HomeBudget";
 import ShoppingList from "@/pages/ShoppingList";
+import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -59,6 +60,7 @@ function App() {
                   </RequireAuth>
                 }
               />
+              <Route path="/admin" element={<Admin />} />
               {/* Legacy paths -> redirect to home */}
               <Route path="/wall-board" element={<Navigate to="/" replace />} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />

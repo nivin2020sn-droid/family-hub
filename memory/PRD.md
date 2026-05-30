@@ -112,6 +112,33 @@
 - **i18n**: 12 new `fe.*` keys × 3 locales (EN/AR/DE).
 - **Tested**: curl-seeded 6 birthdays with years 1960–2020, verified list, sorting, "View All (6)" button, and the detail dialog (Bahaa: 37 → 38, 144 days). Test data cleaned up after verification.
 
+## Implemented (Feb 2026 — Multi-tenant Accounts + Admin)
+- Major architecture change: from a single Family Code app to a real multi-tenant
+  account system with families → accounts → members → admin. Data isolation
+  scaffolding is in place; **app modules are NOT yet migrated to filter by
+  `family_id`** (planned for the next phase).
+- **Backend** (`backend/auth_module.py` + wiring in `server.py`):
+  - Collections: `families`, `accounts`, `family_members`, `recovery_codes`, `login_attempts`.
+  - Endpoints:
+    - `POST /api/auth/register` → creates family + owner account, returns JWT.
+    - `POST /api/auth/login` → returns JWT.
+    - `GET /api/auth/me` → account + family + members snapshot.
+    - `POST /api/auth/forgot` → generates 6-digit code, hashes it, logs the plain code (no email sender yet).
+    - `POST /api/auth/reset` → consumes code + sets new password.
+    - `POST /api/auth/member/select` → second-step PIN check, returns member JWT.
+    - `GET/POST/PUT/DELETE /api/family/members` — parent-only after the first parent is seeded.
+    - `GET /api/admin/families`, `POST /api/admin/families/{id}/status`, `POST /api/admin/families/{id}/recovery` — admin-only.
+  - bcrypt for passwords + PINs, JWT (HS256) with separate `account` and `member` token types, 5-attempt lockout per identifier (15 min), TTL index on recovery codes.
+  - Startup hooks: `ensure_indexes`, `seed_admin` (idempotent, from `.env`), `seed_default_family` (creates "Nasser Family" if no real family exists).
+- **Frontend**:
+  - `lib/auth.js` rewritten with `register / login / me / forgot / reset / listMembers / addMember / updateMember / deleteMember / selectMember / adminListFamilies / adminSetFamilyStatus / adminIssueRecovery`. Stores two tokens in localStorage and keeps the legacy `mfml_auth_ok` flag so existing pages keep working during the migration.
+  - `pages/Login.jsx` rewritten as a 3-stage flow: AccountType (Family / Single-soon) → Auth (login / register / forgot) → MemberSelect (member rows + PIN field + inline "add first parent" dialog).
+  - New `pages/Admin.jsx` listing all families with status / plan / emails / created / free_until / members count, plus Disable/Enable + one-time Recovery Code dialog.
+- **i18n**: 60+ new `auth.*` / `admin.*` / `btn.refresh` keys × 3 locales (EN/AR/DE).
+- **Service worker fix**: was using stale-while-revalidate for `/api/*` GETs which masked POST mutations. Now `service-worker.js` bypasses `/api/*` entirely and always hits the network. Cache bumped to `mfml-cache-v4`.
+- **Tested**: curl end-to-end (register → add parent → wrong PIN → select member → forgot → reset → disable family → admin recovery), then full Playwright UI smoke (register → bootstrap parent → unlock to Wall Board, plus Admin console with Recovery Code dialog).
+- **Important note**: data isolation is intentionally scaffolded only. Budget/Location/Routines/WallBoard endpoints still operate as the global single tenant. Next phase: tag every collection with `family_id`, migrate existing rows to "Nasser Family", and gate all data routes behind a member token.
+
 ## Implemented (Feb 2026 — Financial Forecast & Contract Lifecycle)
 - New **Financial Forecast** card inside Family Budget. Users pick any month/year (← →) and see predicted income, bills, loan payments, debts due, total obligations, and remaining balance.
 - **Backend** (`server.py`):
