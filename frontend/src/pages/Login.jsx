@@ -22,6 +22,7 @@ import {
   getAccountToken,
   getAccount,
   getFamily,
+  isAdmin,
   login as apiLogin,
   register as apiRegister,
   forgotPassword as apiForgot,
@@ -598,19 +599,33 @@ const MemberSelectScreen = ({ onAuthExit, onDone }) => {
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const fullyAuthed = isAuthenticated() && hasSelectedMember();
-  // Resume mid-flow: if we already have an account token but no member token,
-  // jump straight to MemberSelect.
+
+  // Hooks must be declared unconditionally — early returns below.
   const hasAccountOnly = !!getAccountToken() && !hasSelectedMember();
   const [stage, setStage] = useState(hasAccountOnly ? "member" : "type");
   const [authMode, setAuthMode] = useState("login"); // login | register | forgot
 
+  // Admins never see the family flow — they belong to no family. As soon as
+  // we detect an admin token in storage, jump straight to the admin console.
+  if (getAccountToken() && isAdmin()) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  const fullyAuthed = isAuthenticated() && hasSelectedMember();
   if (fullyAuthed) {
     const target = location.state?.from?.pathname || "/";
     return <Navigate to={target} replace />;
   }
 
-  const handleAuthSuccess = () => setStage("member");
+  // Right after a successful login/register we may now have an admin token —
+  // skip the member-select stage and go directly to /admin.
+  const handleAuthSuccess = () => {
+    if (isAdmin()) {
+      navigate("/admin", { replace: true });
+      return;
+    }
+    setStage("member");
+  };
   const handleDone = () => {
     const target = location.state?.from?.pathname || "/";
     navigate(target, { replace: true });
