@@ -1,0 +1,29 @@
+{
+  "summary": "Final re-verification of MyMoney admin-index strip fix + regression check on the other four pages. All 6 expectations now pass. Fix at /app/frontend/src/pages/MyMoney.jsx line 300 ('<div data-testid=my-money-member-strip><MemberBadge/></div>' inside the showAdminIndex branch right after <Header />) is working correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "The 'my-money-member-strip' wrapper now exists in BOTH render branches of MyMoney.jsx (admin index line 300 and personal ledger line 352). The two branches still duplicate the strip wrapper — a small future refactor could move it into the shared <Header> component to avoid drift, but functionally this fix is correct."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100% — 6/6 expectations met"},
+  "test_credentials": "Fresh family TEST_AVH_<ts> per run via POST /api/auth/register. Admin Alice (PIN 1234) + child Tommy (PIN 3333). NOTE: /api/auth/member/select returns the member token under key 'member_token' (not 'access_token').",
+  "seed_data_creation": "One fresh family per run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth flow confirmed: POST /api/auth/register returns {access_token, token_type, account, family}. POST /api/family/members with account_token works for the FIRST admin member; subsequent members must use a member_token from /api/auth/member/select. /api/auth/member/select response key is 'member_token' (NOT 'access_token'). For SPA auth seed these localStorage keys: mfml_account_token, mfml_member_token, mfml_account (JSON string), mfml_family (JSON string), mfml_member (JSON string), mfml_auth_ok='true', mfml_lang='en'. All five page strips now resolve correctly: my-money-member-strip (both branches), wall-member-strip, tp-member-strip, budget-member-strip, family-members-member-strip.",
+  "verified_results": {
+    "mymoney_admin_index": {"strip_present": true, "name": "Alice", "admin_chip_count": 1, "admin_index_present": true},
+    "mymoney_personal_ledger_kid_param": {"strip_present": true, "ledger_present": true},
+    "wall_board": {"strip_present": true},
+    "time_plan": {"strip_present": true},
+    "home_budget": {"strip_present": true},
+    "family_members": {"strip_present": true}
+  }
+}

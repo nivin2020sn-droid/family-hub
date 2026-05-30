@@ -297,6 +297,7 @@ const MyMoney = () => {
       <div className="min-h-screen bg-[#FAF9F6] pb-12" data-testid="my-money-admin-index" dir={dir}>
         <Header onBack={() => navigate("/")} title={t("myMoney.adminTitle")} />
         <div className="max-w-md mx-auto px-4 pt-4 space-y-3">
+          <div data-testid="my-money-member-strip"><MemberBadge /></div>
           <p className="text-xs text-[#7A7571] leading-relaxed">{t("myMoney.adminDesc")}</p>
           <div className="rounded-3xl bg-white border border-[#E5E2DC] overflow-hidden">
             {kidsLoading ? (
