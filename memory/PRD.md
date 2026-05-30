@@ -225,3 +225,16 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: 33 new `myMoney.*` + `nav.myMoney` keys × EN / AR / DE.
 - **Tested**: backend pytest **19/19 PASSED** (summary scoping, child self-forcing, admin override, balance math, amount/type validation, PUT/DELETE auth, `/kids` admin-only, multi-tenant isolation, adult self-scope). Frontend Playwright end-to-end **PASSED**: child nav swap, /home-budget→/my-money redirect, balance math after 20€ in / 8€ out = 12€, edit + delete persistence, admin drill-in with cross-member add, WallSettings entry, AR + DE label rendering.
 
+
+## Implemented (Feb 2026 — My Money: Saving Goals)
+- **New scoped collection** `kids_money_goals` (added to `SCOPED_COLLECTIONS`). Each goal belongs to one child member and stays isolated by `family_id`.
+- **Endpoints** (member token required):
+  - `GET /api/kids-money/goals?member_id=&include_completed=` — child: forced to self. Admin: any kid. Response decorated with `saved` and `progress_pct`.
+  - `POST /api/kids-money/goals` — `{name, target_amount>0, target_date?, notes?, member_id?(admin)}`.
+  - `PUT /api/kids-money/goals/{id}` — owner-child or family admin. Toggling `is_complete=true` stamps `completed_at` and freezes `saved` at `target_amount`; `false` clears the timestamp.
+  - `DELETE /api/kids-money/goals/{id}` — same auth rule.
+- **Progress math**: `saved = min(balance, target_amount)` while active; `saved = target_amount` once completed. `progress_pct = saved / target_amount * 100`, capped at 100.
+- **Frontend** (`MyMoney.jsx`): new "Saving Goals" section between Add buttons and History. Each goal row shows icon (Target → CheckCircle when done), name (strike-through when done), `saved / target € · DONE` label, a per-goal progress bar with percentage, plus toggle-done / edit / delete actions. Editor dialog supports name + target + optional date + notes.
+- **i18n**: 22 new `myMoney.goals.*` keys × EN / AR / DE.
+- **Tested**: backend pytest **17/17 PASSED** (validation, child cross-target forced to self, complete-freeze, re-open, include_completed filter, cross-member 403, admin override, multi-tenant isolation, cap at target). Frontend Playwright **10/10 PASSED** (section visible, empty state, create with 30/80=37.5% bar, edit-resize bar, mark done with badge & 100%, re-open, delete, admin drill-in goal creation, AR + DE labels).
+
