@@ -5,6 +5,11 @@
 
 import axios from "axios";
 import { getFamilyCode } from "./auth";
+import { attachAuth } from "./authInterceptor";
+
+// Make sure every axios call below carries the family JWT — without it the
+// tenant middleware can't scope the request and returns an empty result.
+attachAuth(axios);
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL ||

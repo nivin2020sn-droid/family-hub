@@ -13,6 +13,11 @@
 // offline and reconciled on the server without surprises.
 
 import axios from "axios";
+import { attachAuth } from "./authInterceptor";
+
+// Install the JWT injector on the global axios module — all the `axios.get`
+// / `axios.post` calls below benefit from it automatically.
+attachAuth(axios);
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : "");

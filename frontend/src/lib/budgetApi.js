@@ -2,11 +2,12 @@
 // Thin axios wrapper — server is authoritative for all aggregation.
 
 import axios from "axios";
+import { attachAuth } from "./authInterceptor";
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL ||
   (typeof window !== "undefined" ? window.location.origin : "");
-const api = axios.create({ baseURL: BACKEND_URL, timeout: 15000 });
+const api = attachAuth(axios.create({ baseURL: BACKEND_URL, timeout: 15000 }));
 
 const CRUD = (path) => ({
   async list() {

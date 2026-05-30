@@ -3,12 +3,13 @@
 // useful only when the server is reachable for next-due computation.
 
 import axios from "axios";
+import { attachAuth } from "./authInterceptor";
 
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL ||
   (typeof window !== "undefined" ? window.location.origin : "");
 
-const api = axios.create({ baseURL: BACKEND_URL, timeout: 15000 });
+const api = attachAuth(axios.create({ baseURL: BACKEND_URL, timeout: 15000 }));
 
 export async function listRoutines() {
   try {

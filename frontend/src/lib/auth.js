@@ -8,6 +8,7 @@
 // the existing <RequireAuth/> guard keeps working without touching every page.
 
 import axios from "axios";
+import { attachAuth } from "./authInterceptor";
 
 const KEY_ACCOUNT_TOKEN = "mfml_account_token";
 const KEY_MEMBER_TOKEN = "mfml_member_token";
@@ -23,7 +24,7 @@ const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL ||
   (typeof window !== "undefined" ? window.location.origin : "");
 
-const api = axios.create({ baseURL: BACKEND_URL, timeout: 15000 });
+const api = attachAuth(axios.create({ baseURL: BACKEND_URL, timeout: 15000 }));
 
 // ---------- read helpers ----------
 function readJson(key) {

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { attachAuth } from "@/lib/authInterceptor";
 
 // Prefer build-time env var; fall back to same origin (works when frontend
 // and backend share a domain, or in dev). This prevents `undefined/api`
@@ -11,11 +12,15 @@ const BACKEND_URL =
 
 export const API = `${BACKEND_URL}/api`;
 
-export const api = axios.create({
+export const api = attachAuth(axios.create({
   baseURL: API,
   headers: { "Content-Type": "application/json" },
   timeout: 15000,
-});
+}));
+
+// Also install the interceptor on the global axios module so that bare
+// `axios.get(...)` calls (used by wallApi & locationApi) get the JWT too.
+attachAuth(axios);
 
 // ===== Offline cache helpers (localStorage, safe) =====
 const CACHE_KEYS = {

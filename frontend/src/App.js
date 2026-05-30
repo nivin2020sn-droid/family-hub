@@ -1,4 +1,10 @@
 import "@/App.css";
+// Side-effect import: installs the global axios auth interceptor before
+// any page-level code runs, so every backend call carries the JWT.
+import axios from "axios";
+import { attachAuth } from "@/lib/authInterceptor";
+attachAuth(axios);
+
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import TimePlan from "@/pages/TimePlan";
 import WallBoard from "@/pages/WallBoard";
