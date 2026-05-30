@@ -463,6 +463,8 @@ def build_family_router(db) -> APIRouter:
             raise HTTPException(status_code=400, detail=f"role must be one of {sorted(VALID_ROLES)}")
         if not payload.pin or not payload.pin.strip():
             raise HTTPException(status_code=400, detail="PIN is required")
+        if len(payload.pin.strip()) < 4:
+            raise HTTPException(status_code=400, detail="PIN must be at least 4 digits")
 
         is_admin_flag = bool(payload.is_family_admin)
         # Bootstrap: when no admin exists yet, the FIRST member created must
@@ -509,6 +511,8 @@ def build_family_router(db) -> APIRouter:
         if payload.pin is not None:
             if not payload.pin.strip():
                 raise HTTPException(status_code=400, detail="PIN cannot be empty")
+            if len(payload.pin.strip()) < 4:
+                raise HTTPException(status_code=400, detail="PIN must be at least 4 digits")
             update["pin_hash"] = hash_secret(payload.pin.strip())
         if payload.is_family_admin is not None:
             new_flag = bool(payload.is_family_admin)

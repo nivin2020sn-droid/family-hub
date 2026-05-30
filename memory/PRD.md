@@ -186,3 +186,24 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **Tested**: seeded recurring salaries + an O2 contract ending 2026-12-31, Netflix auto-renew, Car Loan ending Oct 2026; curl + screenshot proved: Sep 2026 included the loan (Bills 54.99, Loans 300, Remaining 2511.68), Nov 2026 dropped the loan (Loans 0, Remaining 2811.68, "Loan ended: Car Loan"), Feb 2027 dropped O2 (only Netflix counted). 6-month outlook visualised the Oct→Nov jump. Test data cleaned up.
 
 
+
+## Implemented (Feb 2026 — Family Members management page)
+- **New permission model**: `is_family_admin` (boolean) is now the SOLE source of family-management rights. The `role` field (parent/adult/child/other) is purely descriptive.
+- **Migration**: `auth_module.ensure_indexes()` backfills legacy data — any member with `role="parent"` and no `is_family_admin` flag becomes `is_family_admin=true`; everyone else without the flag is set to `false`. Prevents legacy families from being locked out.
+- **Bootstrap**: when a family has zero admins, the FIRST member created is auto-promoted to `is_family_admin=true` regardless of payload.
+- **Backend endpoints** (`/app/backend/auth_module.py` → `build_family_router`):
+  - `GET /api/family/members` — accepts any account or member token, returns members with `is_family_admin` boolean, never leaks `pin_hash`.
+  - `POST /api/family/members` — requires either (account token + no admin yet) or (member token + `fadmin=true`). PIN must be ≥4 chars; role must be one of `{parent, adult, child, other}`.
+  - `PUT /api/family/members/{id}` — same auth; can update name, role, pin, `is_family_admin`. Blocks demoting the only admin (400).
+  - `DELETE /api/family/members/{id}` — blocks deleting the only admin (400); otherwise removes the member.
+- **Frontend** (`/app/frontend/src/pages/FamilyMembers.jsx`): full management UI with list, add/edit/change-PIN/delete dialogs and promote/demote buttons. UI mirrors backend guards.
+- **Entry point**: Wall Board → Settings dialog now shows a "Manage family members" button visible ONLY when `getMember().is_family_admin === true`.
+- **Route**: `/family-members` (added to `App.js` under `RequireAuth`); non-admin members get redirected to `/` with a toast.
+- **i18n**: 38 new `members.*` keys × 3 locales (EN/AR/DE).
+- **Tested**: backend pytest 9/9 PASSED (bootstrap promotion, 403 on second add via account token, full CRUD, last-admin demote/delete protection, second-admin unlock, multi-tenant isolation). Frontend Playwright E2E covered register → bootstrap → select with PIN → wall board → /family-members → add/promote/demote/change-pin/delete + AR/DE translation.
+
+## Backlog / Next
+- **P1**: Real email sending for forgot-password (SMTP integration via SendGrid/Resend) — currently the 6-digit code is only printed to logs.
+- **P1**: Refactor `server.py` (~2300 lines) into routers/models packages.
+- **P2**: Standalone Android sender app for GPS pings.
+- **P3**: SOS system tied to smartwatches / health data.
