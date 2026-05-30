@@ -2,10 +2,13 @@
 //
 // Reads are best-effort: we cache the latest known positions in localStorage
 // so the map still has something to render when the device goes offline.
+// The cache is keyed by family_id (via familyCache) so two families on the
+// same browser can never accidentally swap pins.
 
 import axios from "axios";
 import { getFamilyCode } from "./auth";
 import { attachAuth } from "./authInterceptor";
+import { familyCache } from "./familyCache";
 
 // Make sure every axios call below carries the family JWT — without it the
 // tenant middleware can't scope the request and returns an empty result.
@@ -15,22 +18,13 @@ const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL ||
   (typeof window !== "undefined" ? window.location.origin : "");
 
-const CACHE_KEY = "family_locations_latest";
+const CACHE_NS = "locations";
 
 function readCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  return familyCache.read(CACHE_NS) || [];
 }
 function writeCache(value) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(value));
-  } catch {
-    /* quota */
-  }
+  familyCache.write(CACHE_NS, value);
 }
 
 export function cachedLatest() {

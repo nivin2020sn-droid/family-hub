@@ -318,25 +318,14 @@ class LocationPointOut(BaseModel):
     connectionType: Optional[str] = None
 
 
-# ============= Startup: seed users =============
-
-@app.on_event("startup")
-async def seed_users():
-    default_users = [
-        {"id": "wife", "name": "Wife", "role": "wife", "color": "#F472B6"},
-        {"id": "husband", "name": "Husband", "role": "husband", "color": "#60A5FA"},
-    ]
-    # Upsert ensures both users exist even if a previous startup failed midway.
-    # $setOnInsert preserves any custom name the user has saved.
-    for u in default_users:
-        try:
-            await db.users.update_one(
-                {"id": u["id"]},
-                {"$setOnInsert": u},
-                upsert=True,
-            )
-        except Exception as e:  # noqa: BLE001
-            logging.getLogger(__name__).warning("seed_users failed for %s: %s", u["id"], e)
+# ============= Startup: seed users (RETIRED) =============
+# The legacy `users` collection (with the singleton wife / husband rows) was
+# the heart of the original single-family build. Multi-tenant migration
+# moved every flow over to `family_members`, but this seeder still ran on
+# every boot and re-created the legacy entries — which then leaked into the
+# first family that issued a request (the ScopedCollection upsert pinned
+# them to whichever family was active). The hook is removed; the rows
+# survive only inside Nasser Family for historical reference.
 
 
 # ============= Routes =============
@@ -346,74 +335,68 @@ async def root():
     return {"message": "My Family My Life API"}
 
 
-# ============= Auth: Family Code =============
+# ============= Legacy users / family-code endpoints (REMOVED in Feb 2026) =====
+# The single-shared-family-code login flow and the legacy `users` collection
+# (wife / husband) have been retired. Every page now reads from
+# /api/family/members and authenticates via a per-account JWT. The endpoints
+# below intentionally return 410 Gone so any straggler client still calling
+# them gets a clear, observable failure instead of silently being routed
+# through a non-tenant-scoped code path.
+
 
 class FamilyCodeVerify(BaseModel):
     code: str
 
 
 @api_router.post("/auth/verify")
-async def verify_family_code(payload: FamilyCodeVerify):
-    expected = os.environ.get("FAMILY_CODE", "FAMILY2026")
-    submitted = (payload.code or "").strip()
-    if not submitted or submitted != expected:
-        raise HTTPException(status_code=401, detail="Invalid family code")
-    return {"ok": True}
-
-
-@api_router.get("/users", response_model=List[User])
-async def get_users():
-    # Ensure both default users exist (self-healing on every read).
-    defaults = [
-        {"id": "wife", "name": "Wife", "role": "wife", "color": "#F472B6"},
-        {"id": "husband", "name": "Husband", "role": "husband", "color": "#60A5FA"},
-    ]
-    for u in defaults:
-        try:
-            await db.users.update_one(
-                {"id": u["id"]}, {"$setOnInsert": u}, upsert=True
-            )
-        except Exception:
-            pass
-    users = await db.users.find({}, {"_id": 0}).to_list(100)
-    # Sort wife first, then husband, then any others
-    order = {"wife": 0, "husband": 1}
-    users.sort(key=lambda x: order.get(x.get("id"), 99))
-    return users
-
-
-@api_router.put("/users/{user_id}", response_model=User)
-async def update_user(user_id: str, payload: UserUpdate):
-    update = {k: v for k, v in payload.model_dump().items() if v is not None}
-    if not update:
-        existing = await db.users.find_one({"id": user_id}, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, "Not found")
-        return existing
-    result = await db.users.find_one_and_update(
-        {"id": user_id}, {"$set": update}, return_document=True, projection={"_id": 0}
+async def verify_family_code(payload: FamilyCodeVerify):  # noqa: ARG001 — kept for 410 shape
+    raise HTTPException(
+        status_code=410,
+        detail="Family-code login was retired. Use /api/auth/login with email + password.",
     )
-    if not result:
-        raise HTTPException(404, "Not found")
-    return result
 
 
-# Event Types
+@api_router.get("/users")
+async def get_users():
+    raise HTTPException(
+        status_code=410,
+        detail="The shared /api/users endpoint was retired. Use /api/family/members.",
+    )
+
+
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str):  # noqa: ARG001 — kept for 410 shape
+    raise HTTPException(
+        status_code=410,
+        detail="The shared /api/users endpoint was retired. Use /api/family/members.",
+    )
+
+
+# Event Types — every endpoint now requires a member token so the tenant
+# middleware can scope the request. Without this an unauthenticated request
+# would 401 only on the first scoped query, which has historically been a
+# subtle defence-in-depth gap.
 @api_router.get("/event-types", response_model=List[EventType])
-async def list_event_types():
+async def list_event_types(token: dict = Depends(require_member_token)):  # noqa: ARG001
     items = await db.event_types.find({}, {"_id": 0}).sort("created_at", 1).to_list(1000)
     return items
 
 
 @api_router.post("/event-types", response_model=EventType)
-async def create_event_type(payload: EventTypeCreate):
+async def create_event_type(
+    payload: EventTypeCreate, token: dict = Depends(require_member_token)  # noqa: ARG001
+):
     obj = EventType(**payload.model_dump())
     await db.event_types.insert_one(obj.model_dump())
     return obj
 
 
 @api_router.put("/event-types/{type_id}", response_model=EventType)
-async def update_event_type(type_id: str, payload: EventTypeUpdate):
+async def update_event_type(
+    type_id: str,
+    payload: EventTypeUpdate,
+    token: dict = Depends(require_member_token),  # noqa: ARG001
+):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not update:
         existing = await db.event_types.find_one({"id": type_id}, {"_id": 0})
@@ -429,7 +412,9 @@ async def update_event_type(type_id: str, payload: EventTypeUpdate):
 
 
 @api_router.delete("/event-types/{type_id}")
-async def delete_event_type(type_id: str):
+async def delete_event_type(
+    type_id: str, token: dict = Depends(require_member_token)  # noqa: ARG001
+):
     res = await db.event_types.delete_one({"id": type_id})
     if res.deleted_count == 0:
         raise HTTPException(404, "Not found")
@@ -2425,6 +2410,52 @@ async def recent_activity(
             query["member_id"] = member_id
     rows = await db.activity_log.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     return {"items": rows}
+
+
+# ============= Tenant Diagnostics =============
+# Family-admin debugging tool. Returns the current family_id + per-collection
+# counts for THIS family, plus a sanity scan of the underlying database for
+# documents that lack a `family_id` field at all (orphans). Used to verify
+# the multi-tenant isolation fix and to make any future drift visible.
+
+
+@api_router.get("/diag/tenant")
+async def tenant_diagnostics(token: dict = Depends(require_member_token)):
+    if not bool(token.get("fadmin")):
+        raise HTTPException(status_code=403, detail="Family admin permission required")
+    family_id = token["fid"]
+    # Collections we expect to be tenant-scoped. Any document in one of
+    # these that lacks a family_id is a leak risk and surfaced as "orphans".
+    from tenant import SCOPED_COLLECTIONS  # local import to avoid cycles
+    per_family: dict = {}
+    orphans: dict = {}
+    cross_tenant: dict = {}
+    for name in sorted(SCOPED_COLLECTIONS):
+        coll = raw_db[name]
+        per_family[name] = await coll.count_documents({"family_id": family_id})
+        orphans[name] = await coll.count_documents({"family_id": {"$exists": False}})
+        # Sanity: any document tagged with a DIFFERENT family_id that the
+        # scoped collection should never expose to us. Counted but never
+        # listed (admin would see counts only).
+        cross_tenant[name] = await coll.count_documents({
+            "family_id": {"$exists": True, "$ne": family_id}
+        })
+    me = await raw_db.family_members.find_one(
+        {"id": token.get("mid"), "family_id": family_id},
+        {"_id": 0, "pin_hash": 0},
+    )
+    return {
+        "family_id": family_id,
+        "current_member": me,
+        "scoped_collection_counts": per_family,
+        "orphan_records_no_family_id": orphans,
+        # Total docs that belong to OTHER families. By design these MUST never
+        # be returned to this scope — counted here only to prove tenant
+        # boundaries are intact (a leak would surface in the per-family
+        # numbers above, not here).
+        "other_family_records_in_db": cross_tenant,
+        "note": "Only 'orphan_records_no_family_id' should be 0 for a healthy deployment. 'other_family_records_in_db' counts foreign-tenant rows that exist in the DB but remain invisible to this scope.",
+    }
 
 
 # ============= Shopping List =============

@@ -14,6 +14,8 @@
 
 import axios from "axios";
 import { attachAuth } from "./authInterceptor";
+import { familyCache } from "./familyCache";
+import { getFamily } from "./auth";
 
 // Install the JWT injector on the global axios module — all the `axios.get`
 // / `axios.post` calls below benefit from it automatically.
@@ -22,38 +24,39 @@ attachAuth(axios);
 const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : "");
 
-const CACHE_PREFIX = "wall_cache:";
-const OUTBOX_KEY = "wall_outbox";
+const OUTBOX_KEY_PREFIX = "wall_outbox:fam:";  // family-scoped outbox key
+
+function outboxKey() {
+  // Tie the offline-mutation queue to the current family id so a queued
+  // write authored as family A can never replay against family B's session.
+  const fam = getFamily();
+  return fam && fam.id ? `${OUTBOX_KEY_PREFIX}${fam.id}` : null;
+}
 
 // ---------- cache helpers ----------
 function readCache(key) {
-  try {
-    const raw = localStorage.getItem(CACHE_PREFIX + key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  return familyCache.read(`wall:${key}`);
 }
 function writeCache(key, value) {
-  try {
-    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(value));
-  } catch {
-    /* quota or unavailable — ignore */
-  }
+  familyCache.write(`wall:${key}`, value);
 }
 
 // ---------- outbox / sync queue ----------
 function readOutbox() {
+  const k = outboxKey();
+  if (!k) return [];
   try {
-    const raw = localStorage.getItem(OUTBOX_KEY);
+    const raw = localStorage.getItem(k);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 function writeOutbox(queue) {
+  const k = outboxKey();
+  if (!k) return;
   try {
-    localStorage.setItem(OUTBOX_KEY, JSON.stringify(queue));
+    localStorage.setItem(k, JSON.stringify(queue));
   } catch {
     /* ignore */
   }

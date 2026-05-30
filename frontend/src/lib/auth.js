@@ -9,6 +9,7 @@
 
 import axios from "axios";
 import { attachAuth } from "./authInterceptor";
+import { purgeAllFamilyCaches } from "./familyCache";
 
 const KEY_ACCOUNT_TOKEN = "mfml_account_token";
 const KEY_MEMBER_TOKEN = "mfml_member_token";
@@ -98,6 +99,11 @@ export function logout() {
   ].forEach((k) => {
     try { localStorage.removeItem(k); } catch { /* ignore */ }
   });
+  // CRITICAL: wipe every family-scoped cache so the next sign-in (potentially
+  // a DIFFERENT family on the same browser) starts with a clean slate.
+  // Without this, stale event_types / wall_notes / locations from family A
+  // would leak into family B's UI on the first paint.
+  purgeAllFamilyCaches();
 }
 
 export function logoutMemberOnly() {
@@ -111,6 +117,10 @@ export function logoutMemberOnly() {
 
 // ---------- network calls ----------
 export async function register(payload) {
+  // Defensive: registration always starts a brand-new tenant context, so
+  // wipe any leftover family-scoped caches BEFORE we write the new tokens
+  // (otherwise the new family would inherit the previous browser's cache).
+  purgeAllFamilyCaches();
   const { data } = await api.post("/api/auth/register", payload);
   write(KEY_ACCOUNT_TOKEN, data.access_token);
   writeJson(KEY_ACCOUNT, data.account);
@@ -120,6 +130,8 @@ export async function register(payload) {
 }
 
 export async function login(email, password) {
+  // Same defensive wipe as register — protect against switching families.
+  purgeAllFamilyCaches();
   const { data } = await api.post("/api/auth/login", { email, password });
   write(KEY_ACCOUNT_TOKEN, data.access_token);
   writeJson(KEY_ACCOUNT, data.account);
