@@ -298,3 +298,25 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: 18 new `beta.*` keys × EN / AR / DE (815 keys/language balanced). Bullet lists are pipe (`|`)-separated strings split into `<li>` rows by the component so translators edit one string per language.
 - **Tested**: backend pytest **6/6 PASSED** (app-info shape, 0/1/2/3 consents flows, no migration break for pre-existing accounts). Frontend Playwright PASSED end-to-end (account-type → BetaTerms gate → 3 ticks → register → member-select), `/terms` renders correctly in EN / AR / DE with 11 / 7 / 8 bullets, no raw key leaks, Settings chip + Terms link source-inspected and confirmed live.
 
+
+## Fixed (Feb 2026 — 🚨 CRITICAL multi-tenant data-isolation audit & fix)
+- **Reported leak**: a freshly-registered Family B saw Family A's event types (`KVD`, `Morning Dienst`, `Urlaub`), wall notes, and member names. Full audit traced the bug to (a) un-scoped frontend localStorage caches that survived account switches and (b) two legacy single-family backend endpoints.
+
+- **Frontend (primary fix)** — every cache key is now prefixed with the current `family_id`:
+  - New `/app/frontend/src/lib/familyCache.js` — `familyCache.read/write/remove` + `purgeAllFamilyCaches()` (also wipes any legacy keys still present from older builds).
+  - `lib/api.js` — `getEventTypes` / `getEvents` use the family-scoped namespace; the "stale cache on error" fallback can no longer leak cross-tenant because the key is per-family.
+  - `lib/wallApi.js` — `readCache/writeCache` + the offline mutation `wall_outbox` (catastrophic if replayed against the wrong family) both scoped via `OUTBOX_KEY_PREFIX = "wall_outbox:fam:"`.
+  - `lib/locationApi.js` — GPS positions cache moved to `familyCache` namespace `locations`.
+  - `lib/auth.js` — `register()`, `login()`, and `logout()` now call `purgeAllFamilyCaches()` so every account/family transition starts clean.
+
+- **Backend (defense in depth)** — `/app/backend/server.py`:
+  - `seed_users` startup hook **removed** (was upserting `wife`/`husband` into the active tenant's scoped `users` collection on every boot).
+  - `GET /api/users`, `PUT /api/users/{id}`, `POST /api/auth/verify` now return **410 Gone** with a clear migration message — no more silent fallthrough to legacy single-family logic.
+  - `GET/POST/PUT/DELETE /api/event-types` now require a **member token** (`require_member_token`) — closes the defence-in-depth gap where the route relied solely on the ScopedCollection raising 401 on first query.
+  - New **`GET /api/diag/tenant`** (family-admin only, 403 otherwise). Returns `family_id`, `current_member`, `scoped_collection_counts` (this family), `orphan_records_no_family_id` (must always be 0), and `other_family_records_in_db` (counted but never readable from this scope — proves boundaries are intact).
+
+- **Tested**: backend pytest **15/15 PASSED** (Families A/B/C cross-isolation across event types, events, members, wall notes, kids-money, budget; retired endpoints return 410; event-types unauth 401; diag/tenant admin-only). Frontend Playwright **PASSED** (purgeAllFamilyCaches scrubs `mfml_cache_*`, `family_locations_latest`, `wall_outbox`, `wall_cache:*`, and any `mfml_cache:fam:<other_id>:*` keys on login/register/logout; `/time-plan` for fresh Family B is clean — no KVD / Morning Dienst leakage; AR/DE still work).
+
+- **Affected tables / collections**: `users` (legacy, now read-only), `event_types`, `events`, `wall_*`, `kids_money*`, `budget_*`, `shopping_items`, `activity_log` — all confirmed scoped by `family_id` via `ScopedCollection`, plus `/api/diag/tenant` available for ongoing monitoring.
+- **Affected files**: `/app/frontend/src/lib/familyCache.js` (new), `lib/api.js`, `lib/wallApi.js`, `lib/locationApi.js`, `lib/auth.js`, `/app/backend/server.py`. Backend regression suite at `/app/backend/tests/test_tenant_isolation.py`.
+
