@@ -512,6 +512,49 @@ def build_admin_router(db) -> APIRouter:
     recovery = db.recovery_codes
     attempts = db.login_attempts
 
+    @router.post("/families/{family_id}/members")
+    async def admin_add_member(
+        family_id: str,
+        body: dict,
+        _: dict = Depends(require_admin),
+    ):
+        """Admin-side member seeding for an existing family. This bypasses the
+        usual parent-only restriction so the admin can bootstrap legacy
+        families (e.g. "Nasser Family") without first having a Parent device.
+
+        Preserves `family_id`. Does not touch any other family data.
+        """
+        family = await families.find_one({"id": family_id}, {"_id": 0})
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+        name = (body.get("name") or "").strip()
+        role = (body.get("role") or "parent").lower().strip()
+        pin = (body.get("pin") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Name is required")
+        if role not in VALID_ROLES:
+            raise HTTPException(status_code=400, detail=f"role must be one of {sorted(VALID_ROLES)}")
+        if not pin or len(pin) < 4:
+            raise HTTPException(status_code=400, detail="PIN must be at least 4 characters")
+
+        member_id = str(uuid.uuid4())
+        doc = {
+            "id": member_id,
+            "family_id": family_id,
+            "name": name,
+            "role": role,
+            "pin_hash": hash_secret(pin),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "seeded_by": "admin",
+        }
+        await members.insert_one(doc)
+        doc.pop("_id", None)
+        safe = {k: v for k, v in doc.items() if k != "pin_hash"}
+        logger.warning(
+            "[ADMIN SEED MEMBER] family=%s name=%s role=%s", family_id, name, role
+        )
+        return safe
+
     @router.get("/families")
     async def list_families(_: dict = Depends(require_admin)):
         rows = await families.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)

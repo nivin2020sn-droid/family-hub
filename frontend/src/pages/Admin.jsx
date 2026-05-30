@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail } from "lucide-react";
+import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import {
   isAdmin, getAccount, getAccountToken,
-  adminListFamilies, adminSetFamilyStatus, adminIssueRecovery, adminSetFamilyAccount,
+  adminListFamilies, adminSetFamilyStatus, adminIssueRecovery, adminSetFamilyAccount, adminAddFamilyMember,
   logout as apiLogout,
 } from "@/lib/auth";
 
@@ -36,6 +36,15 @@ const Admin = () => {
     email: "",
     password: "",
     recovery_email: "",
+    busy: false,
+  });
+  // Dialog state for "Add Member" (admin seeding into an existing family).
+  const [memberDialog, setMemberDialog] = useState({
+    open: false,
+    family: null,
+    name: "",
+    role: "parent",
+    pin: "",
     busy: false,
   });
 
@@ -118,6 +127,39 @@ const Admin = () => {
     } catch (err) {
       toast.error(err?.response?.data?.detail || t("admin.link.error.generic"));
       setLinkDialog((s) => ({ ...s, busy: false }));
+    }
+  };
+
+  const openMemberDialog = (fam) => {
+    setMemberDialog({ open: true, family: fam, name: "", role: "parent", pin: "", busy: false });
+  };
+
+  const saveMember = async (e) => {
+    e?.preventDefault?.();
+    if (memberDialog.busy || !memberDialog.family) return;
+    if (!memberDialog.name.trim()) {
+      toast.error(t("admin.seedMember.error.name"));
+      return;
+    }
+    if (memberDialog.pin.length < 4) {
+      toast.error(t("admin.seedMember.error.pin"));
+      return;
+    }
+    setMemberDialog((s) => ({ ...s, busy: true }));
+    try {
+      await adminAddFamilyMember(memberDialog.family.id, {
+        name: memberDialog.name.trim(),
+        role: memberDialog.role,
+        pin: memberDialog.pin,
+      });
+      toast.success(t("admin.seedMember.toast.added", { name: memberDialog.name.trim() }));
+      // Keep the dialog open and reset name/pin so the admin can quickly add
+      // the next member (e.g. Bahaa → Theresa) without re-opening.
+      setMemberDialog((s) => ({ ...s, name: "", pin: "", busy: false }));
+      await refresh();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("admin.seedMember.error.generic"));
+      setMemberDialog((s) => ({ ...s, busy: false }));
     }
   };
 
@@ -257,6 +299,17 @@ const Admin = () => {
                       >
                         <UserCog className="w-3 h-3" />
                         {t("admin.btn.link")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openMemberDialog(f)}
+                        className="rounded-full h-8 text-[11px] gap-1"
+                        data-testid={`admin-addmember-${f.id}`}
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        {t("admin.btn.addMember")}
                       </Button>
                       <Button
                         type="button"
@@ -413,6 +466,103 @@ const Admin = () => {
                 data-testid="admin-link-save"
               >
                 {linkDialog.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : t("btn.save")}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Add Member dialog (admin seed) */}
+      {memberDialog.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <form
+            onSubmit={saveMember}
+            className="w-full max-w-sm bg-white rounded-3xl border border-[#E5E2DC] p-5 space-y-3"
+            data-testid="admin-seed-member-dialog"
+          >
+            <div className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-[#2D2A26]" />
+              <h3 className="font-heading text-lg font-semibold text-[#2D2A26]">
+                {t("admin.seedMember.title")}
+              </h3>
+            </div>
+            <p className="text-xs text-[#7A7571] leading-relaxed">
+              {memberDialog.family?.name
+                ? t("admin.seedMember.descFor", { name: memberDialog.family.name })
+                : t("admin.seedMember.desc")}
+            </p>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-1 block">
+                {t("auth.field.memberName")}
+              </label>
+              <Input
+                value={memberDialog.name}
+                onChange={(e) => setMemberDialog((s) => ({ ...s, name: e.target.value }))}
+                className="rounded-xl border-[#E5E2DC] h-11"
+                placeholder="Bahaa"
+                required
+                autoFocus
+                data-testid="admin-seed-name"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-1 block">
+                {t("budget.field.type")}
+              </label>
+              <select
+                value={memberDialog.role}
+                onChange={(e) => setMemberDialog((s) => ({ ...s, role: e.target.value }))}
+                className="w-full rounded-xl border border-[#E5E2DC] h-11 px-3 bg-white text-sm"
+                data-testid="admin-seed-role"
+              >
+                <option value="parent">{t("auth.role.parent")}</option>
+                <option value="adult">{t("auth.role.adult")}</option>
+                <option value="child">{t("auth.role.child")}</option>
+                <option value="other">{t("auth.role.other")}</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] mb-1 block">
+                {t("auth.field.memberPin")}
+              </label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                value={memberDialog.pin}
+                onChange={(e) => setMemberDialog((s) => ({ ...s, pin: e.target.value.replace(/\D/g, "") }))}
+                className="rounded-xl border-[#E5E2DC] h-11 tracking-widest text-center"
+                placeholder="1234"
+                minLength={4}
+                maxLength={10}
+                required
+                data-testid="admin-seed-pin"
+              />
+              <p className="text-[10px] text-[#7A7571] mt-1">
+                {t("admin.seedMember.pinNote")}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setMemberDialog({ open: false, family: null, name: "", role: "parent", pin: "", busy: false })}
+                disabled={memberDialog.busy}
+                className="rounded-full"
+                data-testid="admin-seed-cancel"
+              >
+                {t("btn.close")}
+              </Button>
+              <Button
+                type="submit"
+                disabled={memberDialog.busy}
+                className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+                data-testid="admin-seed-save"
+              >
+                {memberDialog.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : t("admin.seedMember.add")}
               </Button>
             </div>
           </form>

@@ -233,3 +233,13 @@ export async function adminSetFamilyAccount(familyId, payload) {
   );
   return data;
 }
+
+export async function adminAddFamilyMember(familyId, payload) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    `/api/admin/families/${familyId}/members`,
+    payload,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
