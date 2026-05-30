@@ -27,6 +27,7 @@ import EventBar from "@/components/EventBar";
 import EventDialog from "@/components/EventDialog";
 import EventTypesDialog from "@/components/EventTypesDialog";
 import DayDetailPopover from "@/components/DayDetailPopover";
+import MemberBadge from "@/components/MemberBadge";
 import { useI18n } from "@/lib/i18n";
 
 const FALLBACK_COLOR = "#94A3B8";
@@ -339,6 +340,11 @@ const TimePlan = () => {
             <ArrowLeft className="w-5 h-5 sm:w-4 sm:h-4" strokeWidth={2} />
             <span className="hidden sm:inline">{t("nav.dashboard")}</span>
           </button>
+          {currentMember && (
+            <div className="flex-1 flex justify-center min-w-0" data-testid="tp-member-strip">
+              <MemberBadge member={currentMember} compact className="max-w-[200px]" />
+            </div>
+          )}
           <div className="flex items-center gap-1 sm:gap-2">
             <button
               onClick={handleSync}

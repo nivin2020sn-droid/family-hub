@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import MemberBadge from "@/components/MemberBadge";
 import { getMember } from "@/lib/auth";
 import {
   fetchSummary, fetchTransactions, createTransaction, updateTransaction,
@@ -347,6 +348,7 @@ const MyMoney = () => {
       />
 
       <div className="max-w-md mx-auto px-4 pt-4 space-y-4">
+        <MemberBadge data-testid="my-money-member-strip" />
         {/* Big balance card */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}

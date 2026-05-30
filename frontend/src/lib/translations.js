@@ -785,6 +785,15 @@ export const TRANSLATIONS = {
     "members.error.delete": "Could not delete member",
     "members.error.lastAdmin": "Cannot remove admin rights from the last family admin",
 
+    "members.avatar.label": "Profile picture",
+    "members.avatar.hint": "If no picture, the first letter of the name is shown.",
+    "members.avatar.choose": "Choose photo",
+    "members.avatar.remove": "Remove",
+    "members.avatar.tooLarge": "Image must be smaller than 8 MB",
+    "members.avatar.invalid": "That file is not a valid image",
+
+    "welcome.back": "Welcome back, {name}",
+
     "nav.myMoney": "My Money",
     "myMoney.title": "My Money",
     "myMoney.adminTitle": "Kids' Money",
@@ -1601,6 +1610,15 @@ export const TRANSLATIONS = {
     "members.error.delete": "تعذّر حذف الفرد",
     "members.error.lastAdmin": "لا يمكن إلغاء صلاحيات آخر مسؤول للعائلة",
 
+    "members.avatar.label": "الصورة الشخصية",
+    "members.avatar.hint": "إذا لم توجد صورة، يُعرض أول حرف من الاسم.",
+    "members.avatar.choose": "اختيار صورة",
+    "members.avatar.remove": "إزالة",
+    "members.avatar.tooLarge": "يجب أن يكون حجم الصورة أقل من 8 ميجابايت",
+    "members.avatar.invalid": "الملف ليس صورة صالحة",
+
+    "welcome.back": "أهلاً بعودتك، {name}",
+
     "nav.myMoney": "مصروفي",
     "myMoney.title": "مصروفي",
     "myMoney.adminTitle": "مصاريف الأطفال",
@@ -2416,6 +2434,15 @@ export const TRANSLATIONS = {
     "members.error.update": "Mitglied konnte nicht aktualisiert werden",
     "members.error.delete": "Mitglied konnte nicht gelöscht werden",
     "members.error.lastAdmin": "Dem letzten Familien-Admin können die Rechte nicht entzogen werden",
+
+    "members.avatar.label": "Profilbild",
+    "members.avatar.hint": "Ohne Bild wird der erste Buchstabe des Namens angezeigt.",
+    "members.avatar.choose": "Foto auswählen",
+    "members.avatar.remove": "Entfernen",
+    "members.avatar.tooLarge": "Das Bild muss kleiner als 8 MB sein",
+    "members.avatar.invalid": "Diese Datei ist kein gültiges Bild",
+
+    "welcome.back": "Willkommen zurück, {name}",
 
     "nav.myMoney": "Mein Geld",
     "myMoney.title": "Mein Geld",

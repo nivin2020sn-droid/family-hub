@@ -160,6 +160,15 @@ export async function updateMember(id, payload) {
   const { data } = await api.put(`/api/family/members/${id}`, payload, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  // If the caller just edited their OWN identity (name / avatar / colour /
+  // admin flag), refresh the cached member doc so every header re-renders
+  // with the new avatar instantly — no need to log out and back in.
+  try {
+    const cached = readJson(KEY_MEMBER);
+    if (cached && cached.id === id) {
+      writeJson(KEY_MEMBER, { ...cached, ...data });
+    }
+  } catch {}
   return data;
 }
 

@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Loader2, UserPlus, Pencil, KeyRound, ShieldCheck, ShieldOff,
-  Trash2, Users as UsersIcon, AlertTriangle,
+  Trash2, Users as UsersIcon, AlertTriangle, Camera, X as XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,9 @@ import {
 import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { MemberAvatar } from "@/components/MemberBadge";
+import MemberBadge from "@/components/MemberBadge";
+import { fileToAvatarDataUrl } from "@/lib/imageUtils";
 import {
   listMembers as apiListMembers,
   addMember as apiAddMember,
@@ -44,10 +47,10 @@ const FamilyMembers = () => {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [add, setAdd] = useState({ name: "", role: "adult", pin: "", is_family_admin: false, busy: false });
+  const [add, setAdd] = useState({ name: "", role: "adult", pin: "", is_family_admin: false, avatar: "", busy: false });
   // Edit dialog (name + role + admin toggle, no PIN).
   const [editTarget, setEditTarget] = useState(null);
-  const [edit, setEdit] = useState({ name: "", role: "adult", is_family_admin: false, busy: false });
+  const [edit, setEdit] = useState({ name: "", role: "adult", is_family_admin: false, avatar: "", busy: false });
   // Change-PIN dialog (separate so it's deliberate).
   const [pinTarget, setPinTarget] = useState(null);
   const [pinValue, setPinValue] = useState("");
@@ -100,10 +103,11 @@ const FamilyMembers = () => {
         role: add.role,
         pin: add.pin,
         is_family_admin: add.is_family_admin,
+        ...(add.avatar ? { avatar: add.avatar } : {}),
       });
       toast.success(t("members.toast.added", { name: add.name.trim() }));
       setAddOpen(false);
-      setAdd({ name: "", role: "adult", pin: "", is_family_admin: false, busy: false });
+      setAdd({ name: "", role: "adult", pin: "", is_family_admin: false, avatar: "", busy: false });
       await refresh();
     } catch (err) {
       toast.error(formatError(err, t("members.error.add")));
@@ -117,6 +121,7 @@ const FamilyMembers = () => {
       name: m.name || "",
       role: m.role || "adult",
       is_family_admin: !!m.is_family_admin,
+      avatar: m.avatar || "",
       busy: false,
     });
   };
@@ -126,11 +131,16 @@ const FamilyMembers = () => {
     if (edit.busy || !editTarget) return;
     setEdit((s) => ({ ...s, busy: true }));
     try {
-      await apiUpdateMember(editTarget.id, {
+      const payload = {
         name: edit.name.trim(),
         role: edit.role,
         is_family_admin: edit.is_family_admin,
-      });
+      };
+      // Only include `avatar` when it actually changed; empty string clears.
+      if (edit.avatar !== (editTarget.avatar || "")) {
+        payload.avatar = edit.avatar;
+      }
+      await apiUpdateMember(editTarget.id, payload);
       toast.success(t("members.toast.updated"));
       setEditTarget(null);
       await refresh();
@@ -219,6 +229,7 @@ const FamilyMembers = () => {
       </div>
 
       <div className="max-w-md mx-auto px-4 pt-4 space-y-3">
+        <MemberBadge data-testid="family-members-member-strip" />
         <p className="text-xs text-[#7A7571] leading-relaxed">
           {t("members.desc")}
         </p>
@@ -245,12 +256,7 @@ const FamilyMembers = () => {
                 return (
                   <li key={m.id} className="px-4 py-3 space-y-2" data-testid={`member-row-${m.id}`}>
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center font-heading font-semibold text-white shadow-sm"
-                        style={{ backgroundColor: m.color || "#E5E2DC", color: m.color ? "#fff" : "#2D2A26" }}
-                      >
-                        {(m.name || "?").charAt(0).toUpperCase()}
-                      </div>
+                      <MemberAvatar member={m} size={40} />
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-[#2D2A26] text-sm">
                           {m.name}
@@ -333,6 +339,11 @@ const FamilyMembers = () => {
             <DialogDescription className="text-xs text-[#7A7571]">{t("members.add.desc")}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAdd} className="space-y-3">
+            <AvatarPicker
+              value={add.avatar}
+              draft={{ id: "add", name: add.name, color: null }}
+              onChange={(v) => setAdd((s) => ({ ...s, avatar: v }))}
+            />
             <FieldLabel>{t("auth.field.memberName")}</FieldLabel>
             <Input value={add.name} onChange={(e) => setAdd((s) => ({ ...s, name: e.target.value }))} className="rounded-xl h-11" autoFocus required data-testid="add-name" />
             <FieldLabel>{t("members.role")}</FieldLabel>
@@ -374,6 +385,11 @@ const FamilyMembers = () => {
           </DialogHeader>
           {editTarget && (
             <form onSubmit={saveEdit} className="space-y-3">
+              <AvatarPicker
+                value={edit.avatar}
+                draft={{ id: editTarget.id, name: edit.name, color: editTarget.color }}
+                onChange={(v) => setEdit((s) => ({ ...s, avatar: v }))}
+              />
               <FieldLabel>{t("auth.field.memberName")}</FieldLabel>
               <Input value={edit.name} onChange={(e) => setEdit((s) => ({ ...s, name: e.target.value }))} className="rounded-xl h-11" required data-testid="edit-name" />
               <FieldLabel>{t("members.role")}</FieldLabel>
@@ -474,5 +490,67 @@ const FieldLabel = ({ children }) => (
     {children}
   </label>
 );
+
+// Inline avatar uploader used inside the Add / Edit dialogs. Keeps the
+// preview, file picker, and "remove" action in one neat row.
+const AvatarPicker = ({ value, draft, onChange }) => {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const inputId = `avatar-input-${draft?.id || "new"}`;
+  const handleFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";  // allow re-uploading the same file
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error(t("members.avatar.tooLarge"));
+      return;
+    }
+    setBusy(true);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      onChange(dataUrl);
+    } catch {
+      toast.error(t("members.avatar.invalid"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const memberLike = { ...draft, avatar: value };
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-2xl bg-[#FAF9F6] border border-[#E5E2DC]">
+      <MemberAvatar member={memberLike} size={56} />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-[#2D2A26]">{t("members.avatar.label")}</p>
+        <p className="text-[10px] text-[#7A7571] leading-snug">{t("members.avatar.hint")}</p>
+        <div className="mt-2 flex items-center gap-2">
+          <label
+            htmlFor={inputId}
+            className="inline-flex items-center gap-1 px-3 h-8 rounded-full bg-[#2D2A26] text-white text-[11px] font-semibold cursor-pointer active:scale-95"
+            data-testid="avatar-upload-btn"
+          >
+            {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
+            {t("members.avatar.choose")}
+          </label>
+          <input
+            id={inputId} type="file" accept="image/*" capture="user"
+            className="hidden" onChange={handleFile}
+            data-testid="avatar-file-input"
+          />
+          {value && (
+            <button
+              type="button"
+              onClick={() => onChange("")}
+              className="inline-flex items-center gap-1 px-3 h-8 rounded-full border border-[#E5E2DC] text-[#7A7571] text-[11px] font-semibold hover:bg-white"
+              data-testid="avatar-remove-btn"
+            >
+              <XIcon className="w-3 h-3" />
+              {t("members.avatar.remove")}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default FamilyMembers;

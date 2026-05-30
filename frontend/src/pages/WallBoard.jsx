@@ -48,6 +48,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { logout as authLogout, getMember as getCurrentMember } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import MemberBadge from "@/components/MemberBadge";
 import FamilyMapCard from "@/components/FamilyMapCard";
 import WallBoardRoutines from "@/components/WallBoardRoutines";
 import {
@@ -1455,6 +1456,20 @@ const WallBoard = () => {
   const isChildMember = currentMember?.role === "child";
   const isFamilyAdminMember = !!currentMember?.is_family_admin;
 
+  // Welcome toast — fire once per browser session per member so the user
+  // immediately recognises whose account they are in. Stored in
+  // sessionStorage so it re-shows after a full sign-out / sign-in.
+  useEffect(() => {
+    if (!currentMember?.id) return;
+    const key = `mfml_welcomed_${currentMember.id}`;
+    try {
+      if (sessionStorage.getItem(key) === "1") return;
+      sessionStorage.setItem(key, "1");
+    } catch {}
+    toast.success(t("welcome.back", { name: currentMember.name || "" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMember?.id]);
+
   const [settings, setSettings] = useState(() => wallSettings.cached());
   const [photos, setPhotos] = useState(() => wallPhotos.cached());
   const [goals, setGoals] = useState(() => wallGoals.cached());
@@ -1713,6 +1728,12 @@ const WallBoard = () => {
       </div>
 
       <div className="max-w-md mx-auto px-4 pt-4">
+        {/* Member identity strip — keeps the user grounded in whose account they're in. */}
+        {currentMember && (
+          <div className="mb-3" data-testid="wall-member-strip">
+            <MemberBadge member={currentMember} />
+          </div>
+        )}
         {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}

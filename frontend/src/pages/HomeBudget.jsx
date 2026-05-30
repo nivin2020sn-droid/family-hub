@@ -46,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import MemberBadge from "@/components/MemberBadge";
 import { useI18n } from "@/lib/i18n";
 import { getMember } from "@/lib/auth";
 import {
@@ -1304,6 +1305,7 @@ const HomeBudget = () => {
       </div>
 
       <div className="max-w-md mx-auto px-4 pt-4 space-y-4">
+        <MemberBadge data-testid="budget-member-strip" />
         {loading ? (
           <div className="py-12 text-center text-[#7A7571]">
             <Loader2 className="w-5 h-5 animate-spin mx-auto" />

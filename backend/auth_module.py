@@ -98,6 +98,7 @@ class MemberCreate(BaseModel):
     pin: str
     is_family_admin: Optional[bool] = False
     color: Optional[str] = None  # optional override; auto-assigned otherwise
+    avatar: Optional[str] = None  # base64 data URL, e.g. "data:image/jpeg;base64,…"
 
 
 class MemberUpdate(BaseModel):
@@ -106,6 +107,7 @@ class MemberUpdate(BaseModel):
     pin: Optional[str] = None
     is_family_admin: Optional[bool] = None
     color: Optional[str] = None
+    avatar: Optional[str] = None  # set to empty string "" to clear
 
 
 class MemberSelectPayload(BaseModel):
@@ -524,6 +526,7 @@ def build_family_router(db) -> APIRouter:
             "role": role,
             "is_family_admin": is_admin_flag,
             "color": chosen_color,
+            "avatar": (payload.avatar or "").strip() or None,
             "pin_hash": hash_secret(payload.pin.strip()),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -572,6 +575,11 @@ def build_family_router(db) -> APIRouter:
             new_color = (payload.color or "").strip()
             if new_color:
                 update["color"] = new_color
+        if payload.avatar is not None:
+            # Empty string explicitly clears the avatar (back to initial-letter
+            # fallback); any non-empty value replaces it. The payload is
+            # expected to be a base64 data URL prepared by the client.
+            update["avatar"] = (payload.avatar or "").strip() or None
 
         if update:
             await members.update_one({"id": member_id, "family_id": token["fid"]}, {"$set": update})
