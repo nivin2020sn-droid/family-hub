@@ -229,7 +229,7 @@ const FamilyMembers = () => {
       </div>
 
       <div className="max-w-md mx-auto px-4 pt-4 space-y-3">
-        <MemberBadge data-testid="family-members-member-strip" />
+        <div data-testid="family-members-member-strip"><MemberBadge /></div>
         <p className="text-xs text-[#7A7571] leading-relaxed">
           {t("members.desc")}
         </p>

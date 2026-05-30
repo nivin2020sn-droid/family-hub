@@ -1305,7 +1305,7 @@ const HomeBudget = () => {
       </div>
 
       <div className="max-w-md mx-auto px-4 pt-4 space-y-4">
-        <MemberBadge data-testid="budget-member-strip" />
+        <div data-testid="budget-member-strip"><MemberBadge /></div>
         {loading ? (
           <div className="py-12 text-center text-[#7A7571]">
             <Loader2 className="w-5 h-5 animate-spin mx-auto" />
