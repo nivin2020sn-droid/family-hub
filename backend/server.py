@@ -1317,13 +1317,21 @@ INCOME_TYPES = {"primary", "extra", "external"}
 EXPENSE_CATS = {"food", "clothes", "travel", "maintenance", "gifts", "toys", "health", "other"}
 BILL_TYPES = {"fixed_monthly", "periodic", "yearly"}
 DEBT_STATUSES = {"unpaid", "partial", "paid"}
-OWNERS = {"bahaa", "theresa", "shared"}
+SHARED_OWNER = "shared"
 
 
 def _norm_owner(value: Optional[str]) -> str:
-    """Coerce owner to one of OWNERS; default 'shared' for legacy rows."""
-    v = (value or "shared").strip().lower()
-    return v if v in OWNERS else "shared"
+    """Coerce owner to either a member id (any non-empty string) or 'shared'.
+
+    Owner is now a free-form string holding the family_member.id (UUID) the
+    entry belongs to, or the literal "shared" for joint household items.
+    Legacy values like "bahaa" / "theresa" are migrated on startup; if any
+    slip through they are preserved as-is so totals stay traceable.
+    """
+    v = (value or SHARED_OWNER).strip()
+    if not v:
+        return SHARED_OWNER
+    return v.lower() if v.lower() == SHARED_OWNER else v
 
 
 class BudgetEntry(BaseModel):
@@ -1333,7 +1341,7 @@ class BudgetEntry(BaseModel):
     description: str = ""
     amount: float
     category: str  # for income: income_type; for expense: expense_cat
-    owner: str = "shared"  # bahaa | theresa | shared
+    owner: str = "shared"  # family_member.id | "shared"
     date: str  # ISO date or datetime
     notes: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -1775,20 +1783,40 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
     # Income / expense totals (this & previous month) + per-owner breakdown
     income_total = 0.0
     expense_total = 0.0
-    by_owner_income = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
-    by_owner_expense = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    # Per-owner dicts auto-grow: any owner string seen in the data becomes a key.
+    # We also pre-seed every current family member + "shared" so the frontend
+    # always sees a row per wallet even if a member has no entries yet.
+    member_ids = []
+    async for m in raw_db.family_members.find(
+        {"family_id": current_family_id.get()},
+        {"_id": 0, "id": 1},
+    ):
+        if m.get("id"):
+            member_ids.append(m["id"])
+    seed_keys = list(member_ids) + [SHARED_OWNER]
+
+    def _zero_dict():
+        return {k: 0.0 for k in seed_keys}
+
+    def _bump(d: dict, key: str, amt: float):
+        if key not in d:
+            d[key] = 0.0
+        d[key] += amt
+
+    by_owner_income = _zero_dict()
+    by_owner_expense = _zero_dict()
     async for doc in db.budget_income.find(
         {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1, "owner": 1}
     ):
         amt = float(doc.get("amount") or 0)
         income_total += amt
-        by_owner_income[_norm_owner(doc.get("owner"))] += amt
+        _bump(by_owner_income, _norm_owner(doc.get("owner")), amt)
     async for doc in db.budget_expenses.find(
         {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1, "owner": 1}
     ):
         amt = float(doc.get("amount") or 0)
         expense_total += amt
-        by_owner_expense[_norm_owner(doc.get("owner"))] += amt
+        _bump(by_owner_expense, _norm_owner(doc.get("owner")), amt)
     prev_income = await _sum_entries(db.budget_income, pstart, pend)
     prev_expense = await _sum_entries(db.budget_expenses, pstart, pend)
 
@@ -1814,27 +1842,27 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
 
     # This month's bill cost (sum of monthly contribution) + per-owner split
     bills_month_total = 0.0
-    bills_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    bills_by_owner = _zero_dict()
     for b in bills:
         if b.get("is_paid"):
             continue
         cost = _bill_month_cost(b)
         bills_month_total += cost
-        bills_by_owner[_norm_owner(b.get("owner"))] += cost
+        _bump(bills_by_owner, _norm_owner(b.get("owner")), cost)
 
     debts_total = 0.0
-    debts_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    debts_by_owner = _zero_dict()
     for d in debts:
         r = float(d.get("remaining_amount") or 0)
         debts_total += r
-        debts_by_owner[_norm_owner(d.get("owner"))] += r
+        _bump(debts_by_owner, _norm_owner(d.get("owner")), r)
 
     # Loans: monthly payment = real monthly burden, NOT principal.
     loans_total_remaining = 0.0
     loans_principal = 0.0
     loans_paid = 0.0
-    loans_remaining_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
-    loans_monthly_by_owner = {"bahaa": 0.0, "theresa": 0.0, "shared": 0.0}
+    loans_remaining_by_owner = _zero_dict()
+    loans_monthly_by_owner = _zero_dict()
     loans_monthly_total = 0.0
     for ln in loans:
         principal = float(ln.get("principal") or 0)
@@ -1847,28 +1875,37 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
         loans_principal += principal
         loans_paid += paid_amt
         loans_total_remaining += remaining_amt
-        loans_remaining_by_owner[owner] += remaining_amt
+        _bump(loans_remaining_by_owner, owner, remaining_amt)
         # Only count active loans (term not finished) in the monthly burden.
         if made < term:
-            loans_monthly_by_owner[owner] += monthly
+            _bump(loans_monthly_by_owner, owner, monthly)
             loans_monthly_total += monthly
 
     # Remaining = income - expense - this-month's recurring bill cost - monthly loan payments.
     remaining = income_total - expense_total - bills_month_total - loans_monthly_total
 
     # Per-owner remaining (best-effort: own income/expense + own share of bills + own loans).
+    # Union of every owner key seen across any of the per-owner dicts.
+    all_owner_keys = set(seed_keys)
+    for d in (by_owner_income, by_owner_expense, bills_by_owner, debts_by_owner,
+              loans_remaining_by_owner, loans_monthly_by_owner):
+        all_owner_keys.update(d.keys())
+
+    def _g(d, k):
+        return d.get(k, 0.0)
+
     remaining_by_owner = {
-        k: by_owner_income[k]
-        - by_owner_expense[k]
-        - bills_by_owner[k]
-        - loans_monthly_by_owner[k]
-        for k in OWNERS
+        k: _g(by_owner_income, k)
+        - _g(by_owner_expense, k)
+        - _g(bills_by_owner, k)
+        - _g(loans_monthly_by_owner, k)
+        for k in all_owner_keys
     }
 
     # Total monthly obligations = bills (monthly contribution) + loan monthlies
     monthly_obligations_total = bills_month_total + loans_monthly_total
     monthly_obligations_by_owner = {
-        k: bills_by_owner[k] + loans_monthly_by_owner[k] for k in OWNERS
+        k: _g(bills_by_owner, k) + _g(loans_monthly_by_owner, k) for k in all_owner_keys
     }
 
     # Upcoming bills in next 14 days for the health signal & 7d forecast
@@ -1987,6 +2024,19 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
         },
         "comparisons": comparisons,
         "loan_progress": loan_progress,
+        # Active family members for the frontend's wallet renderer.
+        # Already scoped to current family via the find above.
+        "wallet_owners": [
+            {"id": m["id"], "name": (m.get("name") or "").strip() or "Member",
+             "color": m.get("color") or "#3B82F6",
+             "role": m.get("role"), "avatar": m.get("avatar"),
+             "is_family_admin": bool(m.get("is_family_admin"))}
+            for m in await raw_db.family_members.find(
+                {"family_id": current_family_id.get()},
+                {"_id": 0, "id": 1, "name": 1, "color": 1, "role": 1,
+                 "avatar": 1, "is_family_admin": 1, "created_at": 1},
+            ).sort("created_at", 1).to_list(100)
+        ],
     }
 
 
@@ -2909,3 +2959,47 @@ async def migrate_legacy_to_nasser(rdb):
             await rdb.events.update_one(
                 {"id": ev["id"]}, {"$set": {"owner_member_id": uid}}
             )
+
+    # 6) Budget owner migration. Legacy budget rows store `owner` as the
+    # literal strings "bahaa" or "theresa". Map those to actual family
+    # member ids per family by matching member names (case-insensitive).
+    # Falls back to the first / second family admin if no name match.
+    # Rows whose owner is already a member id (or "shared") are skipped.
+    BUDGET_COLLECTIONS = (
+        "budget_income", "budget_expenses", "budget_bills",
+        "budget_debts", "budget_loans",
+    )
+    legacy_owner_names = ("bahaa", "theresa")
+    for col_name in BUDGET_COLLECTIONS:
+        fam_ids_b = await rdb[col_name].distinct(
+            "family_id", {"owner": {"$in": list(legacy_owner_names)}}
+        )
+        for fid_b in fam_ids_b:
+            members = await rdb.family_members.find(
+                {"family_id": fid_b},
+                {"_id": 0, "id": 1, "name": 1, "is_family_admin": 1, "created_at": 1},
+            ).sort("created_at", 1).to_list(100)
+            if not members:
+                continue
+            by_name = {(m.get("name") or "").strip().lower(): m["id"] for m in members}
+            admins = [m["id"] for m in members if m.get("is_family_admin")]
+            fallback_pool = admins or [m["id"] for m in members]
+            mapping = {}
+            for idx, legacy_name in enumerate(legacy_owner_names):
+                mapped = by_name.get(legacy_name)
+                if not mapped and idx < len(fallback_pool):
+                    mapped = fallback_pool[idx]
+                elif not mapped and fallback_pool:
+                    mapped = fallback_pool[0]
+                if mapped:
+                    mapping[legacy_name] = mapped
+            for legacy_name, new_owner in mapping.items():
+                res = await rdb[col_name].update_many(
+                    {"family_id": fid_b, "owner": legacy_name},
+                    {"$set": {"owner": new_owner}},
+                )
+                if res.modified_count:
+                    logger.warning(
+                        "[MIGRATE] %s: remapped %d '%s' rows to member %s in family %s",
+                        col_name, res.modified_count, legacy_name, new_owner, fid_b,
+                    )

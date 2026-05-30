@@ -62,8 +62,10 @@ import {
   INCOME_TYPES,
   EXPENSE_CATS,
   BILL_TYPES,
-  OWNERS,
-  OWNER_COLORS,
+  SHARED_OWNER,
+  paletteFromHex,
+  buildOwnerColorMap,
+  ownerLabel,
   fmtMoney,
 } from "@/lib/budgetApi";
 
@@ -318,15 +320,21 @@ const TabBar = ({ value, onChange, t }) => {
 };
 
 // ---------- Field factories ----------
-const ownerField = (t) => ({
+// Owner field is dynamic: built from the current family's members list
+// (passed in from the page). Each member becomes an option; we add the
+// "shared" sentinel at the end for joint household entries.
+const ownerField = (t, walletOwners) => ({
   name: "owner",
   label: t("budget.field.owner"),
   type: "select",
-  default: "shared",
-  options: OWNERS.map((k) => ({ value: k, label: t(`budget.owner.${k}`) })),
+  default: SHARED_OWNER,
+  options: [
+    ...(walletOwners || []).map((m) => ({ value: m.id, label: m.name })),
+    { value: SHARED_OWNER, label: t("budget.wallet.shared") },
+  ],
 });
 
-const incomeFields = (t) => [
+const incomeFields = (t, walletOwners) => [
   { name: "description", label: t("budget.field.description"), type: "text", placeholder: "" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
   {
@@ -336,12 +344,12 @@ const incomeFields = (t) => [
     default: "primary",
     options: INCOME_TYPES.map((k) => ({ value: k, label: t(`budget.income.${k}`) })),
   },
-  ownerField(t),
+  ownerField(t, walletOwners),
   { name: "date", label: t("budget.field.date"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const expenseFields = (t) => [
+const expenseFields = (t, walletOwners) => [
   { name: "description", label: t("budget.field.description"), type: "text" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
   {
@@ -351,12 +359,12 @@ const expenseFields = (t) => [
     default: "food",
     options: EXPENSE_CATS.map((k) => ({ value: k, label: t(`budget.expense.${k}`) })),
   },
-  ownerField(t),
+  ownerField(t, walletOwners),
   { name: "date", label: t("budget.field.date"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const billFields = (t) => [
+const billFields = (t, walletOwners) => [
   { name: "name", label: t("budget.field.name"), type: "text" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
   {
@@ -366,7 +374,7 @@ const billFields = (t) => [
     default: "fixed_monthly",
     options: BILL_TYPES.map((k) => ({ value: k, label: t(`budget.bill.${k}`) })),
   },
-  ownerField(t),
+  ownerField(t, walletOwners),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
   { name: "start_date", label: t("budget.field.contractStart"), type: "date" },
   { name: "end_date", label: t("budget.field.contractEnd"), type: "date" },
@@ -379,16 +387,16 @@ const billFields = (t) => [
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const debtFields = (t) => [
+const debtFields = (t, walletOwners) => [
   { name: "creditor", label: t("budget.field.creditor"), type: "text" },
   { name: "original_amount", label: t("budget.field.original"), type: "number", default: 0 },
   { name: "remaining_amount", label: t("budget.field.remaining"), type: "number", default: 0 },
-  ownerField(t),
+  ownerField(t, walletOwners),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const loanFields = (t) => [
+const loanFields = (t, walletOwners) => [
   { name: "name", label: t("budget.field.name"), type: "text" },
   { name: "lender", label: t("budget.field.lender"), type: "text" },
   { name: "principal", label: t("budget.field.principal"), type: "number", default: 0 },
@@ -396,7 +404,7 @@ const loanFields = (t) => [
   { name: "term_months", label: t("budget.field.termMonths"), type: "number", default: 12 },
   { name: "monthly_payment", label: t("budget.field.monthlyPayment"), type: "number", default: 0 },
   { name: "payments_made", label: t("budget.field.paymentsMade"), type: "number", default: 0 },
-  ownerField(t),
+  ownerField(t, walletOwners),
   { name: "start_date", label: t("budget.field.startDate"), type: "date" },
 ];
 
@@ -423,8 +431,8 @@ const CompareRow = ({ label, comp, locale }) => {
 };
 
 // ---------- Family Dashboard (per-wallet KPIs) ----------
-const WalletColumn = ({ ownerKey, title, kpis, locale }) => {
-  const c = OWNER_COLORS[ownerKey] || OWNER_COLORS.shared;
+const WalletColumn = ({ ownerKey, title, palette, kpis, locale }) => {
+  const c = palette || paletteFromHex("#3B82F6");
   return (
     <div
       className="rounded-3xl border border-black/[0.03] p-3 sm:p-4 flex-1 min-w-0"
@@ -433,7 +441,7 @@ const WalletColumn = ({ ownerKey, title, kpis, locale }) => {
     >
       <div className="flex items-center gap-2 mb-2">
         <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.ring }} />
-        <h3 className="font-heading text-sm font-semibold" style={{ color: c.text }}>
+        <h3 className="font-heading text-sm font-semibold truncate" style={{ color: c.text }}>
           {title}
         </h3>
       </div>
@@ -456,7 +464,7 @@ const WalletColumn = ({ ownerKey, title, kpis, locale }) => {
   );
 };
 
-const FamilyDashboard = ({ summary, t, locale }) => {
+const FamilyDashboard = ({ summary, t, locale, walletOwners, ownerColors }) => {
   if (!summary) return null;
   const bo = summary.by_owner || {};
   const get = (k, o) => (bo?.[k]?.[o] ?? 0);
@@ -465,25 +473,25 @@ const FamilyDashboard = ({ summary, t, locale }) => {
   const familyKpis = [
     { label: t("budget.dashboard.familyIncome"), value: summary.income_total },
     { label: t("budget.dashboard.familyRemaining"), value: summary.remaining, negative: (summary.remaining ?? 0) < 0 },
-    { label: t("budget.dashboard.sharedExpenses"), value: get("expense", "shared") + get("bills", "shared") },
+    { label: t("budget.dashboard.sharedExpenses"), value: get("expense", SHARED_OWNER) + get("bills", SHARED_OWNER) },
     { label: t("budget.dashboard.monthlyObligations"), value: summary.monthly_obligations_total },
     { label: t("budget.summary.debts"), value: summary.debts_total },
     { label: t("budget.dashboard.totalRemainingLoans"), value: summary.loans_total_remaining },
   ];
 
-  const bahaaKpis = [
-    { label: t("budget.summary.income"), value: get("income", "bahaa") },
-    { label: t("budget.summary.expense"), value: get("expense", "bahaa") },
-    { label: t("budget.dashboard.monthlyObligations"), value: get("monthly_obligations", "bahaa") },
-    { label: t("budget.summary.remaining"), value: get("remaining", "bahaa"), negative: get("remaining", "bahaa") < 0 },
-  ];
-
-  const theresaKpis = [
-    { label: t("budget.summary.income"), value: get("income", "theresa") },
-    { label: t("budget.summary.expense"), value: get("expense", "theresa") },
-    { label: t("budget.dashboard.monthlyObligations"), value: get("monthly_obligations", "theresa") },
-    { label: t("budget.summary.remaining"), value: get("remaining", "theresa"), negative: get("remaining", "theresa") < 0 },
-  ];
+  // Build one wallet card per family member. Falls back to an empty list so the
+  // top-level Family Dashboard always renders, even before /family-members loads.
+  const memberWallets = (walletOwners || []).map((m) => ({
+    key: m.id,
+    title: t("budget.wallet.of", { name: m.name }),
+    palette: ownerColors[m.id] || paletteFromHex(m.color),
+    kpis: [
+      { label: t("budget.summary.income"), value: get("income", m.id) },
+      { label: t("budget.summary.expense"), value: get("expense", m.id) },
+      { label: t("budget.dashboard.monthlyObligations"), value: get("monthly_obligations", m.id) },
+      { label: t("budget.summary.remaining"), value: get("remaining", m.id), negative: get("remaining", m.id) < 0 },
+    ],
+  }));
 
   return (
     <div className="space-y-3" data-testid="budget-family-dashboard">
@@ -511,31 +519,34 @@ const FamilyDashboard = ({ summary, t, locale }) => {
           ))}
         </ul>
       </div>
-      <div className="grid grid-cols-2 gap-2.5">
-        <WalletColumn
-          ownerKey="bahaa"
-          title={t("budget.wallet.bahaa")}
-          kpis={bahaaKpis}
-          locale={locale}
-        />
-        <WalletColumn
-          ownerKey="theresa"
-          title={t("budget.wallet.theresa")}
-          kpis={theresaKpis}
-          locale={locale}
-        />
-      </div>
+      {memberWallets.length > 0 && (
+        <div className={`grid gap-2.5 ${memberWallets.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+          {memberWallets.map((w) => (
+            <WalletColumn
+              key={w.key}
+              ownerKey={w.key}
+              title={w.title}
+              palette={w.palette}
+              kpis={w.kpis}
+              locale={locale}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
 // ---------- Wallet filter pills ----------
-const WalletFilter = ({ value, onChange, t }) => {
+const WalletFilter = ({ value, onChange, t, walletOwners, ownerColors }) => {
   const tabs = [
     { key: "all", label: t("budget.wallet.all"), color: "#2D2A26" },
-    { key: "bahaa", label: t("budget.wallet.bahaa"), color: OWNER_COLORS.bahaa.ring },
-    { key: "theresa", label: t("budget.wallet.theresa"), color: OWNER_COLORS.theresa.ring },
-    { key: "shared", label: t("budget.wallet.shared"), color: OWNER_COLORS.shared.ring },
+    ...(walletOwners || []).map((m) => ({
+      key: m.id,
+      label: m.name,
+      color: (ownerColors[m.id] || paletteFromHex(m.color)).ring,
+    })),
+    { key: SHARED_OWNER, label: t("budget.wallet.shared"), color: ownerColors[SHARED_OWNER]?.ring || "#10B981" },
   ];
   return (
     <div className="flex gap-1 bg-white rounded-full p-1 border border-[#EFEBE4] shadow-sm">
@@ -928,7 +939,7 @@ const HomeBudget = () => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorKind, setEditorKind] = useState(null); // 'income' | 'expenses' | ...
   const [editorInitial, setEditorInitial] = useState(null);
-  const [walletFilter, setWalletFilter] = useState("all"); // all | bahaa | theresa | shared
+  const [walletFilter, setWalletFilter] = useState("all"); // all | <member_id> | shared
   const [forecastOpen, setForecastOpen] = useState(false);
   const [expiring, setExpiring] = useState([]);
 
@@ -974,11 +985,11 @@ const HomeBudget = () => {
   };
 
   const fieldsForKind = (kind) => {
-    if (kind === "income") return incomeFields(t);
-    if (kind === "expenses") return expenseFields(t);
-    if (kind === "bills") return billFields(t);
-    if (kind === "debts") return debtFields(t);
-    return loanFields(t);
+    if (kind === "income") return incomeFields(t, walletOwners);
+    if (kind === "expenses") return expenseFields(t, walletOwners);
+    if (kind === "bills") return billFields(t, walletOwners);
+    if (kind === "debts") return debtFields(t, walletOwners);
+    return loanFields(t, walletOwners);
   };
 
   const titleForKind = (kind) => {
@@ -1028,25 +1039,36 @@ const HomeBudget = () => {
   const healthTheme = HEALTH_THEME[health];
   const HealthIcon = healthTheme.icon;
 
+  // Dynamic wallet owners (per family member) come from /api/budget/summary.
+  // Build the {ownerId → palette} map once per summary refresh so child
+  // components don't re-derive it on every render.
+  const walletOwners = useMemo(() => summary?.wallet_owners || [], [summary]);
+  const ownerColors = useMemo(() => buildOwnerColorMap(walletOwners), [walletOwners]);
+  const walletNameOf = (ownerId) =>
+    ownerLabel(ownerId, walletOwners, t("budget.wallet.shared"));
+
   // ---- list renderers ----
   // Wallet filter helper — applies to all tabs uniformly.
   const matchWallet = (it) => {
     if (walletFilter === "all") return true;
-    const o = (it.owner || "shared").toLowerCase();
-    return o === walletFilter;
+    const o = (it.owner || SHARED_OWNER).toString();
+    return o === walletFilter || o.toLowerCase() === walletFilter;
   };
   // Owner badge / accent helper
-  const ownerOf = (it) => (it.owner || "shared").toLowerCase();
-  const accentFor = (it) => (OWNER_COLORS[ownerOf(it)] || OWNER_COLORS.shared).ring;
+  const paletteOf = (it) => {
+    const o = (it.owner || SHARED_OWNER).toString();
+    return ownerColors[o] || ownerColors[SHARED_OWNER] || paletteFromHex("#10B981");
+  };
+  const accentFor = (it) => paletteOf(it).ring;
   const OwnerBadge = ({ owner }) => {
-    const o = (owner || "shared").toLowerCase();
-    const c = OWNER_COLORS[o] || OWNER_COLORS.shared;
+    const o = (owner || SHARED_OWNER).toString();
+    const c = ownerColors[o] || ownerColors[SHARED_OWNER] || paletteFromHex("#10B981");
     return (
       <span
         className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
         style={{ backgroundColor: c.soft, color: c.text }}
       >
-        {t(`budget.owner.${o}`)}
+        {walletNameOf(o)}
       </span>
     );
   };
@@ -1313,7 +1335,13 @@ const HomeBudget = () => {
         ) : (
           <>
             {/* Family Dashboard — top-level per-wallet summary */}
-            <FamilyDashboard summary={summary} t={t} locale={locale} />
+            <FamilyDashboard
+              summary={summary}
+              t={t}
+              locale={locale}
+              walletOwners={walletOwners}
+              ownerColors={ownerColors}
+            />
 
             {/* Expiring contracts reminder — only renders when there is at least one. */}
             <ExpiringContractsAlert
@@ -1508,7 +1536,13 @@ const HomeBudget = () => {
             {/* Tabs + List */}
             <div className="space-y-3">
               {/* Wallet filter pills */}
-              <WalletFilter value={walletFilter} onChange={setWalletFilter} t={t} />
+              <WalletFilter
+                value={walletFilter}
+                onChange={setWalletFilter}
+                t={t}
+                walletOwners={walletOwners}
+                ownerColors={ownerColors}
+              />
               <TabBar value={tab} onChange={setTab} t={t} />
               <div className="flex justify-end">
                 <Button

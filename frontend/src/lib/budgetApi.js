@@ -78,14 +78,63 @@ export const EXPENSE_CATS = [
   "other",
 ];
 export const BILL_TYPES = ["fixed_monthly", "periodic", "yearly"];
-export const OWNERS = ["bahaa", "theresa", "shared"];
 
-// Wallet color palette — mirrors the Time Plan profile colors.
-export const OWNER_COLORS = {
-  bahaa: { ring: "#3B82F6", soft: "#DBEAFE", fg: "#1D4ED8", text: "#1E3A8A" },
-  theresa: { ring: "#EC4899", soft: "#FCE7F3", fg: "#BE185D", text: "#831843" },
-  shared: { ring: "#10B981", soft: "#D1FAE5", fg: "#047857", text: "#065F46" },
-};
+// Owner identity is now dynamic: every family member is a wallet owner,
+// plus the literal "shared" sentinel for joint household items.
+export const SHARED_OWNER = "shared";
+
+// Default shared-wallet theme (green). Per-member colors come from
+// `family_members[].color` which is auto-assigned from a 12-color palette
+// in the backend. Lightening / darkening helpers convert that single hex
+// into the (ring/soft/fg/text) palette the wallet card consumes.
+const SHARED_COLOR = "#10B981";
+
+function hexToRgb(hex) {
+  const m = (hex || "").replace("#", "").match(/[0-9a-f]{2}/gi);
+  if (!m || m.length !== 3) return [0, 0, 0];
+  return m.map((x) => parseInt(x, 16));
+}
+function rgbToHex(r, g, b) {
+  const c = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+function mix(hex, towards, amount) {
+  // amount in [0, 1] → 0 keeps hex, 1 returns towards.
+  const [r1, g1, b1] = hexToRgb(hex);
+  const [r2, g2, b2] = hexToRgb(towards);
+  return rgbToHex(
+    r1 + (r2 - r1) * amount,
+    g1 + (g2 - g1) * amount,
+    b1 + (b2 - b1) * amount,
+  );
+}
+
+/** Build a wallet color palette from a single member hex color. */
+export function paletteFromHex(hex) {
+  const ring = hex || "#3B82F6";
+  return {
+    ring,
+    soft: mix(ring, "#FFFFFF", 0.85), // very light pastel background
+    fg: mix(ring, "#000000", 0.2),    // mid-tone label color
+    text: mix(ring, "#000000", 0.5),  // strong title color
+  };
+}
+
+/** Resolve the {id → palette} map from a wallet_owners list (from /api/budget/summary). */
+export function buildOwnerColorMap(walletOwners = []) {
+  const map = { [SHARED_OWNER]: paletteFromHex(SHARED_COLOR) };
+  for (const m of walletOwners) {
+    if (m && m.id) map[m.id] = paletteFromHex(m.color || "#3B82F6");
+  }
+  return map;
+}
+
+/** Resolve a stable display name for any owner string. */
+export function ownerLabel(ownerId, walletOwners, sharedLabel) {
+  if (!ownerId || ownerId === SHARED_OWNER) return sharedLabel || "Shared";
+  const m = (walletOwners || []).find((x) => x.id === ownerId);
+  return m?.name || sharedLabel || ownerId;
+}
 
 export function fmtMoney(value, locale = "en-US", currency = "EUR") {
   const n = Number(value) || 0;
