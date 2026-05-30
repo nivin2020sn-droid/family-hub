@@ -270,3 +270,14 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: 7 new keys (`members.avatar.*`, `welcome.back`) × EN / AR / DE.
 - **Tested**: backend curl (POST avatar, PUT set, PUT clear-to-null, 403 cross-member). Frontend Playwright across iterations 7→8→9: **6/6 final expectations PASSED** — all 5 page strips resolve, welcome toast fires once per session per member, admin chip present for admins / absent for non-admins, cached-member refresh updates the header without re-login, AR + DE welcome strings render correctly.
 
+
+## Implemented (Feb 2026 — "Recent activity by you" strip)
+- **Backend**: new scoped collection `activity_log`. Two helpers seed it best-effort:
+  - `server.log_activity(token, kind, payload)` covers event create / delete, kids-money income & payment, goal created, and the goal `is_complete: false → true` transition (the "reached your goal" moment).
+  - `auth_module.build_family_router._log_activity` covers `member.added` / `member.promoted` / `member.demoted` / `member.deleted`.
+- **Endpoint**: `GET /api/activity/recent?limit&scope` with `scope=self` (default — caller's own activity) and `scope=family` (admin-only family-wide feed). Limit clamps to 1..20.
+- **Privacy**: scope=self filters by `member_id=token.mid`. scope=family is gated behind `fadmin=true` (403 otherwise). Multi-tenant isolation handled via the existing `ScopedCollection`.
+- **Frontend** (`/app/frontend/src/components/RecentActivityStrip.jsx`): slim 3-item strip rendered under the WallBoard MemberBadge. Each row uses a localized template (`activity.event.created`, `activity.kids.income`, `activity.goal.completed`, `activity.member.added`, …) plus a relative-time stamp via `Intl.RelativeTimeFormat`. Hidden completely when the feed is empty so brand-new accounts don't see noise.
+- **i18n**: 14 new `activity.*` keys × EN / AR / DE.
+- **Tested**: backend pytest **13/13 PASSED** (empty list for fresh admin, event/kids-money/goal logging, transition-only goal.completed, scope=self isolation, scope=family for admin, 403 for child, default limit + cap at 20, cross-family isolation). Frontend Playwright PASSED — strip renders under wall-member-strip, items match EN / AR / DE templates with relative-time suffix, empty-state renders nothing.
+
