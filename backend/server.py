@@ -18,10 +18,21 @@ load_dotenv(ROOT_DIR / '.env')
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+raw_db = client[os.environ['DB_NAME']]
+
+# Tenant isolation layer.
+from tenant import (
+    ScopedDB, install_middleware as install_tenant_middleware,
+    resolve_family_by_code, current_family_id,
+)
+db = ScopedDB(raw_db)
 
 # Create the main app without a prefix
 app = FastAPI()
+
+# Install the tenant middleware BEFORE any router so it sets the family
+# context for every /api/* call.
+install_tenant_middleware(app, os.environ['JWT_SECRET'])
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -36,9 +47,10 @@ from auth_module import (
     seed_default_family as auth_seed_default_family,
 )
 
-api_router.include_router(build_auth_router(db))
-api_router.include_router(build_family_router(db))
-api_router.include_router(build_admin_router(db))
+# Auth/admin routers need cross-tenant access → raw_db, not the scoped wrapper.
+api_router.include_router(build_auth_router(raw_db))
+api_router.include_router(build_family_router(raw_db))
+api_router.include_router(build_admin_router(raw_db))
 
 
 # ============= Models =============
@@ -764,14 +776,15 @@ async def delete_wall_family_event(ev_id: str):
 async def location_update(payload: LocationUpdate):
     """Receive a location ping from any device.
 
-    - Validates the family code against the FAMILY_CODE env var.
-    - Upserts a `family_members` document keyed by `memberId` (creates one
-      automatically on the first valid ping).
+    - Resolves the family from `families.family_code` (per-family secret),
+      never the legacy shared FAMILY_CODE env var.
+    - Upserts a `gps_devices` document keyed by `memberId` + `family_id`.
     - Appends an immutable point to `location_points` for the history view.
     """
-    expected_code = os.environ.get("FAMILY_CODE", "FAMILY2026")
-    if (payload.familyCode or "").strip() != expected_code:
+    family = await resolve_family_by_code(raw_db, (payload.familyCode or "").strip())
+    if not family:
         raise HTTPException(status_code=401, detail="Invalid family code")
+    fid = family["id"]
 
     now_iso = datetime.now(timezone.utc).isoformat()
     timestamp = (payload.timestamp or "").strip() or now_iso
@@ -788,24 +801,29 @@ async def location_update(payload: LocationUpdate):
         "connectionType": payload.connectionType,
         "deviceId": payload.deviceId,
     }
-    # Only overwrite name / image if the sender provided one — otherwise we
-    # keep whatever was set previously.
     if payload.memberName:
         member_update["name"] = payload.memberName
     if payload.profileImage:
         member_update["profileImage"] = payload.profileImage
 
-    await db.family_members.update_one(
-        {"id": payload.memberId},
+    # Direct (non-scoped) writes — the scope here comes from the family_code
+    # the caller proved possession of, not from a JWT.
+    await raw_db.gps_devices.update_one(
+        {"id": payload.memberId, "family_id": fid},
         {
             "$set": member_update,
-            "$setOnInsert": {"id": payload.memberId, "createdAt": now_iso},
+            "$setOnInsert": {
+                "id": payload.memberId,
+                "family_id": fid,
+                "createdAt": now_iso,
+            },
         },
         upsert=True,
     )
 
-    point = {
+    await raw_db.location_points.insert_one({
         "memberId": payload.memberId,
+        "family_id": fid,
         "latitude": payload.latitude,
         "longitude": payload.longitude,
         "accuracy": payload.accuracy,
@@ -814,8 +832,7 @@ async def location_update(payload: LocationUpdate):
         "timestamp": timestamp,
         "networkStatus": payload.networkStatus,
         "connectionType": payload.connectionType,
-    }
-    await db.location_points.insert_one(point)
+    })
 
     return {"ok": True}
 
@@ -823,7 +840,7 @@ async def location_update(payload: LocationUpdate):
 @api_router.get("/location/latest", response_model=List[FamilyMemberOut])
 async def location_latest():
     """Return the latest known position for every tracked family member."""
-    items = await db.family_members.find({}, {"_id": 0}).sort("name", 1).to_list(200)
+    items = await db.gps_devices.find({}, {"_id": 0}).sort("name", 1).to_list(200)
     return items
 
 
@@ -834,12 +851,7 @@ async def location_history(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ):
-    """Return the movement history for a single member.
-
-    The caller can pass either a `date` (YYYY-MM-DD, UTC) for a 24h window, or
-    an explicit `start` / `end` ISO range. If nothing is passed, returns the
-    last 24h.
-    """
+    """Return the movement history for a single member."""
     if date:
         try:
             start_dt = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -865,17 +877,13 @@ async def location_history(
 
 
 @api_router.delete("/location/member/{member_id}")
-async def delete_location_member(member_id: str, familyCode: Optional[str] = None):
-    """Remove a single tracked member and their entire location history.
+async def delete_location_member(member_id: str):
+    """Remove a single tracked device and its entire location history.
 
-    Used by the web app to clean up stale / duplicate device identities (e.g.
-    after the Android app is reinstalled and a fresh memberId is generated).
-    Protected by the same `FAMILY_CODE` env var used by the POST ingest.
+    The tenant scope comes from the bearer token, so no familyCode query
+    parameter is required (or accepted) anymore.
     """
-    expected_code = os.environ.get("FAMILY_CODE", "FAMILY2026")
-    if (familyCode or "").strip() != expected_code:
-        raise HTTPException(status_code=401, detail="Invalid family code")
-    member_res = await db.family_members.delete_one({"id": member_id})
+    member_res = await db.gps_devices.delete_one({"id": member_id})
     points_res = await db.location_points.delete_many({"memberId": member_id})
     if member_res.deleted_count == 0 and points_res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Member not found")
@@ -2218,10 +2226,80 @@ async def shutdown_db_client():
 
 @app.on_event("startup")
 async def on_startup():
-    """One-time bootstrap for the multi-tenant auth system."""
+    """One-time bootstrap for the multi-tenant auth system + data migration."""
     try:
-        await auth_ensure_indexes(db)
-        await auth_seed_admin(db)
-        await auth_seed_default_family(db)
+        await auth_ensure_indexes(raw_db)
+        await auth_seed_admin(raw_db)
+        await auth_seed_default_family(raw_db)
+        await migrate_legacy_to_nasser(raw_db)
     except Exception as exc:  # never fail to start because of seed errors
         logger.exception("Auth bootstrap failed: %s", exc)
+
+
+async def migrate_legacy_to_nasser(rdb):
+    """Idempotent migration: attach all pre-existing data to Nasser Family.
+
+    Adds `family_id` to every legacy document that doesn't have one yet,
+    binds the Nasser Family's per-family `family_code` to the legacy value
+    so the standalone Android sender keeps working, and moves GPS-shaped
+    docs out of `family_members` (which is now reserved for auth) into the
+    dedicated `gps_devices` collection.
+
+    This DOES NOT delete any data and is safe to run on every boot.
+    """
+    nasser = await rdb.families.find_one({"legacy": True}, {"_id": 0})
+    if not nasser:
+        return
+    fid = nasser["id"]
+
+    # 1) Pin the legacy family_code so the standalone Android sender keeps
+    # talking to Nasser Family without any reconfiguration.
+    legacy_code = os.environ.get("FAMILY_CODE", "FAMILY2026")
+    if not nasser.get("family_code"):
+        await rdb.families.update_one(
+            {"id": fid}, {"$set": {"family_code": legacy_code}}
+        )
+        logger.warning("[MIGRATE] bound family_code=%s to %s", legacy_code, nasser.get("name"))
+
+    # 2) Move GPS-shaped docs out of family_members → gps_devices.
+    legacy_gps = await rdb.family_members.find(
+        {"pin_hash": {"$exists": False}, "latitude": {"$exists": True}},
+        {"_id": 0},
+    ).to_list(2000)
+    if legacy_gps:
+        for doc in legacy_gps:
+            doc["family_id"] = fid
+            await rdb.gps_devices.update_one(
+                {"id": doc.get("id"), "family_id": fid},
+                {"$setOnInsert": doc},
+                upsert=True,
+            )
+        await rdb.family_members.delete_many(
+            {"pin_hash": {"$exists": False}, "latitude": {"$exists": True}},
+        )
+        logger.warning("[MIGRATE] moved %d GPS docs to gps_devices", len(legacy_gps))
+
+    # 3) Backfill family_id on every legacy data collection.
+    from tenant import SCOPED_COLLECTIONS
+    for col_name in SCOPED_COLLECTIONS:
+        res = await rdb[col_name].update_many(
+            {"family_id": {"$exists": False}},
+            {"$set": {"family_id": fid}},
+        )
+        if res.modified_count:
+            logger.warning(
+                "[MIGRATE] %s: tagged %d legacy docs with family_id=%s",
+                col_name, res.modified_count, fid,
+            )
+
+    # 4) Make sure every other family has its own random family_code so the
+    # standalone GPS sender can authenticate it without reusing Nasser's.
+    import secrets
+    others = await rdb.families.find(
+        {"family_code": {"$exists": False}}, {"_id": 0, "id": 1}
+    ).to_list(1000)
+    for f in others:
+        await rdb.families.update_one(
+            {"id": f["id"]},
+            {"$set": {"family_code": secrets.token_urlsafe(12)}},
+        )

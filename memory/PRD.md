@@ -137,7 +137,36 @@
 - **i18n**: 60+ new `auth.*` / `admin.*` / `btn.refresh` keys × 3 locales (EN/AR/DE).
 - **Service worker fix**: was using stale-while-revalidate for `/api/*` GETs which masked POST mutations. Now `service-worker.js` bypasses `/api/*` entirely and always hits the network. Cache bumped to `mfml-cache-v4`.
 - **Tested**: curl end-to-end (register → add parent → wrong PIN → select member → forgot → reset → disable family → admin recovery), then full Playwright UI smoke (register → bootstrap parent → unlock to Wall Board, plus Admin console with Recovery Code dialog).
-- **Important note**: data isolation is intentionally scaffolded only. Budget/Location/Routines/WallBoard endpoints still operate as the global single tenant. Next phase: tag every collection with `family_id`, migrate existing rows to "Nasser Family", and gate all data routes behind a member token.
+- **Important note**: ~~data isolation is intentionally scaffolded only~~. **DATA ISOLATION FULLY ENFORCED** as of the Feb 2026 — Tenant Isolation entry below.
+
+## Implemented (Feb 2026 — Tenant Isolation 🔒)
+Production-grade `family_id` filtering across every data endpoint. Replaces the previous "scaffolded only" status — bug surfaced when a new family on Render saw Nasser's data because no route filtered.
+
+- **New module `backend/tenant.py`**:
+  - `ScopedCollection` Motor proxy that injects `family_id` from a `contextvars` request scope into every `find/find_one/count/aggregate/insert*/update*/delete*` call.
+  - `ScopedDB` returns `ScopedCollection` for known data collections and the raw Motor collection for everything else (so auth/admin keep cross-tenant access).
+  - FastAPI middleware decodes the bearer token on every `/api/*` request and seeds `current_family_id` (admin tokens stay None → data routes get 401 "Family context required").
+  - 17 collections are scoped: `budget_income/expenses/bills/debts/loans`, `wall_settings/photos/goals/countdown/achievements/notes/family_events`, `routines/routine_logs`, `shopping_items`, `gps_devices/location_points`, plus legacy `events/event_types/users`.
+- **Server wiring** (`server.py`): `db = ScopedDB(raw_db)`; raw handle passed to auth/admin/family routers; middleware installed before any route.
+- **Idempotent on-startup migration** (`migrate_legacy_to_nasser`):
+  - Binds `family_code = FAMILY2026` to the Nasser Family doc.
+  - Moves GPS-shaped docs out of the shared `family_members` collection into a new dedicated `gps_devices` collection.
+  - Adds `family_id = <Nasser id>` to every legacy document across the 17 scoped collections.
+  - Generates a unique random `family_code` for every other family that lacks one.
+  - **Never deletes data** and re-runs safely.
+- **Location ingest hardened**:
+  - `POST /api/location/update` no longer compares against the global env-var `FAMILY_CODE`. It looks up `families.family_code` for the caller-supplied code and writes to `gps_devices` + `location_points` with the resolved `family_id`.
+  - `DELETE /api/location/member/{id}` now scoped by JWT → no `familyCode` query parameter accepted.
+- **Register flow**: every new family is created with its own random `secrets.token_urlsafe(12)` `family_code` (used by the standalone Android sender).
+- **Tested end-to-end** via curl:
+  1. Nasser adds a wall note → visible to Nasser only.
+  2. Test Family created → lists for `wall/notes`, `wall/photos`, `wall/goals`, `wall/family-events`, `budget/income`, `budget/expenses`, `budget/bills`, `budget/loans`, `budget/debts`, `routines`, `shopping`, `location/latest` → ALL EMPTY (12 endpoints verified).
+  3. Test adds its own note → Nasser still sees only its own; Test sees only its own.
+  4. Cross-tenant attack: Test deletes Nasser's note by id → 404 Not found, note preserved.
+  5. Anonymous request → 401 "Family context required".
+  6. Admin token (no family scope) → 401 on every data endpoint.
+  7. `wall_settings` is now a per-family singleton (each family gets its own).
+  8. Forecast / aggregation pipelines auto-prepend `{"$match": {"family_id": fid}}`.
 
 ## Implemented (Feb 2026 — Financial Forecast & Contract Lifecycle)
 - New **Financial Forecast** card inside Family Budget. Users pick any month/year (← →) and see predicted income, bills, loan payments, debts due, total obligations, and remaining balance.

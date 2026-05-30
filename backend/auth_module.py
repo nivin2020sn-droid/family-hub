@@ -245,6 +245,9 @@ def build_auth_router(db) -> APIRouter:
             "free_until": (now + timedelta(days=365)).isoformat(),
             "created_at": now.isoformat(),
             "account_type": payload.account_type,
+            # Per-family secret used by the standalone GPS sender. Distinct
+            # for every family so devices can never cross-write.
+            "family_code": secrets.token_urlsafe(12),
         }
         await families.insert_one(family_doc)
         family_doc.pop("_id", None)
