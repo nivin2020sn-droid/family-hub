@@ -34,6 +34,7 @@ import {
 } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import BetaTerms from "@/components/BetaTerms";
 
 const formatError = (err, fallback) => {
   const d = err?.response?.data?.detail;
@@ -148,9 +149,23 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
   const [resetCode, setResetCode] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Beta-gate state. The user MUST accept the three notices before the
+  // register form is even rendered. `consents` is null until that happens;
+  // once accepted it holds the booleans we forward to the backend.
+  const [consents, setConsents] = useState(null);
+  const [appVersion, setAppVersion] = useState("");
 
   const isRegister = mode === "register";
   const isForgot = mode === "forgot";
+
+  // Fetch the version once per mount so the chip on the gate stays accurate.
+  useEffect(() => {
+    if (!isRegister) return;
+    let alive = true;
+    const url = `${process.env.REACT_APP_BACKEND_URL}/api/auth/app/info`;
+    fetch(url).then((r) => r.json()).then((d) => { if (alive) setAppVersion(d?.version || ""); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isRegister]);
 
   const submit = async (e) => {
     e?.preventDefault?.();
@@ -167,6 +182,12 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
           password,
           confirm_password: confirm,
           recovery_email: recoveryEmail.trim() || null,
+          // Mandatory beta consents — already enforced client-side via the
+          // BetaTerms gate, but we forward them so the backend can persist
+          // an audit trail (consents object on the account).
+          accepted_beta_terms: !!consents?.accepted_beta_terms,
+          accepted_privacy_policy: !!consents?.accepted_privacy_policy,
+          accepted_disclaimer: !!consents?.accepted_disclaimer,
         });
         toast.success(t("auth.toast.registered", { name: data.family?.name || familyName }));
         onSuccess("register");
@@ -194,6 +215,18 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
       setBusy(false);
     }
   };
+
+  // Beta gate: block the register form until the three consents are accepted.
+  if (isRegister && !consents) {
+    return (
+      <BetaTerms
+        mode="register"
+        onBack={onBack}
+        onAccept={(c) => setConsents(c)}
+        appVersion={appVersion}
+      />
+    );
+  }
 
   return (
     <Shell testid={`${mode}-screen`}>

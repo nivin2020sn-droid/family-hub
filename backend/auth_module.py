@@ -34,6 +34,11 @@ RECOVERY_CODE_TTL_MINUTES = 30
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_MINUTES = 15
 
+# Public app version — surfaced to the client so the Settings page can show
+# a "Beta vX.Y.Z" chip and so consent records remain traceable to a build.
+APP_VERSION = os.environ.get("APP_VERSION", "0.9.0-beta")
+APP_STAGE = os.environ.get("APP_STAGE", "beta")
+
 VALID_ROLES = {"parent", "adult", "child", "other"}
 ACCOUNT_TYPES = {"family", "single"}  # "single" is reserved for future use
 
@@ -76,6 +81,12 @@ class RegisterPayload(BaseModel):
     confirm_password: str
     recovery_email: Optional[EmailStr] = None
     account_type: str = "family"
+    # Mandatory Beta consents — all three must be true for the request to
+    # succeed (we still enforce server-side to prevent a tampered client
+    # from sneaking through without ticking the boxes).
+    accepted_beta_terms: Optional[bool] = False
+    accepted_privacy_policy: Optional[bool] = False
+    accepted_disclaimer: Optional[bool] = False
 
 
 class LoginPayload(BaseModel):
@@ -265,6 +276,17 @@ def build_auth_router(db) -> APIRouter:
             raise HTTPException(status_code=400, detail="Passwords do not match")
         if len(payload.password) < 6:
             raise HTTPException(status_code=400, detail="Password too short")
+        # Beta gate: all three consents are mandatory and enforced server-side
+        # so a tampered client cannot bypass the UI checkboxes.
+        if not (
+            payload.accepted_beta_terms
+            and payload.accepted_privacy_policy
+            and payload.accepted_disclaimer
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="You must accept the Beta Terms, Privacy Notice and Disclaimer to continue",
+            )
         email = payload.email.lower().strip()
         existing = await accounts.find_one({"email": email})
         if existing:
@@ -296,6 +318,15 @@ def build_auth_router(db) -> APIRouter:
             "password_hash": hash_secret(payload.password),
             "role": "owner",  # account-level role: owner | admin
             "created_at": now.isoformat(),
+            # Persist the consents so we have a tamper-evident audit trail
+            # if a user later asks "what did I agree to and when?".
+            "consents": {
+                "accepted_beta_terms": True,
+                "accepted_privacy_policy": True,
+                "accepted_disclaimer": True,
+                "accepted_at": now.isoformat(),
+                "app_version": APP_VERSION,
+            },
         })
 
         token = create_account_token(account_id, family_id, "owner")
@@ -424,6 +455,17 @@ def build_auth_router(db) -> APIRouter:
             "member_token": member_token,
             "token_type": "bearer",
             "member": safe,
+        }
+
+    # ------- APP INFO -------
+    # No auth required: this is the only endpoint the registration screen
+    # needs to display "Beta v0.9.0" before the user has an account.
+    @router.get("/app/info")
+    async def app_info():
+        return {
+            "name": "My Family My Life",
+            "version": APP_VERSION,
+            "stage": APP_STAGE,
         }
 
     return router

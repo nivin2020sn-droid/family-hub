@@ -1,0 +1,36 @@
+{
+  "summary": "Full backend + frontend verification of the Beta Terms / Privacy / Disclaimer gate. 6/6 pytest cases pass, FE Playwright flow PASSES end-to-end (account-type → BetaTerms gate → 3 consent ticks → register → member-select), and the /terms route renders correctly in EN/AR/DE with 11/7/8 bullets and no raw key leaks.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_beta_terms.py",
+    "/app/test_reports/pytest/beta_terms.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "WallBoard.jsx is 2395 lines — same modularization concern raised in iter-10 still applies. WallSettingsDialog (lines 1135-1300+) could move into its own file with the rest of the dialogs.",
+    "BetaTerms.jsx duplicates the /api/auth/app/info fetch logic across 3 mount points (Login.jsx, Terms.jsx, WallBoard.jsx WallSettingsDialog). Recommend extracting into a useAppInfo() hook in /app/frontend/src/lib so the version chip is consistent and cached app-wide.",
+    "The chip momentarily renders 'Beta · v' (empty version placeholder) before the async fetch resolves. Minor flash-of-incomplete-content; consider hiding the chip until appVersion is non-empty, OR seeding it at build time from package.json so no network round-trip is needed.",
+    "RegisterPayload accepts the three consents as separate booleans — fine for now, but if a 4th consent is ever added (e.g. marketing) consider grouping them into a `consents: {...}` nested object to keep the payload tidy."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_beta_terms.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 pytest)",
+    "frontend": "100% (gate flow + EN/AR/DE on /terms, 11/7/8 bullets, no raw beta.* key leaks, register→member-select success)"
+  },
+  "test_credentials": "Fresh families registered per run via /api/auth/register with qa-beta-fe-<ts>@example.com / Pass1234! (all three consents true). Pre-existing admin login bsn.1988@hotmail.com / 11qqQQ!! verified to still work without consents field (no migration break).",
+  "seed_data_creation": "Each pytest + FE run creates a fresh family with TEST_-prefixed family name and unique timestamped email; no cleanup necessary.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_beta_terms.py covers: GET /api/auth/app/info shape (name+version+stage=='0.9.0-beta'/'beta'), POST /api/auth/register with 0/1/2 consents -> 400 'Beta Terms' detail, POST with all 3 -> 200 + immediate login success (proves consents persisted and no re-prompt), pre-existing admin (no consents field) still logs in. FE coverage: account-type-screen -> pick-family -> login-go-register -> beta-terms-screen renders with chip 'Beta · v0.9.0-beta', beta-continue-btn disabled, ticking 1 keeps it disabled, ticking 3 enables, click forwards to register-screen, registration with consents lands on member-select-screen. /terms via direct nav renders read-only (no beta-consents-block, no beta-continue-btn). Lang switching done by writing localStorage.mfml_lang and reloading -- AR/DE both render correct 11/7/8 bullets, localized titles ('Beta-Hinweis' DE, 'شروط النسخة التجريبية' AR), and chip preserves 0.9.0-beta. Note: wall-beta-version + open-terms-btn inside WallSettingsDialog were NOT executed end-to-end (would need full member bootstrap + PIN flow); inspected source and confirmed the testids exist at WallBoard.jsx:1260 and 1264 and use the same /api/auth/app/info endpoint that has been validated.",
+  "rca_of_the_issue": "N/A — no defects found. Every spec bullet verified except the wall-beta-version chip which was only source-inspected (testids and fetch logic confirmed in code)."
+}

@@ -1137,8 +1137,21 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
   const { t } = useI18n();
   const [confirm, setConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
   const me = getCurrentMember();
   const isFamilyAdmin = !!me?.is_family_admin;
+
+  // Fetch the live backend version once when the dialog opens so the chip
+  // is always accurate even after a deploy.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    fetch(`${process.env.REACT_APP_BACKEND_URL}/api/auth/app/info`)
+      .then((r) => r.json())
+      .then((d) => { if (alive) setAppVersion(d?.version || ""); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [open]);
   const handleLogout = () => {
     if (!confirm) {
       setConfirm(true);
@@ -1239,6 +1252,19 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
             <LogOut className="w-3.5 h-3.5" strokeWidth={2} />
             {confirm ? t("btn.signOutConfirm") : t("btn.signOut")}
           </button>
+          <div className="pt-3 mt-2 border-t border-[#EFEBE4] space-y-2">
+            <button
+              type="button"
+              onClick={() => { onOpenChange(false); navigate("/terms"); }}
+              className="w-full text-center text-[11px] text-[#7A7571] hover:text-[#2D2A26] underline underline-offset-2"
+              data-testid="open-terms-btn"
+            >
+              {t("beta.viewTerms")}
+            </button>
+            <p className="text-center text-[10px] uppercase tracking-[0.18em] text-[#A09B95]" data-testid="wall-beta-version">
+              {t("beta.chip", { version: appVersion || "0.9.0-beta" })}
+            </p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

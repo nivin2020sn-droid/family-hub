@@ -14,6 +14,7 @@ import ShoppingList from "@/pages/ShoppingList";
 import Admin from "@/pages/Admin";
 import FamilyMembers from "@/pages/FamilyMembers";
 import MyMoney from "@/pages/MyMoney";
+import Terms from "@/pages/Terms";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -84,6 +85,7 @@ function App() {
                   </RequireAuth>
                 }
               />
+              <Route path="/terms" element={<Terms />} />
               <Route path="/admin" element={<Admin />} />
               {/* Legacy paths -> redirect to home */}
               <Route path="/wall-board" element={<Navigate to="/" replace />} />
