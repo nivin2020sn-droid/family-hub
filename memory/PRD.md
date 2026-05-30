@@ -238,3 +238,22 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: 22 new `myMoney.goals.*` keys × EN / AR / DE.
 - **Tested**: backend pytest **17/17 PASSED** (validation, child cross-target forced to self, complete-freeze, re-open, include_completed filter, cross-member 403, admin override, multi-tenant isolation, cap at target). Frontend Playwright **10/10 PASSED** (section visible, empty state, create with 30/80=37.5% bar, edit-resize bar, mark done with badge & 100%, re-open, delete, admin drill-in goal creation, AR + DE labels).
 
+
+## Implemented (Feb 2026 — Per-member Time Plan)
+- **Member calendars**: every family member now owns their own events. Time Plan opens to the current member's calendar by default. Family admins can overlay any combination of members via the new "Family Calendar View" filter dialog (data-testid `family-view-dialog`).
+- **Auto-assigned colours**: `auth_module.MEMBER_COLOR_PALETTE` (12-colour palette). New members get the next unused palette colour via `_pick_member_color`. The `PUT /api/family/members/{id}` route also accepts `color` overrides. `ensure_indexes` back-fills legacy members on boot.
+- **Events tied to members**: `Event` model gains `owner_member_id` (canonical) with legacy `user_id` kept as a fallback. List/create/update/delete endpoints now require a member token; auth helpers `_normalize_owner_filter`, `_event_owner_id`, `_ensure_event_writable` enforce:
+  - Non-admins see ONLY their own calendar (filter is silently locked to self).
+  - Non-admins cannot create / edit / delete an event owned by someone else (403).
+  - Admins can pass `?user_id=…` or `?user_ids=a,b,c` to scope the grid and reassign ownership via PUT.
+- **Startup migration** (`migrate_legacy_to_nasser`) maps every pre-multi-member event whose `user_id` is `wife` or `husband` to the first family admin of the same family, and mirrors `user_id → owner_member_id` for any other legacy rows. Idempotent.
+- **Frontend** (`/app/frontend/src/pages/TimePlan.jsx` full rewrite + `EventDialog.jsx` / `DayDetailPopover.jsx` refactor):
+  - Pill switcher driven by `/api/family/members`. Each pill shows the member's colour dot; non-admins see other pills disabled.
+  - Family View dialog with per-member checkboxes, count badge, and "Only me" / "Show everyone" shortcuts.
+  - Event bars now paint by owner colour (resolved via `colorFor(ev)` in the page).
+  - `EventDialog` adds `canChangeOwner` + `currentMemberId` props; owner select disabled for non-admins.
+  - `DayDetailPopover` accepts `canAddForOthers` + `canEditEvent` so non-admins lose edit/delete affordances on events they don't own.
+  - Wall Board → Time Plan settings link survives for admins; legacy Profile-rename dialog removed from the Time Plan top bar (replaced by a shortcut to `/family-members`).
+- **i18n**: 12 new `tp.familyView*` / `tp.viewingMember` / `tp.viewingFamily` / `tp.cantEdit/DeleteOthers` keys × EN / AR / DE.
+- **Tested**: backend pytest **14/14 PASSED**, Playwright frontend E2E **8/8 PASSED** (auto-anchor on current member, second member auto-appears in switcher + filter, coloured dots match API, multi-overlay with badge, admin can create event for another member with that member's colour, non-admin pills disabled + Family View hidden + owner select disabled, AR + DE translations leak-free).
+
