@@ -8,8 +8,9 @@ const DayDetailPopover = ({
   events,
   users,
   eventTypes,
-  merged,
   activeUserId,
+  canAddForOthers = false,
+  canEditEvent = () => true,
   onAddEvent,
   onEditEvent,
   onDeleteEvent,
@@ -17,6 +18,7 @@ const DayDetailPopover = ({
   const { t, locale } = useI18n();
   const getUser = (uid) => users.find((u) => u.id === uid);
   const getType = (tid) => eventTypes.find((tp) => tp.id === tid);
+  const ownerOf = (ev) => ev.owner_member_id || ev.user_id;
 
   // Localized "Month D, YYYY" — falls back gracefully on unknown locales.
   const formatDate = (iso) => {
@@ -31,9 +33,6 @@ const DayDetailPopover = ({
       return iso;
     }
   };
-
-  const wifeName = (getUser("wife") || {}).name || t("user.wife");
-  const husbandName = (getUser("husband") || {}).name || t("user.husband");
 
   const eventCountLabel =
     events.length === 1 ? t("day.eventCount.one", { n: 1 }) : t("day.eventCount.other", { n: events.length });
@@ -57,9 +56,10 @@ const DayDetailPopover = ({
         ) : (
           <ul className="space-y-2">
             {events.map((ev) => {
-              const u = getUser(ev.user_id);
+              const u = getUser(ownerOf(ev));
               const tp = getType(ev.type_id);
               const textColor = getContrastTextColor(ev.color);
+              const editable = canEditEvent(ev);
               return (
                 <li
                   key={ev.id}
@@ -106,26 +106,30 @@ const DayDetailPopover = ({
                       )}
                     </div>
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="w-7 h-7 rounded-full"
-                        onClick={() => onEditEvent(ev)}
-                        data-testid={`edit-event-${ev.id}`}
-                        aria-label={t("btn.edit")}
-                      >
-                        <Pencil className="w-3.5 h-3.5" strokeWidth={1.75} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="w-7 h-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50"
-                        onClick={() => onDeleteEvent(ev.id)}
-                        data-testid={`delete-event-${ev.id}`}
-                        aria-label={t("btn.delete")}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
-                      </Button>
+                      {editable && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-7 h-7 rounded-full"
+                          onClick={() => onEditEvent(ev)}
+                          data-testid={`edit-event-${ev.id}`}
+                          aria-label={t("btn.edit")}
+                        >
+                          <Pencil className="w-3.5 h-3.5" strokeWidth={1.75} />
+                        </Button>
+                      )}
+                      {editable && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-7 h-7 rounded-full text-red-500 hover:text-red-600 hover:bg-red-50"
+                          onClick={() => onDeleteEvent(ev.id, ev)}
+                          data-testid={`delete-event-${ev.id}`}
+                          aria-label={t("btn.delete")}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </li>
@@ -135,36 +139,27 @@ const DayDetailPopover = ({
         )}
       </div>
 
-      <div className="px-3 py-3 border-t border-[#E5E2DC] bg-[#FAF9F6] rounded-b-2xl flex gap-2">
-        {merged ? (
-          <>
-            <Button
-              size="sm"
-              onClick={() => onAddEvent("wife")}
-              className="flex-1 rounded-full text-xs bg-white border border-[#F472B6] text-[#F472B6] hover:bg-[#F472B6]/10"
-              data-testid="add-wife-event-btn"
-            >
-              <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {wifeName}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => onAddEvent("husband")}
-              className="flex-1 rounded-full text-xs bg-white border border-[#60A5FA] text-[#60A5FA] hover:bg-[#60A5FA]/10"
-              data-testid="add-husband-event-btn"
-            >
-              <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {husbandName}
-            </Button>
-          </>
-        ) : (
+      <div className="px-3 py-3 border-t border-[#E5E2DC] bg-[#FAF9F6] rounded-b-2xl flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={() => onAddEvent(activeUserId)}
+          className="flex-1 min-w-[140px] rounded-full text-xs bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+          data-testid="add-event-from-day-btn"
+        >
+          <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {t("day.addEvent")}
+        </Button>
+        {canAddForOthers && users.filter((u) => u.id !== activeUserId).slice(0, 3).map((u) => (
           <Button
+            key={u.id}
             size="sm"
-            onClick={() => onAddEvent(activeUserId)}
-            className="flex-1 rounded-full text-xs bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
-            data-testid="add-event-from-day-btn"
+            onClick={() => onAddEvent(u.id)}
+            className="rounded-full text-xs bg-white border hover:bg-[#F3F0EA]"
+            style={{ borderColor: u.color, color: u.color }}
+            data-testid={`add-event-for-${u.id}-btn`}
           >
-            <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {t("day.addEvent")}
+            <Plus className="w-3 h-3 mr-1" strokeWidth={2} /> {u.name}
           </Button>
-        )}
+        ))}
       </div>
     </div>
   );

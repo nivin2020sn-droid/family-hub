@@ -96,7 +96,8 @@ class Event(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
-    user_id: str  # "wife" or "husband"
+    user_id: str  # owner — family_members.id (legacy fallback for very old rows: 'wife'/'husband')
+    owner_member_id: Optional[str] = None  # mirrors user_id for new rows; canonical going forward
     type_id: Optional[str] = None
     color: str
     date: str  # ISO date YYYY-MM-DD
@@ -108,7 +109,8 @@ class Event(BaseModel):
 
 class EventCreate(BaseModel):
     title: str
-    user_id: str
+    user_id: Optional[str] = None  # if omitted, server defaults to caller
+    owner_member_id: Optional[str] = None  # alias of user_id; either is fine
     type_id: Optional[str] = None
     color: str
     date: str
@@ -435,49 +437,143 @@ async def delete_event_type(type_id: str):
 
 
 # Events
+def _event_owner_id(ev: dict) -> Optional[str]:
+    """Return the owner of an event regardless of which historical schema the
+    document was stored in. Newer events carry `owner_member_id`; legacy ones
+    only have `user_id` (e.g. literal 'wife' / 'husband' before the
+    multi-member overhaul)."""
+    return ev.get("owner_member_id") or ev.get("user_id")
+
+
+def _normalize_owner_filter(
+    token: dict, user_id: Optional[str], user_ids: Optional[str]
+) -> Optional[List[str]]:
+    """Resolve which owner ids the caller is allowed to query.
+
+    - Non-admin members: forced to their own id, regardless of what they asked.
+    - Family admins: any combination of ids (comma-separated `user_ids` or a
+      single `user_id`); empty → no owner filter (every event in the family).
+    """
+    requested: List[str] = []
+    if user_ids:
+        requested = [x.strip() for x in user_ids.split(",") if x.strip()]
+    elif user_id:
+        requested = [user_id.strip()]
+
+    is_admin = bool(token.get("fadmin"))
+    self_id = token.get("mid")
+    if not is_admin:
+        # Members always see ONLY their own calendar by default.
+        return [self_id] if self_id else []
+    return requested or None  # admin + no filter = everyone
+
+
 @api_router.get("/events", response_model=List[Event])
-async def list_events(user_id: Optional[str] = None, month: Optional[int] = None, year: Optional[int] = None):
+async def list_events(
+    user_id: Optional[str] = None,
+    user_ids: Optional[str] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    token: dict = Depends(require_member_token),
+):
     query: dict = {}
-    if user_id:
-        query["user_id"] = user_id
+    owners = _normalize_owner_filter(token, user_id, user_ids)
+    if owners is not None:
+        # Match either the new `owner_member_id` OR the legacy `user_id` so
+        # un-migrated rows still surface for the right person.
+        query["$or"] = [
+            {"owner_member_id": {"$in": owners}},
+            {"user_id": {"$in": owners}, "owner_member_id": {"$exists": False}},
+        ]
     if month and year:
-        # Match by date string prefix YYYY-MM
         prefix = f"{year:04d}-{month:02d}"
         query["date"] = {"$regex": f"^{prefix}"}
     items = await db.events.find(query, {"_id": 0}).to_list(5000)
-    # sort by date then start_time
+    # Fill in owner_member_id from legacy user_id so the UI can always rely
+    # on a single field.
+    for it in items:
+        if not it.get("owner_member_id") and it.get("user_id"):
+            it["owner_member_id"] = it["user_id"]
     items.sort(key=lambda e: (e.get("date", ""), e.get("start_time") or ""))
     return items
 
 
 @api_router.post("/events", response_model=Event)
-async def create_event(payload: EventCreate):
-    obj = Event(**payload.model_dump())
+async def create_event(
+    payload: EventCreate, token: dict = Depends(require_member_token)
+):
+    data = payload.model_dump()
+    # `user_id` from the request body carries the desired owner (legacy
+    # frontend name). For non-admins this MUST match the caller's member id.
+    requested_owner = (data.get("owner_member_id") or data.get("user_id") or "").strip()
+    self_id = token.get("mid")
+    is_admin = bool(token.get("fadmin"))
+    if not requested_owner:
+        requested_owner = self_id
+    if not is_admin and requested_owner != self_id:
+        raise HTTPException(
+            status_code=403, detail="Only family admins can create events for someone else"
+        )
+    data["user_id"] = requested_owner
+    data["owner_member_id"] = requested_owner
+    obj = Event(**data)
     await db.events.insert_one(obj.model_dump())
     return obj
 
 
+async def _ensure_event_writable(event_id: str, token: dict) -> dict:
+    """Fetch the event, then enforce that the caller is either its owner or
+    a family admin. Raises 404 if the event does not belong to this family
+    (scoped collection already filters by family_id)."""
+    existing = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    if not bool(token.get("fadmin")):
+        owner = _event_owner_id(existing)
+        if owner and owner != token.get("mid"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the event owner or a family admin can edit this event",
+            )
+    return existing
+
+
 @api_router.put("/events/{event_id}", response_model=Event)
-async def update_event(event_id: str, payload: EventUpdate):
+async def update_event(
+    event_id: str,
+    payload: EventUpdate,
+    token: dict = Depends(require_member_token),
+):
+    existing = await _ensure_event_writable(event_id, token)
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not update:
-        existing = await db.events.find_one({"id": event_id}, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, "Not found")
         return existing
+    # Allow re-assigning the owner only when the caller is a family admin.
+    if "user_id" in update:
+        new_owner = (update.get("user_id") or "").strip()
+        if new_owner and new_owner != _event_owner_id(existing):
+            if not bool(token.get("fadmin")):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only family admins can reassign events",
+                )
+            update["owner_member_id"] = new_owner
     result = await db.events.find_one_and_update(
         {"id": event_id}, {"$set": update}, return_document=True, projection={"_id": 0}
     )
     if not result:
         raise HTTPException(404, "Not found")
+    if not result.get("owner_member_id") and result.get("user_id"):
+        result["owner_member_id"] = result["user_id"]
     return result
 
 
 @api_router.delete("/events/{event_id}")
-async def delete_event(event_id: str):
-    res = await db.events.delete_one({"id": event_id})
-    if res.deleted_count == 0:
-        raise HTTPException(404, "Not found")
+async def delete_event(
+    event_id: str, token: dict = Depends(require_member_token)
+):
+    await _ensure_event_writable(event_id, token)
+    await db.events.delete_one({"id": event_id})
     return {"ok": True}
 
 
@@ -2659,3 +2755,48 @@ async def migrate_legacy_to_nasser(rdb):
             {"id": f["id"]},
             {"$set": {"family_code": secrets.token_urlsafe(12)}},
         )
+
+    # 5) Per-family event owner migration. Legacy events store `user_id` as
+    # the literal strings 'wife' / 'husband' (or other id strings from the
+    # pre-multi-member era). Map any such event to the first family admin of
+    # its family so it shows up under a real calendar owner. Idempotent.
+    fam_ids = await rdb.events.distinct(
+        "family_id", {"owner_member_id": {"$exists": False}}
+    )
+    for fid_ in fam_ids:
+        # Prefer the oldest family admin; fall back to the oldest parent;
+        # finally the oldest member of any role.
+        first_admin = await rdb.family_members.find_one(
+            {"family_id": fid_, "is_family_admin": True},
+            {"_id": 0, "id": 1},
+            sort=[("created_at", 1)],
+        )
+        if not first_admin:
+            first_admin = await rdb.family_members.find_one(
+                {"family_id": fid_}, {"_id": 0, "id": 1},
+                sort=[("created_at", 1)],
+            )
+        if not first_admin:
+            continue
+        owner_id = first_admin["id"]
+        # Wife/husband legacy → re-assign to the first admin.
+        await rdb.events.update_many(
+            {
+                "family_id": fid_,
+                "owner_member_id": {"$exists": False},
+                "user_id": {"$in": ["wife", "husband"]},
+            },
+            {"$set": {"owner_member_id": owner_id, "user_id": owner_id}},
+        )
+        # Any remaining legacy event without owner_member_id but with a
+        # non-empty user_id that already matches a family member id → mirror.
+        async for ev in rdb.events.find(
+            {"family_id": fid_, "owner_member_id": {"$exists": False}},
+            {"_id": 0, "id": 1, "user_id": 1},
+        ):
+            uid = ev.get("user_id")
+            if not uid:
+                continue
+            await rdb.events.update_one(
+                {"id": ev["id"]}, {"$set": {"owner_member_id": uid}}
+            )

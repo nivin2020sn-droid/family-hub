@@ -37,6 +37,34 @@ LOCKOUT_MINUTES = 15
 VALID_ROLES = {"parent", "adult", "child", "other"}
 ACCOUNT_TYPES = {"family", "single"}  # "single" is reserved for future use
 
+# Distinct, eye-pleasing palette assigned in rotation to new members so every
+# calendar swatch is unique. Pulled from Tailwind's stronger 400-500 stops.
+MEMBER_COLOR_PALETTE = [
+    "#60A5FA",  # blue
+    "#F472B6",  # pink
+    "#34D399",  # emerald
+    "#A78BFA",  # violet
+    "#FBBF24",  # amber
+    "#F87171",  # red
+    "#22D3EE",  # cyan
+    "#FB923C",  # orange
+    "#A3E635",  # lime
+    "#E879F9",  # fuchsia
+    "#2DD4BF",  # teal
+    "#94A3B8",  # slate
+]
+
+
+def _pick_member_color(used: list) -> str:
+    """Return the next palette colour that isn't already taken (cycles when
+    the family grows beyond the palette size)."""
+    taken = {(c or "").lower() for c in used if c}
+    for c in MEMBER_COLOR_PALETTE:
+        if c.lower() not in taken:
+            return c
+    # All colours used at least once → wrap around so the family keeps growing.
+    return MEMBER_COLOR_PALETTE[len(taken) % len(MEMBER_COLOR_PALETTE)]
+
 
 # ---------- Pydantic models ----------
 
@@ -69,6 +97,7 @@ class MemberCreate(BaseModel):
     role: str
     pin: str
     is_family_admin: Optional[bool] = False
+    color: Optional[str] = None  # optional override; auto-assigned otherwise
 
 
 class MemberUpdate(BaseModel):
@@ -76,6 +105,7 @@ class MemberUpdate(BaseModel):
     role: Optional[str] = None
     pin: Optional[str] = None
     is_family_admin: Optional[bool] = None
+    color: Optional[str] = None
 
 
 class MemberSelectPayload(BaseModel):
@@ -447,9 +477,17 @@ def build_family_router(db) -> APIRouter:
         rows = await members.find(
             {"family_id": token["fid"]}, {"_id": 0, "pin_hash": 0}
         ).sort("created_at", 1).to_list(100)
-        # Normalize the field so old docs without it look like non-admins.
+        # Normalize fields so older docs without them look modern.
+        used_colors = [r.get("color") for r in rows]
         for r in rows:
             r["is_family_admin"] = bool(r.get("is_family_admin"))
+            if not r.get("color"):
+                # Persist a fresh palette colour so it stays stable across
+                # subsequent reads (calendar colour must never drift).
+                fresh = _pick_member_color(used_colors)
+                used_colors.append(fresh)
+                await members.update_one({"id": r["id"]}, {"$set": {"color": fresh}})
+                r["color"] = fresh
         return rows
 
     @router.post("/members")
@@ -473,6 +511,11 @@ def build_family_router(db) -> APIRouter:
         if (await _admin_count(token["fid"])) == 0:
             is_admin_flag = True
 
+        # Pick a calendar colour. Explicit override wins, otherwise rotate
+        # through the palette so every member of a family is visually unique.
+        existing_colors = await members.distinct("color", {"family_id": token["fid"]})
+        chosen_color = (payload.color or "").strip() or _pick_member_color(existing_colors)
+
         member_id = str(uuid.uuid4())
         doc = {
             "id": member_id,
@@ -480,6 +523,7 @@ def build_family_router(db) -> APIRouter:
             "name": payload.name.strip(),
             "role": role,
             "is_family_admin": is_admin_flag,
+            "color": chosen_color,
             "pin_hash": hash_secret(payload.pin.strip()),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -524,6 +568,10 @@ def build_family_router(db) -> APIRouter:
                         detail="Cannot remove admin rights from the last family admin",
                     )
             update["is_family_admin"] = new_flag
+        if payload.color is not None:
+            new_color = (payload.color or "").strip()
+            if new_color:
+                update["color"] = new_color
 
         if update:
             await members.update_one({"id": member_id, "family_id": token["fid"]}, {"$set": update})
@@ -592,12 +640,15 @@ def build_admin_router(db) -> APIRouter:
             raise HTTPException(status_code=400, detail="PIN must be at least 4 characters")
 
         member_id = str(uuid.uuid4())
+        existing_colors = await members.distinct("color", {"family_id": family_id})
+        chosen_color = (body.get("color") or "").strip() or _pick_member_color(existing_colors)
         doc = {
             "id": member_id,
             "family_id": family_id,
             "name": name,
             "role": role,
             "is_family_admin": bool(body.get("is_family_admin")),
+            "color": chosen_color,
             "pin_hash": hash_secret(pin),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "seeded_by": "admin",
@@ -888,6 +939,31 @@ async def ensure_indexes(db) -> None:
         {"is_family_admin": {"$exists": False}},
         {"$set": {"is_family_admin": False}},
     )
+    # Back-fill calendar colours for members that pre-date the per-member
+    # palette. We pick palette colours per family so every name in a family
+    # stays unique. Idempotent — runs on every boot.
+    family_ids = await db.family_members.distinct("family_id", {"color": None})
+    family_ids += await db.family_members.distinct(
+        "family_id", {"color": {"$exists": False}}
+    )
+    for fid in set(family_ids):
+        existing = await db.family_members.find(
+            {"family_id": fid, "color": {"$exists": True, "$ne": None}},
+            {"_id": 0, "color": 1},
+        ).to_list(200)
+        used = [r.get("color") for r in existing]
+        async for m in db.family_members.find(
+            {
+                "family_id": fid,
+                "$or": [{"color": {"$exists": False}}, {"color": None}],
+            },
+            {"_id": 0, "id": 1},
+        ):
+            c = _pick_member_color(used)
+            used.append(c)
+            await db.family_members.update_one(
+                {"id": m["id"], "family_id": fid}, {"$set": {"color": c}}
+            )
 
 
 async def seed_admin(db) -> None:

@@ -245,7 +245,10 @@ const FamilyMembers = () => {
                 return (
                   <li key={m.id} className="px-4 py-3 space-y-2" data-testid={`member-row-${m.id}`}>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-[#E5E2DC] text-[#2D2A26] flex items-center justify-center font-heading font-semibold">
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-heading font-semibold text-white shadow-sm"
+                        style={{ backgroundColor: m.color || "#E5E2DC", color: m.color ? "#fff" : "#2D2A26" }}
+                      >
                         {(m.name || "?").charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">

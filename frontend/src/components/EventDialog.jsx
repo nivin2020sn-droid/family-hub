@@ -32,12 +32,14 @@ const EventDialog = ({
   defaultUserId,
   users,
   eventTypes,
+  canChangeOwner = true,
+  currentMemberId,
   onSaved,
 }) => {
   const { t } = useI18n();
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
-  const [userId, setUserId] = useState("wife");
+  const [userId, setUserId] = useState(defaultUserId || currentMemberId || "");
   const [typeId, setTypeId] = useState("");
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [startTime, setStartTime] = useState("");
@@ -50,7 +52,8 @@ const EventDialog = ({
     if (editing) {
       setTitle(editing.title || "");
       setDate(editing.date || "");
-      setUserId(editing.user_id || "wife");
+      // Prefer the new field, fall back to legacy `user_id` for older docs.
+      setUserId(editing.owner_member_id || editing.user_id || defaultUserId || currentMemberId || "");
       setTypeId(editing.type_id || "");
       setColor(editing.color || DEFAULT_COLOR);
       setStartTime(editing.start_time || "");
@@ -59,14 +62,14 @@ const EventDialog = ({
     } else {
       setTitle("");
       setDate(defaultDate || "");
-      setUserId(defaultUserId || "wife");
+      setUserId(defaultUserId || currentMemberId || "");
       setTypeId("");
       setColor(DEFAULT_COLOR);
       setStartTime("");
       setEndTime("");
       setNotes("");
     }
-  }, [open, editing, defaultDate, defaultUserId]);
+  }, [open, editing, defaultDate, defaultUserId, currentMemberId]);
 
   const handleTypeChange = (id) => {
     setTypeId(id);
@@ -145,8 +148,8 @@ const EventDialog = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">{t("evDlg.for")}</Label>
-                <Select value={userId} onValueChange={setUserId}>
-                  <SelectTrigger className="mt-1.5 rounded-xl border-[#E5E2DC]" data-testid="event-user-select">
+                <Select value={userId} onValueChange={setUserId} disabled={!canChangeOwner}>
+                  <SelectTrigger className="mt-1.5 rounded-xl border-[#E5E2DC] disabled:opacity-100 disabled:cursor-not-allowed" data-testid="event-user-select">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
