@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus } from "lucide-react";
+import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import {
   isAdmin, getAccount, getAccountToken,
   adminListFamilies, adminSetFamilyStatus, adminIssueRecovery, adminSetFamilyAccount, adminAddFamilyMember,
+  adminFamilyDiagnostic, adminDeleteFamily,
   logout as apiLogout,
 } from "@/lib/auth";
 
@@ -45,6 +46,16 @@ const Admin = () => {
     name: "",
     role: "parent",
     pin: "",
+    busy: false,
+  });
+  // Diagnostic dialog state.
+  const [diag, setDiag] = useState({ open: false, family: null, data: null, busy: false });
+  // Delete-family dialog state.
+  const [delDialog, setDelDialog] = useState({
+    open: false,
+    family: null,
+    data: null,
+    typedName: "",
     busy: false,
   });
 
@@ -160,6 +171,46 @@ const Admin = () => {
     } catch (err) {
       toast.error(err?.response?.data?.detail || t("admin.seedMember.error.generic"));
       setMemberDialog((s) => ({ ...s, busy: false }));
+    }
+  };
+
+  const openDiagnostic = async (fam) => {
+    setDiag({ open: true, family: fam, data: null, busy: true });
+    try {
+      const data = await adminFamilyDiagnostic(fam.id);
+      setDiag({ open: true, family: fam, data, busy: false });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("admin.diag.error"));
+      setDiag({ open: false, family: null, data: null, busy: false });
+    }
+  };
+
+  const openDeleteDialog = async (fam) => {
+    setDelDialog({ open: true, family: fam, data: null, typedName: "", busy: false });
+    try {
+      const data = await adminFamilyDiagnostic(fam.id);
+      setDelDialog((s) => ({ ...s, data }));
+    } catch (err) {
+      // Even without diagnostic data we still allow delete — just show 0 counts.
+      console.warn("Diagnostic before delete failed:", err);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (delDialog.busy || !delDialog.family) return;
+    if (delDialog.typedName.trim() !== delDialog.family.name) {
+      toast.error(t("admin.delete.error.confirmName"));
+      return;
+    }
+    setDelDialog((s) => ({ ...s, busy: true }));
+    try {
+      await adminDeleteFamily(delDialog.family.id);
+      toast.success(t("admin.delete.toast.done", { name: delDialog.family.name }));
+      setDelDialog({ open: false, family: null, data: null, typedName: "", busy: false });
+      await refresh();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("admin.delete.error.generic"));
+      setDelDialog((s) => ({ ...s, busy: false }));
     }
   };
 
@@ -321,6 +372,28 @@ const Admin = () => {
                       >
                         <KeyRound className="w-3 h-3" />
                         {t("admin.btn.recovery")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openDiagnostic(f)}
+                        className="rounded-full h-8 text-[11px] gap-1"
+                        data-testid={`admin-diag-${f.id}`}
+                      >
+                        <Stethoscope className="w-3 h-3" />
+                        {t("admin.btn.diag")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openDeleteDialog(f)}
+                        className="rounded-full h-8 text-[11px] gap-1 text-rose-700 border-rose-300 hover:bg-rose-50"
+                        data-testid={`admin-delete-${f.id}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        {t("admin.btn.delete")}
                       </Button>
                     </div>
                   </div>
@@ -566,6 +639,166 @@ const Admin = () => {
               </Button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Diagnostic dialog (read-only family report) */}
+      {diag.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white rounded-3xl border border-[#E5E2DC] p-5 space-y-3"
+            data-testid="admin-diag-dialog"
+          >
+            <div className="flex items-center gap-2">
+              <Stethoscope className="w-5 h-5 text-[#2D2A26]" />
+              <h3 className="font-heading text-lg font-semibold text-[#2D2A26]">
+                {t("admin.diag.title")}
+              </h3>
+            </div>
+            {diag.busy || !diag.data ? (
+              <div className="py-10 text-center">
+                <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#7A7571]" />
+              </div>
+            ) : (
+              <>
+                <div className="rounded-2xl bg-[#FAF9F6] border border-[#EFEBE4] p-3 space-y-1 text-[11px] font-mono">
+                  <p><span className="text-[#7A7571]">{t("admin.diag.familyId")}:</span> <span className="text-[#2D2A26] break-all" data-testid="admin-diag-fid">{diag.data.family.id}</span></p>
+                  <p><span className="text-[#7A7571]">{t("admin.diag.familyName")}:</span> <span className="text-[#2D2A26]">{diag.data.family.name}</span></p>
+                  <p><span className="text-[#7A7571]">{t("admin.diag.loginEmail")}:</span> <span className="text-[#2D2A26]">{diag.data.account?.login_email || "—"}</span></p>
+                  <p><span className="text-[#7A7571]">{t("admin.diag.familyCode")}:</span> <span className="text-[#2D2A26]">{diag.data.family.family_code || "—"}</span></p>
+                  <p><span className="text-[#7A7571]">{t("admin.diag.total")}:</span> <span className="text-[#2D2A26] font-bold">{diag.data.total_records}</span></p>
+                </div>
+                <ul className="space-y-2" data-testid="admin-diag-sections">
+                  {diag.data.sections.map((s) => (
+                    <li
+                      key={s.key}
+                      className="rounded-2xl border border-[#EFEBE4] bg-white p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-heading text-sm font-semibold text-[#2D2A26]">
+                          {s.label}
+                        </p>
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                            s.count > 0 ? "bg-emerald-100 text-emerald-700" : "bg-[#F3F0EA] text-[#7A7571]"
+                          }`}
+                        >
+                          {s.count}
+                        </span>
+                      </div>
+                      <ul className="mt-1.5 space-y-0.5">
+                        {s.collections.map((c) => (
+                          <li
+                            key={c.collection}
+                            className="text-[11px] flex items-center justify-between"
+                          >
+                            <span className="font-mono text-[#5C5853]">{c.collection}</span>
+                            <span className="text-[#2D2A26]">{c.count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-[9px] font-mono text-[#9CA3AF] mt-1 break-all">
+                        family_id: {diag.data.family.id}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                onClick={() => setDiag({ open: false, family: null, data: null, busy: false })}
+                className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+                data-testid="admin-diag-close"
+              >
+                {t("btn.close")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete-family dialog */}
+      {delDialog.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-sm bg-white rounded-3xl border-2 border-rose-300 p-5 space-y-3"
+            data-testid="admin-delete-dialog"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-rose-700" />
+              <h3 className="font-heading text-lg font-semibold text-rose-700">
+                {t("admin.delete.title")}
+              </h3>
+            </div>
+
+            <div className="rounded-2xl bg-rose-50 border border-rose-200 p-3 space-y-1.5">
+              <p className="text-xs text-rose-900 font-semibold">
+                {t("admin.delete.warning")}
+              </p>
+              <p className="text-[11px] text-rose-800">
+                {t("admin.delete.familyName")}: <span className="font-mono font-bold">{delDialog.family?.name}</span>
+              </p>
+              {delDialog.data && (
+                <p className="text-[11px] text-rose-800">
+                  {t("admin.delete.totalRecords")}: <span className="font-bold">{delDialog.data.total_records}</span>
+                </p>
+              )}
+            </div>
+
+            {delDialog.data && (
+              <ul className="text-[10px] space-y-0.5 font-mono text-[#5C5853] max-h-32 overflow-y-auto" data-testid="admin-delete-counts">
+                {delDialog.data.sections.filter((s) => s.count > 0).map((s) => (
+                  <li key={s.key} className="flex justify-between">
+                    <span>{s.label}</span>
+                    <span className="font-bold">{s.count}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] block mb-1">
+                {t("admin.delete.typeName", { name: delDialog.family?.name })}
+              </label>
+              <Input
+                value={delDialog.typedName}
+                onChange={(e) => setDelDialog((s) => ({ ...s, typedName: e.target.value }))}
+                className="rounded-xl border-rose-200 h-11 font-mono"
+                placeholder={delDialog.family?.name}
+                autoComplete="off"
+                data-testid="admin-delete-typed-name"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setDelDialog({ open: false, family: null, data: null, typedName: "", busy: false })}
+                disabled={delDialog.busy}
+                className="rounded-full"
+                data-testid="admin-delete-cancel"
+              >
+                {t("btn.cancel")}
+              </Button>
+              <Button
+                type="button"
+                onClick={confirmDelete}
+                disabled={delDialog.busy || delDialog.typedName.trim() !== delDialog.family?.name}
+                className="rounded-full bg-rose-700 hover:bg-rose-800 text-white disabled:opacity-40"
+                data-testid="admin-delete-confirm"
+              >
+                {delDialog.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                  <>
+                    <Trash2 className="w-4 h-4 ltr:mr-1 rtl:ml-1" />
+                    {t("admin.delete.confirm")}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

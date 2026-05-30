@@ -689,10 +689,135 @@ def build_admin_router(db) -> APIRouter:
             "account": {"id": account_id, "email": email, "recovery_email": recovery_email},
         }
 
+    @router.get("/families/{family_id}/diagnostic")
+    async def family_diagnostic(family_id: str, _: dict = Depends(require_admin)):
+        """Read-only report of every collection that holds data for the
+        given family. Returns counts + linked family_id per section.
+        Does NOT touch any data.
+        """
+        family = await families.find_one({"id": family_id}, {"_id": 0})
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+        account = await accounts.find_one(
+            {"family_id": family_id}, {"_id": 0, "password_hash": 0}
+        )
+
+        # Group raw collections by category for a friendlier admin report.
+        sections = [
+            ("members", "Family Members", ["family_members"]),
+            ("budget", "Budget", [
+                "budget_income", "budget_expenses", "budget_bills",
+                "budget_debts", "budget_loans",
+            ]),
+            ("routines", "Routines", ["routines", "routine_logs"]),
+            ("locations", "Locations", ["gps_devices", "location_points"]),
+            ("wall_board", "Wall Board", [
+                "wall_settings", "wall_photos", "wall_goals", "wall_countdown",
+                "wall_achievements", "wall_notes",
+            ]),
+            ("family_events", "Family Events", ["wall_family_events"]),
+            ("shopping", "Shopping List", ["shopping_items"]),
+            ("legacy", "Legacy", ["events", "event_types", "users"]),
+        ]
+
+        report = []
+        total = 0
+        for key, label, cols in sections:
+            cols_report = []
+            section_total = 0
+            for cname in cols:
+                c = await db[cname].count_documents({"family_id": family_id})
+                section_total += c
+                cols_report.append({"collection": cname, "count": c, "family_id": family_id})
+            total += section_total
+            report.append({
+                "key": key,
+                "label": label,
+                "count": section_total,
+                "collections": cols_report,
+            })
+
+        return {
+            "family": {
+                "id": family["id"],
+                "name": family.get("name"),
+                "plan": family.get("plan"),
+                "status": family.get("status"),
+                "created_at": family.get("created_at"),
+                "free_until": family.get("free_until"),
+                "family_code": family.get("family_code"),
+            },
+            "account": {
+                "login_email": account.get("email") if account else None,
+                "recovery_email": account.get("recovery_email") if account else None,
+                "created_at": account.get("created_at") if account else None,
+            },
+            "total_records": total,
+            "sections": report,
+        }
+
+    @router.delete("/families/{family_id}")
+    async def delete_family(
+        family_id: str,
+        confirm: str = "",
+        _: dict = Depends(require_admin),
+    ):
+        """Hard-delete a family and EVERY linked document. Irreversible.
+
+        Requires the admin to pass `?confirm=<family_id>` so the deletion can
+        only succeed when both client and server agree on the exact target.
+        """
+        family = await families.find_one({"id": family_id}, {"_id": 0})
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+        if confirm != family_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Confirmation token does not match family id",
+            )
+
+        # Collect counts for the audit log before deleting.
+        scoped = [
+            "family_members",
+            "budget_income", "budget_expenses", "budget_bills",
+            "budget_debts", "budget_loans",
+            "routines", "routine_logs",
+            "gps_devices", "location_points",
+            "wall_settings", "wall_photos", "wall_goals", "wall_countdown",
+            "wall_achievements", "wall_notes", "wall_family_events",
+            "shopping_items",
+            "events", "event_types", "users",
+        ]
+        deleted = {}
+        for cname in scoped:
+            res = await db[cname].delete_many({"family_id": family_id})
+            if res.deleted_count:
+                deleted[cname] = res.deleted_count
+
+        # Account, recovery codes, login attempts associated with the account.
+        acct = await accounts.find_one({"family_id": family_id}, {"_id": 0})
+        if acct:
+            deleted["accounts"] = (await accounts.delete_many(
+                {"family_id": family_id}
+            )).deleted_count
+            r1 = await recovery.delete_many({"account_id": acct["id"]})
+            if r1.deleted_count:
+                deleted["recovery_codes"] = r1.deleted_count
+            a1 = await attempts.delete_many(
+                {"identifier": f"login:{acct.get('email')}"}
+            )
+            if a1.deleted_count:
+                deleted["login_attempts"] = a1.deleted_count
+
+        # Family doc itself last so we have it for the log.
+        await families.delete_one({"id": family_id})
+        logger.warning(
+            "[ADMIN DELETE FAMILY] id=%s name=%s deleted=%s",
+            family_id, family.get("name"), deleted,
+        )
+        return {"ok": True, "family_id": family_id, "deleted": deleted}
+
     return router
-
-
-# ---------- Startup hooks ----------
 
 async def ensure_indexes(db) -> None:
     await db.accounts.create_index("email", unique=True)

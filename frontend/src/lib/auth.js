@@ -243,3 +243,21 @@ export async function adminAddFamilyMember(familyId, payload) {
   );
   return data;
 }
+
+export async function adminFamilyDiagnostic(familyId) {
+  const token = getAccountToken();
+  const { data } = await api.get(
+    `/api/admin/families/${familyId}/diagnostic`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+export async function adminDeleteFamily(familyId) {
+  const token = getAccountToken();
+  await api.delete(
+    `/api/admin/families/${familyId}?confirm=${encodeURIComponent(familyId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return true;
+}
