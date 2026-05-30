@@ -87,6 +87,13 @@ export function isAdmin() {
   return acc?.role === "admin";
 }
 
+/** True when the current session belongs to a single-user (no-family) account.
+ *  Single accounts hide all family-management surfaces and auto-skip the
+ *  "Who are you?" PIN gate (the backend issues both tokens at login time). */
+export function isSingleAccount() {
+  return getFamily()?.account_type === "single";
+}
+
 export function logout() {
   [
     KEY_ACCOUNT_TOKEN,
@@ -126,6 +133,12 @@ export async function register(payload) {
   writeJson(KEY_ACCOUNT, data.account);
   writeJson(KEY_FAMILY, data.family);
   write(LEGACY_AUTH_OK, "true");
+  // Single-account fast-path: the backend already issued the member_token
+  // along with the account_token (one human, no "Who are you?" PIN screen).
+  if (data.member_token) {
+    write(KEY_MEMBER_TOKEN, data.member_token);
+    writeJson(KEY_MEMBER, data.member);
+  }
   return data;
 }
 
@@ -137,6 +150,10 @@ export async function login(email, password) {
   writeJson(KEY_ACCOUNT, data.account);
   writeJson(KEY_FAMILY, data.family);
   write(LEGACY_AUTH_OK, "true");
+  if (data.member_token) {
+    write(KEY_MEMBER_TOKEN, data.member_token);
+    writeJson(KEY_MEMBER, data.member);
+  }
   return data;
 }
 
@@ -214,6 +231,19 @@ export async function resetPassword(code, newPassword) {
     code,
     new_password: newPassword,
   });
+  return data;
+}
+
+/** Convert a single-user account into a real family account so the user can
+ *  invite more members. The auto-created "Me" member is preserved. */
+export async function upgradeToFamily(familyName) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    "/api/auth/upgrade-to-family",
+    { family_name: familyName },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (data.family) writeJson(KEY_FAMILY, data.family);
   return data;
 }
 

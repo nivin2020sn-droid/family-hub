@@ -45,7 +45,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { logout as authLogout, getMember as getCurrentMember } from "@/lib/auth";
+import { logout as authLogout, getMember as getCurrentMember, isSingleAccount, upgradeToFamily } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MemberBadge from "@/components/MemberBadge";
@@ -1138,9 +1138,11 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
   const { t } = useI18n();
   const [confirm, setConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const appVersion = useAppInfo().version || "";
   const me = getCurrentMember();
   const isFamilyAdmin = !!me?.is_family_admin;
+  const isSingle = isSingleAccount();
   const handleLogout = () => {
     if (!confirm) {
       setConfirm(true);
@@ -1202,7 +1204,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
           >
             {t("btn.openTimePlanSettings")}
           </Button>
-          {isFamilyAdmin && (
+          {isFamilyAdmin && !isSingle && (
             <Button
               type="button"
               variant="outline"
@@ -1214,7 +1216,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
               {t("members.manage")}
             </Button>
           )}
-          {isFamilyAdmin && (
+          {isFamilyAdmin && !isSingle && (
             <Button
               type="button"
               variant="outline"
@@ -1224,6 +1226,18 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
             >
               <Coins className="w-4 h-4" strokeWidth={2} />
               {t("myMoney.adminTitle")}
+            </Button>
+          )}
+          {isSingle && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setUpgradeOpen(true)}
+              className="w-full rounded-2xl border-[#2D2A26] text-[#2D2A26] hover:bg-[#F3F0EA] justify-start gap-2"
+              data-testid="upgrade-to-family-btn"
+            >
+              <UsersIcon className="w-4 h-4" strokeWidth={2} />
+              {t("auth.upgrade.button")}
             </Button>
           )}
         </div>
@@ -1255,6 +1269,85 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
             </p>
           </div>
         </div>
+        <UpgradeToFamilyDialog
+          open={upgradeOpen}
+          onOpenChange={setUpgradeOpen}
+          onUpgraded={() => { setUpgradeOpen(false); onOpenChange(false); }}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ---------- Upgrade single → family dialog ----------
+const UpgradeToFamilyDialog = ({ open, onOpenChange, onUpgraded }) => {
+  const { t } = useI18n();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e?.preventDefault?.();
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    try {
+      await upgradeToFamily(trimmed);
+      toast.success(t("auth.upgrade.toast"));
+      // Force a full reload so every page re-reads getFamily() and re-renders
+      // the family-only sections (FamilyMap, member switcher, etc.).
+      window.location.reload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("auth.error.generic"));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white" data-testid="upgrade-to-family-dialog">
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl text-[#2D2A26]">
+            {t("auth.upgrade.title")}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[#7A7571]">
+            {t("auth.upgrade.desc")}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+              {t("auth.field.familyName")}
+            </Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="rounded-xl border-[#E5E2DC] h-11 mt-1"
+              data-testid="upgrade-family-name"
+              maxLength={80}
+              required
+              autoFocus
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+              className="rounded-full"
+              disabled={busy}
+            >
+              {t("btn.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={busy || name.trim().length === 0}
+              className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+              data-testid="upgrade-submit"
+            >
+              {busy ? "..." : t("auth.upgrade.confirm")}
+            </Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -1793,8 +1886,9 @@ const WallBoard = () => {
         </motion.div>
 
         <div className="mt-5 grid grid-cols-1 gap-3.5">
-          {/* Where is my family? (live map) — placed right under the hero. */}
-          <FamilyMapCard />
+          {/* Where is my family? (live map) — placed right under the hero.
+              Family-only feature: GPS sharing only makes sense across members. */}
+          {!isSingleAccount() && <FamilyMapCard />}
 
           {/* My Routines — embedded section, no navigation */}
           <WallBoardRoutines />

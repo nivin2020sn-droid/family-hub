@@ -32,6 +32,7 @@ import {
   deleteMember as apiDeleteMember,
   getMember as getCurrentMember,
   hasSelectedMember,
+  isSingleAccount,
 } from "@/lib/auth";
 
 const ROLES = ["parent", "adult", "child", "other"];
@@ -60,9 +61,14 @@ const FamilyMembers = () => {
   const [delBusy, setDelBusy] = useState(false);
 
   // Guard rail: redirect non-admin members back to the wall board.
+  // Also redirect single-account users (no family management page applies).
   useEffect(() => {
     if (!hasSelectedMember()) {
       navigate("/login", { replace: true });
+      return;
+    }
+    if (isSingleAccount()) {
+      navigate("/", { replace: true });
       return;
     }
     if (!meIsAdmin) {

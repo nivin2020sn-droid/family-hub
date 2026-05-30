@@ -40,7 +40,12 @@ APP_VERSION = os.environ.get("APP_VERSION", "0.9.0-beta")
 APP_STAGE = os.environ.get("APP_STAGE", "beta")
 
 VALID_ROLES = {"parent", "adult", "child", "other"}
-ACCOUNT_TYPES = {"family", "single"}  # "single" is reserved for future use
+ACCOUNT_TYPES = {"family", "single"}
+
+# Pre-shared random PIN used to back the single-account auto-member. The
+# member is the only one in the family and the user never enters this PIN —
+# the backend issues the member_token for them at register / login time.
+SINGLE_DEFAULT_PIN = "single-account"
 
 # Distinct, eye-pleasing palette assigned in rotation to new members so every
 # calendar swatch is unique. Pulled from Tailwind's stronger 400-500 stops.
@@ -92,6 +97,11 @@ class RegisterPayload(BaseModel):
 class LoginPayload(BaseModel):
     email: EmailStr
     password: str
+
+
+class UpgradeToFamilyPayload(BaseModel):
+    """Body for converting a single account into a family account."""
+    family_name: str
 
 
 class ForgotPayload(BaseModel):
@@ -330,12 +340,48 @@ def build_auth_router(db) -> APIRouter:
         })
 
         token = create_account_token(account_id, family_id, "owner")
-        return {
+        response = {
             "access_token": token,
             "token_type": "bearer",
             "account": {"id": account_id, "email": email, "role": "owner"},
             "family": family_doc,
         }
+
+        # ---- Single-account bootstrap ----
+        # Single accounts have exactly one human (the account owner). We auto-
+        # provision their member doc here so they never see the "Who are you?"
+        # PIN screen, and we issue their member_token in the same response
+        # so the frontend can skip member-select entirely.
+        if payload.account_type == "single":
+            display_name = (
+                (payload.family_name or "").strip()
+                or email.split("@", 1)[0]
+                or "Me"
+            )
+            member_id = str(uuid.uuid4())
+            await members.insert_one({
+                "id": member_id,
+                "family_id": family_id,
+                "name": display_name,
+                "role": "adult",
+                "pin_hash": hash_secret(SINGLE_DEFAULT_PIN),
+                "is_family_admin": True,
+                "color": _pick_member_color([]),
+                "avatar": None,
+                "created_at": now.isoformat(),
+            })
+            member_token = create_member_token(
+                account_id, family_id, member_id, "adult", True,
+            )
+            response["member_token"] = member_token
+            response["member"] = {
+                "id": member_id, "family_id": family_id, "name": display_name,
+                "role": "adult", "is_family_admin": True,
+                "color": _pick_member_color([]), "avatar": None,
+                "created_at": now.isoformat(),
+            }
+
+        return response
 
     # ------- LOGIN -------
     @router.post("/login")
@@ -358,12 +404,32 @@ def build_auth_router(db) -> APIRouter:
             if family.get("status") != "active":
                 raise HTTPException(status_code=403, detail="Family account disabled")
         token = create_account_token(account["id"], account["family_id"], role)
-        return {
+        response = {
             "access_token": token,
             "token_type": "bearer",
             "account": {"id": account["id"], "email": account["email"], "role": role},
             "family": family,
         }
+
+        # Single-account auto-unlock: skip the "Who are you?" PIN screen by
+        # issuing the member_token in the login response. Falls back to the
+        # normal flow if no auto-member exists (e.g. legacy single accounts
+        # registered before this feature).
+        if family and family.get("account_type") == "single":
+            member = await members.find_one(
+                {"family_id": family["id"]}, {"_id": 0},
+                sort=[("created_at", 1)],
+            )
+            if member:
+                response["member_token"] = create_member_token(
+                    account["id"], family["id"], member["id"],
+                    member.get("role", "adult"),
+                    bool(member.get("is_family_admin")),
+                )
+                response["member"] = {
+                    k: v for k, v in member.items() if k != "pin_hash"
+                }
+        return response
 
     # ------- ME -------
     @router.get("/me")
@@ -456,6 +522,31 @@ def build_auth_router(db) -> APIRouter:
             "token_type": "bearer",
             "member": safe,
         }
+
+    # ------- UPGRADE single → family -------
+    # A single account can convert itself into a real family account at any
+    # time. Only the account owner can trigger this. After the upgrade the
+    # frontend gets the new family doc back; the existing data and the
+    # auto-created "Me" member stay attached so nothing is lost.
+    @router.post("/upgrade-to-family")
+    async def upgrade_to_family(
+        payload: UpgradeToFamilyPayload,
+        token: dict = Depends(require_account_token),
+    ):
+        family = await families.find_one({"id": token["fid"]}, {"_id": 0})
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+        if family.get("account_type") == "family":
+            raise HTTPException(status_code=400, detail="Account is already a family account")
+        new_name = (payload.family_name or "").strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Family name is required")
+        await families.update_one(
+            {"id": token["fid"]},
+            {"$set": {"account_type": "family", "name": new_name}},
+        )
+        updated = await families.find_one({"id": token["fid"]}, {"_id": 0})
+        return {"ok": True, "family": updated}
 
     # ------- APP INFO -------
     # No auth required: this is the only endpoint the registration screen

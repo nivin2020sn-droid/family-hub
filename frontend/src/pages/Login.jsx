@@ -115,8 +115,8 @@ const AccountTypeScreen = ({ onPick }) => {
 
         <button
           type="button"
-          onClick={() => toast.info(t("auth.type.singleSoon"))}
-          className="w-full rounded-3xl bg-white border border-dashed border-[#E5E2DC] p-4 flex items-center gap-3 text-left rtl:text-right opacity-75"
+          onClick={() => onPick("single")}
+          className="w-full rounded-3xl bg-white border border-[#E5E2DC] p-4 flex items-center gap-3 text-left rtl:text-right active:scale-[0.99] transition shadow-[0_8px_24px_-14px_rgba(0,0,0,0.12)]"
           data-testid="pick-single"
         >
           <div className="w-12 h-12 rounded-2xl bg-[#7A7571] flex items-center justify-center text-white">
@@ -127,9 +127,10 @@ const AccountTypeScreen = ({ onPick }) => {
               {t("auth.type.single")}
             </p>
             <p className="text-[11px] text-[#7A7571] mt-0.5">
-              {t("auth.type.comingSoon")}
+              {t("auth.type.singleDesc")}
             </p>
           </div>
+          <ChevronRight className="w-4 h-4 text-[#7A7571] rtl:rotate-180" />
         </button>
       </div>
       <p className="text-[11px] text-center text-[#A09B95] mt-6 tracking-wide">
@@ -140,7 +141,7 @@ const AccountTypeScreen = ({ onPick }) => {
 };
 
 // ---------- screen 2: login / register / forgot ----------
-const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
+const AuthScreen = ({ mode, onMode, onBack, onSuccess, accountType }) => {
   const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -156,6 +157,7 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
   const [consents, setConsents] = useState(null);
   const appVersion = useAppInfo().version || "";
 
+  const isSingle = accountType === "single";
   const isRegister = mode === "register";
   const isForgot = mode === "forgot";
 
@@ -168,11 +170,17 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
         if (password !== confirm) {
           throw new Error(t("auth.error.passwordMismatch"));
         }
+        // Single accounts: family_name is just the user's display name; if
+        // they leave it blank the backend falls back to the email local-part.
+        const displayName = isSingle
+          ? (familyName.trim() || email.trim().split("@")[0] || "Me")
+          : familyName.trim();
         const data = await apiRegister({
-          family_name: familyName.trim(),
+          family_name: displayName,
           email: email.trim(),
           password,
           confirm_password: confirm,
+          account_type: accountType || "family",
           recovery_email: recoveryEmail.trim() || null,
           // Mandatory beta consents — already enforced client-side via the
           // BetaTerms gate, but we forward them so the backend can persist
@@ -181,8 +189,11 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
           accepted_privacy_policy: !!consents?.accepted_privacy_policy,
           accepted_disclaimer: !!consents?.accepted_disclaimer,
         });
-        toast.success(t("auth.toast.registered", { name: data.family?.name || familyName }));
-        onSuccess("register");
+        const niceName = isSingle
+          ? displayName
+          : (data.family?.name || familyName);
+        toast.success(t(isSingle ? "auth.toast.welcomeSingle" : "auth.toast.registered", { name: niceName }));
+        onSuccess("register", data);
       } else if (isForgot) {
         if (!forgotSent) {
           await apiForgot(email.trim());
@@ -238,14 +249,15 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess }) => {
         </button>
 
         {isRegister && (
-          <Field icon={Users} label={t("auth.field.familyName")}>
+          <Field icon={Users} label={t(isSingle ? "auth.field.displayName" : "auth.field.familyName")}>
             <Input
               value={familyName}
               onChange={(e) => setFamilyName(e.target.value)}
               className="rounded-xl border-[#E5E2DC] h-11"
               data-testid="register-family-name"
               maxLength={80}
-              required
+              placeholder={isSingle ? t("auth.field.displayNamePh") : ""}
+              required={!isSingle}
             />
           </Field>
         )}
@@ -629,6 +641,7 @@ const Login = () => {
   const hasAccountOnly = !!getAccountToken() && !hasSelectedMember();
   const [stage, setStage] = useState(hasAccountOnly ? "member" : "type");
   const [authMode, setAuthMode] = useState("login"); // login | register | forgot
+  const [accountType, setAccountType] = useState("family"); // family | single
 
   // Admins never see the family flow — they belong to no family. As soon as
   // we detect an admin token in storage, jump straight to the admin console.
@@ -644,9 +657,17 @@ const Login = () => {
 
   // Right after a successful login/register we may now have an admin token —
   // skip the member-select stage and go directly to /admin.
-  const handleAuthSuccess = () => {
+  const handleAuthSuccess = (_kind, data) => {
     if (isAdmin()) {
       navigate("/admin", { replace: true });
+      return;
+    }
+    // Single-account fast-path: the auth.js helper already wrote the
+    // member_token to storage, so we can land straight on the Wall Board
+    // without showing the "Who are you?" screen.
+    if (data?.member_token) {
+      const target = location.state?.from?.pathname || "/";
+      navigate(target, { replace: true });
       return;
     }
     setStage("member");
@@ -659,7 +680,8 @@ const Login = () => {
   if (stage === "type") {
     return (
       <AccountTypeScreen
-        onPick={() => {
+        onPick={(t) => {
+          setAccountType(t);
           setAuthMode("login");
           setStage("auth");
         }}
@@ -671,6 +693,7 @@ const Login = () => {
       <AuthScreen
         mode={authMode}
         onMode={setAuthMode}
+        accountType={accountType}
         onBack={() => setStage("type")}
         onSuccess={handleAuthSuccess}
       />

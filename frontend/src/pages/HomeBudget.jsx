@@ -48,7 +48,7 @@ import {
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MemberBadge from "@/components/MemberBadge";
 import { useI18n } from "@/lib/i18n";
-import { getMember } from "@/lib/auth";
+import { getMember, isSingleAccount } from "@/lib/auth";
 import {
   budgetIncome,
   budgetExpenses,
@@ -179,7 +179,7 @@ const EntryDialog = ({ open, onOpenChange, title, fields, initial, onSave }) => 
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          {fields.map((f) => (
+          {fields.filter((f) => !f.hidden).map((f) => (
             <FieldRow key={f.name} label={f.label}>
               {f.type === "select" ? (
                 <select
@@ -323,18 +323,34 @@ const TabBar = ({ value, onChange, t }) => {
 // Owner field is dynamic: built from the current family's members list
 // (passed in from the page). Each member becomes an option; we add the
 // "shared" sentinel at the end for joint household entries.
-const ownerField = (t, walletOwners) => ({
-  name: "owner",
-  label: t("budget.field.owner"),
-  type: "select",
-  default: SHARED_OWNER,
-  options: [
-    ...(walletOwners || []).map((m) => ({ value: m.id, label: m.name })),
-    { value: SHARED_OWNER, label: t("budget.wallet.shared") },
-  ],
-});
+const ownerField = (t, walletOwners, isSingle) => {
+  // Single-account mode: only one wallet exists. Don't show the picker — just
+  // bake the single member's id as the default so every new entry is owned
+  // by them. The EntryDialog skips fields flagged `hidden`.
+  if (isSingle) {
+    const onlyId = walletOwners?.[0]?.id || SHARED_OWNER;
+    return {
+      name: "owner",
+      label: t("budget.field.owner"),
+      type: "select",
+      default: onlyId,
+      hidden: true,
+      options: [{ value: onlyId, label: walletOwners?.[0]?.name || "" }],
+    };
+  }
+  return {
+    name: "owner",
+    label: t("budget.field.owner"),
+    type: "select",
+    default: SHARED_OWNER,
+    options: [
+      ...(walletOwners || []).map((m) => ({ value: m.id, label: m.name })),
+      { value: SHARED_OWNER, label: t("budget.wallet.shared") },
+    ],
+  };
+};
 
-const incomeFields = (t, walletOwners) => [
+const incomeFields = (t, walletOwners, isSingle) => [
   { name: "description", label: t("budget.field.description"), type: "text", placeholder: "" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
   {
@@ -344,12 +360,12 @@ const incomeFields = (t, walletOwners) => [
     default: "primary",
     options: INCOME_TYPES.map((k) => ({ value: k, label: t(`budget.income.${k}`) })),
   },
-  ownerField(t, walletOwners),
+  ownerField(t, walletOwners, isSingle),
   { name: "date", label: t("budget.field.date"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const expenseFields = (t, walletOwners) => [
+const expenseFields = (t, walletOwners, isSingle) => [
   { name: "description", label: t("budget.field.description"), type: "text" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
   {
@@ -359,12 +375,12 @@ const expenseFields = (t, walletOwners) => [
     default: "food",
     options: EXPENSE_CATS.map((k) => ({ value: k, label: t(`budget.expense.${k}`) })),
   },
-  ownerField(t, walletOwners),
+  ownerField(t, walletOwners, isSingle),
   { name: "date", label: t("budget.field.date"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const billFields = (t, walletOwners) => [
+const billFields = (t, walletOwners, isSingle) => [
   { name: "name", label: t("budget.field.name"), type: "text" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
   {
@@ -374,7 +390,7 @@ const billFields = (t, walletOwners) => [
     default: "fixed_monthly",
     options: BILL_TYPES.map((k) => ({ value: k, label: t(`budget.bill.${k}`) })),
   },
-  ownerField(t, walletOwners),
+  ownerField(t, walletOwners, isSingle),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
   { name: "start_date", label: t("budget.field.contractStart"), type: "date" },
   { name: "end_date", label: t("budget.field.contractEnd"), type: "date" },
@@ -387,16 +403,16 @@ const billFields = (t, walletOwners) => [
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const debtFields = (t, walletOwners) => [
+const debtFields = (t, walletOwners, isSingle) => [
   { name: "creditor", label: t("budget.field.creditor"), type: "text" },
   { name: "original_amount", label: t("budget.field.original"), type: "number", default: 0 },
   { name: "remaining_amount", label: t("budget.field.remaining"), type: "number", default: 0 },
-  ownerField(t, walletOwners),
+  ownerField(t, walletOwners, isSingle),
   { name: "due_date", label: t("budget.field.dueDate"), type: "date" },
   { name: "notes", label: t("budget.field.notes"), type: "textarea" },
 ];
 
-const loanFields = (t, walletOwners) => [
+const loanFields = (t, walletOwners, isSingle) => [
   { name: "name", label: t("budget.field.name"), type: "text" },
   { name: "lender", label: t("budget.field.lender"), type: "text" },
   { name: "principal", label: t("budget.field.principal"), type: "number", default: 0 },
@@ -404,7 +420,7 @@ const loanFields = (t, walletOwners) => [
   { name: "term_months", label: t("budget.field.termMonths"), type: "number", default: 12 },
   { name: "monthly_payment", label: t("budget.field.monthlyPayment"), type: "number", default: 0 },
   { name: "payments_made", label: t("budget.field.paymentsMade"), type: "number", default: 0 },
-  ownerField(t, walletOwners),
+  ownerField(t, walletOwners, isSingle),
   { name: "start_date", label: t("budget.field.startDate"), type: "date" },
 ];
 
@@ -464,20 +480,30 @@ const WalletColumn = ({ ownerKey, title, palette, kpis, locale }) => {
   );
 };
 
-const FamilyDashboard = ({ summary, t, locale, walletOwners, ownerColors }) => {
+const FamilyDashboard = ({ summary, t, locale, walletOwners, ownerColors, isSingle }) => {
   if (!summary) return null;
   const bo = summary.by_owner || {};
   const get = (k, o) => (bo?.[k]?.[o] ?? 0);
 
-  // Top-level family-wide KPIs
-  const familyKpis = [
-    { label: t("budget.dashboard.familyIncome"), value: summary.income_total },
-    { label: t("budget.dashboard.familyRemaining"), value: summary.remaining, negative: (summary.remaining ?? 0) < 0 },
-    { label: t("budget.dashboard.sharedExpenses"), value: get("expense", SHARED_OWNER) + get("bills", SHARED_OWNER) },
-    { label: t("budget.dashboard.monthlyObligations"), value: summary.monthly_obligations_total },
-    { label: t("budget.summary.debts"), value: summary.debts_total },
-    { label: t("budget.dashboard.totalRemainingLoans"), value: summary.loans_total_remaining },
-  ];
+  // Top-level family-wide KPIs.
+  // Single accounts: drop the "shared expenses" tile (there's no family) and
+  // re-label the dashboard so it reads as a personal overview.
+  const familyKpis = isSingle
+    ? [
+        { label: t("budget.dashboard.familyIncome"), value: summary.income_total },
+        { label: t("budget.dashboard.familyRemaining"), value: summary.remaining, negative: (summary.remaining ?? 0) < 0 },
+        { label: t("budget.dashboard.monthlyObligations"), value: summary.monthly_obligations_total },
+        { label: t("budget.summary.debts"), value: summary.debts_total },
+        { label: t("budget.dashboard.totalRemainingLoans"), value: summary.loans_total_remaining },
+      ]
+    : [
+        { label: t("budget.dashboard.familyIncome"), value: summary.income_total },
+        { label: t("budget.dashboard.familyRemaining"), value: summary.remaining, negative: (summary.remaining ?? 0) < 0 },
+        { label: t("budget.dashboard.sharedExpenses"), value: get("expense", SHARED_OWNER) + get("bills", SHARED_OWNER) },
+        { label: t("budget.dashboard.monthlyObligations"), value: summary.monthly_obligations_total },
+        { label: t("budget.summary.debts"), value: summary.debts_total },
+        { label: t("budget.dashboard.totalRemainingLoans"), value: summary.loans_total_remaining },
+      ];
 
   // Build one wallet card per family member. Falls back to an empty list so the
   // top-level Family Dashboard always renders, even before /family-members loads.
@@ -499,7 +525,7 @@ const FamilyDashboard = ({ summary, t, locale, walletOwners, ownerColors }) => {
         <div className="flex items-center gap-2 mb-2.5">
           <Wallet className="w-4 h-4 text-[#2D2A26]" strokeWidth={2} />
           <h3 className="font-heading text-base font-semibold text-[#2D2A26]">
-            {t("budget.dashboard.title")}
+            {isSingle ? t("budget.dashboard.titleSingle") : t("budget.dashboard.title")}
           </h3>
         </div>
         <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
@@ -519,7 +545,10 @@ const FamilyDashboard = ({ summary, t, locale, walletOwners, ownerColors }) => {
           ))}
         </ul>
       </div>
-      {memberWallets.length > 0 && (
+      {/* Per-member wallet grid. Hidden in single mode — the dashboard above
+          already covers the single user's situation; rendering a second
+          identical card would be redundant. */}
+      {!isSingle && memberWallets.length > 0 && (
         <div className={`grid gap-2.5 ${memberWallets.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
           {memberWallets.map((w) => (
             <WalletColumn
@@ -538,7 +567,10 @@ const FamilyDashboard = ({ summary, t, locale, walletOwners, ownerColors }) => {
 };
 
 // ---------- Wallet filter pills ----------
-const WalletFilter = ({ value, onChange, t, walletOwners, ownerColors }) => {
+const WalletFilter = ({ value, onChange, t, walletOwners, ownerColors, isSingle }) => {
+  // Single accounts: there's only one wallet so the filter is meaningless.
+  // Hide the whole strip and pin the filter to "all" by parent.
+  if (isSingle) return null;
   const tabs = [
     { key: "all", label: t("budget.wallet.all"), color: "#2D2A26" },
     ...(walletOwners || []).map((m) => ({
@@ -985,11 +1017,11 @@ const HomeBudget = () => {
   };
 
   const fieldsForKind = (kind) => {
-    if (kind === "income") return incomeFields(t, walletOwners);
-    if (kind === "expenses") return expenseFields(t, walletOwners);
-    if (kind === "bills") return billFields(t, walletOwners);
-    if (kind === "debts") return debtFields(t, walletOwners);
-    return loanFields(t, walletOwners);
+    if (kind === "income") return incomeFields(t, walletOwners, isSingle);
+    if (kind === "expenses") return expenseFields(t, walletOwners, isSingle);
+    if (kind === "bills") return billFields(t, walletOwners, isSingle);
+    if (kind === "debts") return debtFields(t, walletOwners, isSingle);
+    return loanFields(t, walletOwners, isSingle);
   };
 
   const titleForKind = (kind) => {
@@ -1039,6 +1071,11 @@ const HomeBudget = () => {
   const healthTheme = HEALTH_THEME[health];
   const HealthIcon = healthTheme.icon;
 
+  // Single-account flag: keeps the budget surface focused on ONE wallet.
+  // Hides the per-member wallet grid, the wallet filter, the "shared" owner
+  // option in entry forms, and the "Shared Expenses" KPI.
+  const isSingle = isSingleAccount();
+
   // Dynamic wallet owners (per family member) come from /api/budget/summary.
   // Build the {ownerId → palette} map once per summary refresh so child
   // components don't re-derive it on every render.
@@ -1061,6 +1098,9 @@ const HomeBudget = () => {
   };
   const accentFor = (it) => paletteOf(it).ring;
   const OwnerBadge = ({ owner }) => {
+    // No-op in single mode: every row belongs to the only member, so the pill
+    // is noise. We also hide the accent stripe in single mode.
+    if (isSingle) return null;
     const o = (owner || SHARED_OWNER).toString();
     const c = ownerColors[o] || ownerColors[SHARED_OWNER] || paletteFromHex("#10B981");
     return (
@@ -1341,6 +1381,7 @@ const HomeBudget = () => {
               locale={locale}
               walletOwners={walletOwners}
               ownerColors={ownerColors}
+              isSingle={isSingle}
             />
 
             {/* Expiring contracts reminder — only renders when there is at least one. */}
@@ -1542,6 +1583,7 @@ const HomeBudget = () => {
                 t={t}
                 walletOwners={walletOwners}
                 ownerColors={ownerColors}
+                isSingle={isSingle}
               />
               <TabBar value={tab} onChange={setTab} t={t} />
               <div className="flex justify-end">

@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import {
   getEvents, getEventTypes, createEvent, deleteEvent,
 } from "@/lib/api";
-import { listMembers, getMember } from "@/lib/auth";
+import { listMembers, getMember, isSingleAccount } from "@/lib/auth";
 import { buildMonthMatrix, todayIso, getContrastTextColor } from "@/lib/utils";
 import EventBar from "@/components/EventBar";
 import EventDialog from "@/components/EventDialog";
@@ -40,6 +40,7 @@ const TimePlan = () => {
   const currentMember = getMember();
   const currentMemberId = currentMember?.id || null;
   const isAdmin = !!currentMember?.is_family_admin;
+  const isSingle = isSingleAccount();
 
   // Localized month names + short weekday names.
   const MONTH_NAMES_LOCAL = useMemo(
@@ -371,7 +372,7 @@ const TimePlan = () => {
                  : t("sync.sync")}
               </span>
             </button>
-            {isAdmin && (
+            {isAdmin && !isSingle && (
               <Button
                 variant="ghost"
                 onClick={() => navigate("/family-members")}
@@ -415,11 +416,13 @@ const TimePlan = () => {
 
           <div className="flex items-center gap-2 sm:gap-3 w-full md:w-auto">
             {/* Member pill switcher: tap to switch the "active" calendar. Admins
-                can switch to any member; non-admins are locked to self. */}
-            <div
-              className="flex-1 md:flex-none inline-flex items-center gap-1 bg-[#F3F0EA] p-1 sm:p-1.5 rounded-full overflow-x-auto no-scrollbar"
-              data-testid="user-switcher"
-            >
+                can switch to any member; non-admins are locked to self.
+                Hidden for single accounts (there is only one member). */}
+            {!isSingle && (
+              <div
+                className="flex-1 md:flex-none inline-flex items-center gap-1 bg-[#F3F0EA] p-1 sm:p-1.5 rounded-full overflow-x-auto no-scrollbar"
+                data-testid="user-switcher"
+              >
               {users.length === 0 ? (
                 <span className="px-3 py-1.5 text-xs text-[#7A7571]">{t("tp.noMembersYet")}</span>
               ) : users.map((u) => {
@@ -447,9 +450,10 @@ const TimePlan = () => {
                   </button>
                 );
               })}
-            </div>
+              </div>
+            )}
 
-            {isAdmin && (
+            {isAdmin && !isSingle && (
               <Button
                 variant="outline"
                 onClick={() => setFilterDialogOpen(true)}

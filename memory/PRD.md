@@ -330,3 +330,32 @@ Production-grade `family_id` filtering across every data endpoint. Replaces the 
 - **i18n**: dropped `budget.owner.bahaa`, `budget.owner.theresa`, `budget.wallet.bahaa`, `budget.wallet.theresa` from EN / AR / DE. Added one parameterized key `budget.wallet.of` (`"{name}'s Wallet"` / `"محفظة {name}"` / `"Wallet von {name}"`).
 - **Tested**: backend pytest **17/17 PASSED** (`tests/test_budget_owner.py` 2 new + 15 tenant isolation regression). Curl + Playwright screenshot confirmed: family "Hds" with one parent renders a single "Hds's Wallet" tile (blue) — no Bahaa/Theresa leakage; adding a second parent "Sara" causes "Sara's Wallet" (pink, auto-palette) to appear instantly; family 2 ("Sara only") never sees Hds.
 - **Affected files**: `/app/backend/server.py`, `/app/frontend/src/lib/budgetApi.js`, `/app/frontend/src/pages/HomeBudget.jsx`, `/app/frontend/src/lib/translations.js`, `/app/backend/tests/test_budget_owner.py` (new).
+
+
+## Implemented (Feb 2026 — Single Account flow activated)
+The "Personal Account" option on the login screen was a placeholder (showed a "coming soon" toast and didn't do anything). The backend already had `account_type: "single"` defined as a reserved value — this entry **activates** the existing stub end-to-end without creating a parallel auth system.
+
+**Backend** (`auth_module.py`):
+- `POST /api/auth/register` now treats `account_type="single"` as a first-class flow. It still creates exactly one family doc (so every tenant-scoping invariant holds), then **auto-provisions a single member** (display name = supplied `family_name` or the email local-part, role `adult`, `is_family_admin=true`, server-managed PIN that the user never enters) and returns **both** `access_token` AND `member_token` in the same response. The frontend therefore skips the "Who are you?" screen.
+- `POST /api/auth/login` mirrors the same fast-path: if `family.account_type == "single"` it looks up the lone member and adds `member_token` + `member` to the response.
+- New `POST /api/auth/upgrade-to-family` (account-token only): flips `account_type` from `single → family`, renames the family, preserves the auto-created member as the founding family admin. Returns 400 if the family is already `family`-type or the supplied name is blank.
+- New constant `SINGLE_DEFAULT_PIN` used to back the auto-member.
+
+**Frontend** (`lib/auth.js`, `pages/Login.jsx`):
+- `register()` + `login()` now also persist `member_token`/`member` when the backend ships them, so the route guard sees a fully authenticated session immediately.
+- New helper `isSingleAccount()` reads `getFamily()?.account_type === "single"`.
+- New API helper `upgradeToFamily(familyName)` calls the new endpoint and refreshes the cached family doc.
+- `AccountTypeScreen`: the "Personal Account" tile is no longer a stub — clicking it routes to the auth screen with `accountType="single"`. The toast/`auth.type.singleSoon` key is no longer used.
+- `AuthScreen`: the register form receives the new `accountType` prop. For `single`, the "Family Display Name" field becomes "Your Name" (`auth.field.displayName`, optional), and the register payload includes `account_type: "single"`. After a successful single-account register/login, `Login`'s `handleAuthSuccess` notices the `member_token` already issued and navigates straight to `/` instead of pushing the user through the PIN gate.
+
+**Single-account UI surfaces** (hide every family-only affordance):
+- **WallBoard** (`pages/WallBoard.jsx`): hides `<FamilyMapCard />` (GPS sharing only makes sense across members). The Settings dialog drops "Manage family members" + "Kids' Money" and, in their place, exposes a new **"Upgrade to Family Account"** button that opens `UpgradeToFamilyDialog` (asks for the family name, calls `upgradeToFamily(...)`, then full-reloads the page so every other component re-derives `isSingleAccount()`).
+- **Time Plan** (`pages/TimePlan.jsx`): hides the per-member pill switcher, the "Family View" filter button, and the top-bar "Manage family members" shortcut.
+- **Family Budget** (`pages/HomeBudget.jsx`): drops the "Shared Expenses" KPI, renames "Family Dashboard" → "Dashboard", hides the per-member wallet card grid (only one member exists), hides the wallet filter pills, hides the per-row Owner badge accent, and removes the "owner" select from every entry editor (the value is auto-populated with the single member's id).
+- **Family Members page** (`pages/FamilyMembers.jsx`): added a redirect to `/` for single accounts (in addition to the existing non-admin guard).
+
+**i18n**: 6 new keys × EN / AR / DE — `auth.type.singleDesc`, `auth.field.displayName`, `auth.field.displayNamePh`, `auth.toast.welcomeSingle`, `auth.upgrade.button` / `.title` / `.desc` / `.confirm` / `.toast`, `budget.dashboard.titleSingle`. The legacy `auth.type.singleSoon` / `auth.type.comingSoon` keys are left intact (read by no callsite now) so older translations don't crash.
+
+**Tested**: backend pytest **23/23 PASSED** total — 6 new in `tests/test_single_account.py` (register both-tokens, email-localpart fallback, login both-tokens, single wallet only, upgrade flip, upgrade re-attempt 400, empty-name 400) + the existing 15 tenant isolation + 2 budget owner suites. Playwright screenshots confirm: single-account `/` (no FamilyMap, no "Manage family members" in Settings, **"Upgrade to Family Account"** button visible), `/home-budget` ("Dashboard" title, one wallet, no shared-expenses tile, no wallet filter), `/time-plan` (no member switcher, no Family View, no Manage Family Members link).
+
+**Affected files**: `/app/backend/auth_module.py`, `/app/backend/tests/test_single_account.py` (new), `/app/frontend/src/lib/auth.js`, `/app/frontend/src/pages/Login.jsx`, `/app/frontend/src/pages/WallBoard.jsx`, `/app/frontend/src/pages/TimePlan.jsx`, `/app/frontend/src/pages/HomeBudget.jsx`, `/app/frontend/src/pages/FamilyMembers.jsx`, `/app/frontend/src/lib/translations.js`.
