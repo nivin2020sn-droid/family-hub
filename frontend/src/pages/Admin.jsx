@@ -10,14 +10,15 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check } from "lucide-react";
+import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import {
   isAdmin, getAccount, getAccountToken,
-  adminListFamilies, adminSetFamilyStatus, adminIssueRecovery,
+  adminListFamilies, adminSetFamilyStatus, adminIssueRecovery, adminSetFamilyAccount,
   logout as apiLogout,
 } from "@/lib/auth";
 
@@ -28,6 +29,15 @@ const Admin = () => {
   const [loading, setLoading] = useState(true);
   const [recovery, setRecovery] = useState(null); // {familyId, code, expires_at}
   const [copied, setCopied] = useState(false);
+  // Dialog state for "Set Login Account".
+  const [linkDialog, setLinkDialog] = useState({
+    open: false,
+    family: null,
+    email: "",
+    password: "",
+    recovery_email: "",
+    busy: false,
+  });
 
   // Guard: only admins. We redirect any other token holder back to /login.
   useEffect(() => {
@@ -69,6 +79,45 @@ const Admin = () => {
       toast.success(t("admin.toast.codeIssued"));
     } catch (err) {
       toast.error(err?.response?.data?.detail || t("admin.error.recovery"));
+    }
+  };
+
+  const openLinkDialog = (fam) => {
+    setLinkDialog({
+      open: true,
+      family: fam,
+      email: fam.account_email || "",
+      password: "",
+      recovery_email: fam.recovery_email || "",
+      busy: false,
+    });
+  };
+
+  const saveLinkAccount = async (e) => {
+    e?.preventDefault?.();
+    if (linkDialog.busy) return;
+    if (!linkDialog.family) return;
+    if (linkDialog.password.length < 6) {
+      toast.error(t("admin.link.error.password"));
+      return;
+    }
+    setLinkDialog((s) => ({ ...s, busy: true }));
+    try {
+      const res = await adminSetFamilyAccount(linkDialog.family.id, {
+        email: linkDialog.email.trim(),
+        password: linkDialog.password,
+        recovery_email: linkDialog.recovery_email.trim() || null,
+      });
+      toast.success(
+        res.action === "created"
+          ? t("admin.link.toast.created")
+          : t("admin.link.toast.updated")
+      );
+      setLinkDialog({ open: false, family: null, email: "", password: "", recovery_email: "", busy: false });
+      await refresh();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("admin.link.error.generic"));
+      setLinkDialog((s) => ({ ...s, busy: false }));
     }
   };
 
@@ -202,6 +251,17 @@ const Admin = () => {
                         type="button"
                         size="sm"
                         variant="outline"
+                        onClick={() => openLinkDialog(f)}
+                        className="rounded-full h-8 text-[11px] gap-1"
+                        data-testid={`admin-link-${f.id}`}
+                      >
+                        <UserCog className="w-3 h-3" />
+                        {t("admin.btn.link")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
                         onClick={() => issueCode(f)}
                         className="rounded-full h-8 text-[11px] gap-1"
                         data-testid={`admin-recovery-${f.id}`}
@@ -262,6 +322,100 @@ const Admin = () => {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Set Login Account dialog */}
+      {linkDialog.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <form
+            onSubmit={saveLinkAccount}
+            className="w-full max-w-sm bg-white rounded-3xl border border-[#E5E2DC] p-5 space-y-3"
+            data-testid="admin-link-dialog"
+          >
+            <div className="flex items-center gap-2">
+              <UserCog className="w-5 h-5 text-[#2D2A26]" />
+              <h3 className="font-heading text-lg font-semibold text-[#2D2A26]">
+                {t("admin.link.title")}
+              </h3>
+            </div>
+            <p className="text-xs text-[#7A7571] leading-relaxed">
+              {linkDialog.family?.name
+                ? t("admin.link.descFor", { name: linkDialog.family.name })
+                : t("admin.link.desc")}
+            </p>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] flex items-center gap-1.5 mb-1">
+                <Mail className="w-3 h-3" /> {t("auth.field.email")}
+              </label>
+              <Input
+                type="email"
+                value={linkDialog.email}
+                onChange={(e) => setLinkDialog((s) => ({ ...s, email: e.target.value }))}
+                className="rounded-xl border-[#E5E2DC] h-11"
+                required
+                autoComplete="off"
+                data-testid="admin-link-email"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] flex items-center gap-1.5 mb-1">
+                <KeyRound className="w-3 h-3" /> {t("admin.link.tempPassword")}
+              </label>
+              <Input
+                type="text"
+                value={linkDialog.password}
+                onChange={(e) => setLinkDialog((s) => ({ ...s, password: e.target.value }))}
+                className="rounded-xl border-[#E5E2DC] h-11"
+                placeholder={t("admin.link.tempPasswordHint")}
+                required
+                minLength={6}
+                autoComplete="off"
+                data-testid="admin-link-password"
+              />
+              <p className="text-[10px] text-[#7A7571] mt-1">
+                {t("admin.link.passwordNote")}
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7A7571] flex items-center gap-1.5 mb-1">
+                <Mail className="w-3 h-3" /> {t("auth.field.recoveryEmail")}
+              </label>
+              <Input
+                type="email"
+                value={linkDialog.recovery_email}
+                onChange={(e) => setLinkDialog((s) => ({ ...s, recovery_email: e.target.value }))}
+                className="rounded-xl border-[#E5E2DC] h-11"
+                placeholder={t("auth.field.optional")}
+                autoComplete="off"
+                data-testid="admin-link-recovery"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setLinkDialog({ open: false, family: null, email: "", password: "", recovery_email: "", busy: false })}
+                disabled={linkDialog.busy}
+                className="rounded-full"
+                data-testid="admin-link-cancel"
+              >
+                {t("btn.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                disabled={linkDialog.busy}
+                className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white"
+                data-testid="admin-link-save"
+              >
+                {linkDialog.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : t("btn.save")}
+              </Button>
+            </div>
+          </form>
         </div>
       )}
     </div>

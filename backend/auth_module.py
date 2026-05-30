@@ -510,6 +510,7 @@ def build_admin_router(db) -> APIRouter:
     accounts = db.accounts
     members = db.family_members
     recovery = db.recovery_codes
+    attempts = db.login_attempts
 
     @router.get("/families")
     async def list_families(_: dict = Depends(require_admin)):
@@ -566,6 +567,81 @@ def build_admin_router(db) -> APIRouter:
             "[ADMIN RECOVERY] family=%s email=%s code=%s", family_id, acct["email"], code
         )
         return {"code": code, "expires_at": expires_at.isoformat()}
+
+    @router.post("/families/{family_id}/account")
+    async def set_family_account(
+        family_id: str,
+        body: dict,
+        _: dict = Depends(require_admin),
+    ):
+        """Attach (or replace) the login account of an existing family.
+
+        Use case: bootstrapping a family that was auto-seeded without any
+        login (e.g. "Nasser Family"), or letting the admin reset the email
+        & password on the user's behalf during early access. The `family_id`
+        is preserved — no data is touched, no new family is created.
+        """
+        family = await families.find_one({"id": family_id}, {"_id": 0})
+        if not family:
+            raise HTTPException(status_code=404, detail="Family not found")
+
+        email = (body.get("email") or "").lower().strip()
+        password = body.get("password") or ""
+        recovery_email = (body.get("recovery_email") or "").lower().strip() or None
+
+        if not email or "@" not in email:
+            raise HTTPException(status_code=400, detail="Valid email is required")
+        if len(password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+        # Make sure the email isn't already in use by another account.
+        clash = await accounts.find_one({"email": email}, {"_id": 0})
+        if clash and clash.get("family_id") != family_id:
+            raise HTTPException(status_code=409, detail="Email already in use by another account")
+
+        now = datetime.now(timezone.utc).isoformat()
+        existing = await accounts.find_one({"family_id": family_id}, {"_id": 0})
+        if existing:
+            # Update in place — keep id + family_id.
+            await accounts.update_one(
+                {"id": existing["id"]},
+                {"$set": {
+                    "email": email,
+                    "recovery_email": recovery_email,
+                    "password_hash": hash_secret(password),
+                    "updated_at": now,
+                    "updated_by": "admin",
+                }},
+            )
+            action = "updated"
+            account_id = existing["id"]
+        else:
+            account_id = str(uuid.uuid4())
+            await accounts.insert_one({
+                "id": account_id,
+                "family_id": family_id,
+                "email": email,
+                "recovery_email": recovery_email,
+                "password_hash": hash_secret(password),
+                "role": "owner",
+                "created_at": now,
+                "created_by": "admin",
+            })
+            action = "created"
+
+        # Invalidate any pending recovery codes & login lockouts on this email.
+        await recovery.delete_many({"account_id": account_id, "used": False})
+        await attempts.delete_many({"identifier": f"login:{email}"})
+
+        logger.warning(
+            "[ADMIN SET-ACCOUNT] family=%s email=%s action=%s",
+            family_id, email, action,
+        )
+        return {
+            "ok": True,
+            "action": action,
+            "account": {"id": account_id, "email": email, "recovery_email": recovery_email},
+        }
 
     return router
 
