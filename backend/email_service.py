@@ -304,6 +304,31 @@ def _classify_smtp_error(exc: BaseException, stage: str) -> SmtpDeliveryError:
     )
 
 
+def _log_runtime_config(label: str, settings: dict, sender_email: str = "", sender_name: str = "") -> None:
+    """Print the EXACT values the SMTP code is about to use. We log BEFORE
+    the connection attempt so a timeout/disconnection can't swallow these.
+    SMTP password is intentionally masked to its set/empty state — never the
+    actual secret."""
+    host = (settings.get("smtp_host") or "").strip()
+    port = int(settings.get("smtp_port") or 587)
+    username = (settings.get("smtp_username") or "").strip()
+    use_tls_flag = bool(settings.get("use_tls", True))
+    timeout_s = max(5, int(settings.get("smtp_timeout_seconds") or 60))
+    # `use_tls` toggles STARTTLS on standard ports; port 465 implies SSL
+    # tunnel regardless of the use_tls flag.
+    use_starttls = (port != 465) and use_tls_flag
+    use_ssl = (port == 465)
+    pw_state = "(set)" if settings.get("smtp_password") else "(empty)"
+    logger.warning(
+        "[SMTP RUNTIME CONFIG] %s | SMTP_HOST=%r | SMTP_PORT=%d | "
+        "SMTP_USERNAME=%r | USE_STARTTLS=%s | USE_SSL=%s | "
+        "SMTP_PASSWORD=%s | SENDER_EMAIL=%r | SENDER_NAME=%r | "
+        "TIMEOUT=%ds",
+        label, host, port, username, use_starttls, use_ssl,
+        pw_state, sender_email, sender_name, timeout_s,
+    )
+
+
 def _smtp_send(
     settings: dict,
     to_email: str,
@@ -335,6 +360,11 @@ def _smtp_send(
 
     if not host or not sender_email:
         raise EmailNotConfigured("SMTP host or sender_email missing")
+
+    # Print the EXACT runtime values BEFORE any network call — guarantees the
+    # admin can see them in Render's log stream even if the connect blocks
+    # for the full timeout.
+    _log_runtime_config("send", settings, sender_email=sender_email, sender_name=sender_name)
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -433,6 +463,10 @@ def _smtp_connectivity_check(settings: dict) -> dict:
 
     if not host:
         raise EmailNotConfigured("SMTP host missing")
+
+    # Print the EXACT runtime values BEFORE any network call so the admin
+    # can confirm what the Backend is about to dial.
+    _log_runtime_config("connectivity", settings)
 
     durations: dict = {}
     stage = "dns"
