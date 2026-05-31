@@ -390,3 +390,41 @@ Single accounts were functionally complete but the Wall Board still read like a 
 - Backend pytest **23/23 PASSED** unchanged. Wall-settings migration ran cleanly on startup (logged in `backend.err.log`).
 
 **Affected files**: `/app/backend/server.py` (model defaults + migration step 7), `/app/frontend/src/pages/WallBoard.jsx` (welcome strip, `isSingle`/`tS`, hero + sections + empty states), `/app/frontend/src/lib/translations.js` (32 new keys × EN/AR/DE).
+
+
+## Implemented (Feb 2026 — Public legal pages: Privacy / ToS / Legal Notice)
+Three brand-new public routes for compliance and EU/DE imprint requirements. Reachable with or without authentication, indexed for SEO, and cross-linked through a permanent footer.
+
+**Routes** (all public — registered in `App.js` outside any `RequireAuth`):
+- `/privacy` → `PrivacyPolicy.jsx` (Shield icon)
+- `/terms-of-service` → `TermsOfService.jsx` (FileText icon)
+- `/legal-notice` → `LegalNotice.jsx` (Scale icon)
+The existing `/terms` (beta-consent review) is kept untouched.
+
+**Shared layout** (`components/LegalLayout.jsx`):
+- `LegalLayout`: sticky top bar with "Back to Home" button + brand chip, breadcrumb (`Home › <Page>`), icon-prefixed hero (3xl→5xl heading, sub-text, auto `Last Updated: <today, en-GB>`), white rounded content card, `LegalFooter`.
+- `LegalFooter`: `© <year> My Family My Time. All rights reserved.` + `Privacy Policy | Terms of Service | Legal Notice | info@mylife-mytime.com` (data-testid `site-footer`).
+- Helpers `Section / P / Bullets / MailLink` so each page reads like a document, not JSX soup.
+- Exports `LEGAL_LINKS` (id + label + testid array) consumed by both the Login footer strip and the Wall Board Settings dialog.
+- Responsive grid: max-w-4xl on desktop, full-width on mobile (sm:px-6 / px-4). Dark-mode tokens (`dark:bg-[#15140F]`, `dark:text-white/90`, `dark:border-white/10`) auto-applied via `prefers-color-scheme`.
+
+**SEO + Open Graph** (`lib/usePageMeta.js`):
+- Tiny hook (no react-helmet dep). Looks up existing `<meta name="..."/>` or `<meta property="..."/>` tags BY their natural selector and updates `content` in-place, so static defaults in `index.html` stop competing with the page-level overrides. On unmount the original content is restored.
+- Sets `document.title`, `meta[name="description"]`, `og:title`, `og:description`, `og:type`, `og:url` (current `window.location.href`), `og:image`, `twitter:card="summary_large_image"`, `twitter:title`, `twitter:description`. WhatsApp / Facebook share previews now render the correct per-page title and description.
+
+**Login page** (`pages/Login.jsx`):
+- New `<LoginLegalLinks />` strip ("Privacy Policy | Terms of Service | Legal Notice") rendered at the bottom of every Login shell — Account Type screen, Auth screen, Member Select screen — so the legal pages are reachable before the user signs in.
+
+**Authenticated reach** (`pages/WallBoard.jsx`):
+- Wall Board Settings dialog footer now also lists the three legal links beside the version chip (`data-testid="settings-legal-links"`). From any authenticated page, the Settings cog → legal pages are 2 taps away.
+
+**Verified** on https://family-timeplan.preview.emergentagent.com/:
+- `/privacy`, `/terms-of-service`, `/legal-notice` render on desktop (1440px) and mobile (420px) with full content, working Back to Home, breadcrumb, and footer.
+- `document.title` switches per page (`"Privacy Policy · My Family My Time"`, etc.) and `og:title` / `og:description` mirror the title — no stale "My Family My Life" leaking through.
+- Footer link click navigates between pages instantly; current page is shown in a darker tint via React Router styling.
+- Login page shows the legal strip cleanly under the © brand line.
+- Backend regression: pytest 23/23 PASSED unchanged.
+
+**Affected files**:
+- New: `/app/frontend/src/lib/usePageMeta.js`, `/app/frontend/src/components/LegalLayout.jsx`, `/app/frontend/src/pages/PrivacyPolicy.jsx`, `/app/frontend/src/pages/TermsOfService.jsx`, `/app/frontend/src/pages/LegalNotice.jsx`.
+- Updated: `/app/frontend/src/App.js` (3 new public routes + imports), `/app/frontend/src/pages/Login.jsx` (legal links strip × 3 shells, `LEGAL_LINKS` import), `/app/frontend/src/pages/WallBoard.jsx` (legal links in Settings dialog, `Link` + `LEGAL_LINKS` imports).

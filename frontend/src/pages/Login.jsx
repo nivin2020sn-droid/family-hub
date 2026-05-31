@@ -7,7 +7,7 @@
 // After member-select succeeds, the user lands on /.
 
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { useNavigate, useLocation, Navigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Lock, Loader2, Users, User as UserIcon, ArrowLeft, Mail, KeyRound,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { LEGAL_LINKS } from "@/components/LegalLayout";
 import BetaTerms from "@/components/BetaTerms";
 import { useAppInfo } from "@/lib/useAppInfo";
 
@@ -136,9 +137,33 @@ const AccountTypeScreen = ({ onPick }) => {
       <p className="text-[11px] text-center text-[#A09B95] mt-6 tracking-wide">
         © {t("app.appName")} · {t("app.tagline")}
       </p>
+      <LoginLegalLinks />
     </Shell>
   );
 };
+
+// Tiny legal-links strip shown at the bottom of every Login screen so the
+// 3 public legal pages are reachable before the user signs in.
+const LoginLegalLinks = () => (
+  <nav
+    className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-[#A09B95]"
+    aria-label="Legal pages"
+    data-testid="login-legal-links"
+  >
+    {LEGAL_LINKS.map((l, i) => (
+      <span key={l.to} className="inline-flex items-center gap-3">
+        {i > 0 && <span aria-hidden className="text-[#D9D5CE]">|</span>}
+        <Link
+          to={l.to}
+          className="hover:text-[#2D2A26] transition-colors"
+          data-testid={l.testid}
+        >
+          {l.label}
+        </Link>
+      </span>
+    ))}
+  </nav>
+);
 
 // ---------- screen 2: login / register / forgot ----------
 const AuthScreen = ({ mode, onMode, onBack, onSuccess, accountType }) => {
@@ -389,6 +414,7 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess, accountType }) => {
           )}
         </div>
       </form>
+      <LoginLegalLinks />
     </Shell>
   );
 };
@@ -628,6 +654,7 @@ const MemberSelectScreen = ({ onAuthExit, onDone }) => {
           </form>
         </div>
       )}
+      <LoginLegalLinks />
     </Shell>
   );
 };

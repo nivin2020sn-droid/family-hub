@@ -15,6 +15,9 @@ import Admin from "@/pages/Admin";
 import FamilyMembers from "@/pages/FamilyMembers";
 import MyMoney from "@/pages/MyMoney";
 import Terms from "@/pages/Terms";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import TermsOfService from "@/pages/TermsOfService";
+import LegalNotice from "@/pages/LegalNotice";
 import Login from "@/pages/Login";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -86,6 +89,10 @@ function App() {
                 }
               />
               <Route path="/terms" element={<Terms />} />
+              {/* Public legal pages — accessible with or without authentication. */}
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms-of-service" element={<TermsOfService />} />
+              <Route path="/legal-notice" element={<LegalNotice />} />
               <Route path="/admin" element={<Admin />} />
               {/* Legacy paths -> redirect to home */}
               <Route path="/wall-board" element={<Navigate to="/" replace />} />

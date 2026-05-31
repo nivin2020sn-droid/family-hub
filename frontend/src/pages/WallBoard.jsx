@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Heart,
@@ -49,6 +49,7 @@ import { logout as authLogout, getMember as getCurrentMember, isSingleAccount, u
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MemberBadge, { MemberAvatar } from "@/components/MemberBadge";
+import { LEGAL_LINKS } from "@/components/LegalLayout";
 import RecentActivityStrip from "@/components/RecentActivityStrip";
 import { useAppInfo } from "@/lib/useAppInfo";
 import FamilyMapCard from "@/components/FamilyMapCard";
@@ -1269,6 +1270,26 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
             <p className="text-center text-[10px] uppercase tracking-[0.18em] text-[#A09B95]" data-testid="wall-beta-version">
               {t("beta.chip", { version: appVersion || "0.9.0-beta" })}
             </p>
+            {/* Legal pages — reachable from any authenticated page via Settings. */}
+            <nav
+              className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-[#7A7571] pt-2"
+              aria-label="Legal pages"
+              data-testid="settings-legal-links"
+            >
+              {LEGAL_LINKS.map((l, i) => (
+                <span key={l.to} className="inline-flex items-center gap-3">
+                  {i > 0 && <span aria-hidden className="text-[#D9D5CE]">|</span>}
+                  <Link
+                    to={l.to}
+                    onClick={() => onOpenChange(false)}
+                    className="hover:text-[#2D2A26] transition-colors"
+                    data-testid={`settings-${l.testid}`}
+                  >
+                    {l.label}
+                  </Link>
+                </span>
+              ))}
+            </nav>
           </div>
         </div>
         <UpgradeToFamilyDialog
