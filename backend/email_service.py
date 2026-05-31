@@ -171,6 +171,134 @@ class EmailNotConfigured(Exception):
     (typically: log the link and continue)."""
 
 
+class SmtpDeliveryError(Exception):
+    """Wraps a low-level smtplib failure with a classification so the admin
+    UI can show a precise reason (auth / tls / connection / recipient /
+    timeout / unknown) and a localizable hint."""
+
+    def __init__(self, *, reason: str, stage: str, message: str,
+                 smtp_code: Optional[int] = None,
+                 smtp_message: Optional[str] = None,
+                 hint_key: Optional[str] = None):
+        self.reason = reason
+        self.stage = stage
+        self.message = message
+        self.smtp_code = smtp_code
+        self.smtp_message = smtp_message
+        self.hint_key = hint_key
+        super().__init__(message)
+
+
+def _classify_smtp_error(exc: BaseException, stage: str) -> SmtpDeliveryError:
+    """Translate a raw smtplib / socket / ssl exception into a structured
+    SmtpDeliveryError. Keeps the original message for the audit log while
+    giving the admin a concrete reason + hint to act on."""
+    import socket as _socket
+
+    # smtplib exceptions carry SMTP server response codes for the auth/
+    # protocol failure paths. We surface them so the admin can match the
+    # error against their provider docs (e.g., "535 5.7.8 authentication
+    # failed" → Gmail App Password).
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return SmtpDeliveryError(
+            reason="auth_failed", stage="login",
+            message=str(exc),
+            smtp_code=exc.smtp_code,
+            smtp_message=exc.smtp_error.decode("utf-8", errors="replace")
+                if isinstance(exc.smtp_error, (bytes, bytearray)) else str(exc.smtp_error),
+            hint_key="hint.auth",
+        )
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return SmtpDeliveryError(
+            reason="tls_not_supported", stage="starttls",
+            message=str(exc), hint_key="hint.tls",
+        )
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return SmtpDeliveryError(
+            reason="sender_refused", stage="send",
+            message=str(exc),
+            smtp_code=exc.smtp_code,
+            smtp_message=exc.smtp_error.decode("utf-8", errors="replace")
+                if isinstance(exc.smtp_error, (bytes, bytearray)) else str(exc.smtp_error),
+            hint_key="hint.sender",
+        )
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        # `recipients` is a dict of {addr: (code, msg)}.
+        first = next(iter(exc.recipients.values()), (None, b""))
+        return SmtpDeliveryError(
+            reason="recipient_refused", stage="send",
+            message=str(exc),
+            smtp_code=first[0],
+            smtp_message=first[1].decode("utf-8", errors="replace")
+                if isinstance(first[1], (bytes, bytearray)) else str(first[1]),
+            hint_key="hint.recipient",
+        )
+    if isinstance(exc, smtplib.SMTPHeloError):
+        return SmtpDeliveryError(
+            reason="helo_failed", stage="connect",
+            message=str(exc),
+            smtp_code=exc.smtp_code,
+            smtp_message=exc.smtp_error.decode("utf-8", errors="replace")
+                if isinstance(exc.smtp_error, (bytes, bytearray)) else str(exc.smtp_error),
+            hint_key="hint.helo",
+        )
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return SmtpDeliveryError(
+            reason="server_disconnected", stage=stage,
+            message=str(exc) or "Server unexpectedly disconnected",
+            hint_key="hint.disconnect",
+        )
+    if isinstance(exc, smtplib.SMTPConnectError):
+        return SmtpDeliveryError(
+            reason="connection_refused", stage="connect",
+            message=str(exc),
+            smtp_code=exc.smtp_code,
+            smtp_message=exc.smtp_error.decode("utf-8", errors="replace")
+                if isinstance(exc.smtp_error, (bytes, bytearray)) else str(exc.smtp_error),
+            hint_key="hint.connection",
+        )
+    if isinstance(exc, ssl.SSLError):
+        return SmtpDeliveryError(
+            reason="tls_failed", stage="starttls",
+            message=str(exc), hint_key="hint.tls",
+        )
+    if isinstance(exc, _socket.gaierror):
+        return SmtpDeliveryError(
+            reason="host_unknown", stage="connect",
+            message=str(exc), hint_key="hint.host",
+        )
+    if isinstance(exc, _socket.timeout) or isinstance(exc, TimeoutError):
+        return SmtpDeliveryError(
+            reason="timeout", stage=stage,
+            message=str(exc) or "Connection timed out",
+            hint_key="hint.timeout",
+        )
+    if isinstance(exc, ConnectionRefusedError):
+        return SmtpDeliveryError(
+            reason="connection_refused", stage="connect",
+            message=str(exc), hint_key="hint.connection",
+        )
+    # IMPORTANT: SMTPException inherits from OSError in stdlib, so this
+    # branch must run BEFORE the OSError catch-all below — otherwise every
+    # protocol-level SMTP error degrades to "network_error".
+    if isinstance(exc, smtplib.SMTPException):
+        return SmtpDeliveryError(
+            reason="smtp_error", stage=stage,
+            message=str(exc), hint_key=None,
+        )
+    if isinstance(exc, OSError):
+        # Catch-all for low-level socket errors not covered above.
+        return SmtpDeliveryError(
+            reason="network_error", stage="connect",
+            message=str(exc), hint_key="hint.connection",
+        )
+    return SmtpDeliveryError(
+        reason="unknown", stage=stage,
+        message=f"{type(exc).__name__}: {exc}",
+        hint_key=None,
+    )
+
+
 def _smtp_send(
     settings: dict,
     to_email: str,
@@ -179,8 +307,8 @@ def _smtp_send(
     html_body: str,
 ) -> None:
     """Synchronous SMTP send used inside `run_in_executor` to keep the event
-    loop free. Raises any underlying smtplib exception so the caller can
-    decide whether to surface or swallow it."""
+    loop free. Raises `SmtpDeliveryError` with a classified reason so the
+    caller can surface the right hint in the admin UI."""
     host = (settings.get("smtp_host") or "").strip()
     port = int(settings.get("smtp_port") or 587)
     username = (settings.get("smtp_username") or "").strip()
@@ -200,21 +328,34 @@ def _smtp_send(
     msg.add_alternative(html_body, subtype="html")
 
     context = ssl.create_default_context()
-    # Port 465 == implicit SSL; 587 == STARTTLS; 25 == plain (development only).
-    if port == 465:
-        with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as s:
-            if username:
-                s.login(username, password)
-            s.send_message(msg)
-    else:
-        with smtplib.SMTP(host, port, timeout=15) as s:
-            s.ehlo()
-            if use_tls:
-                s.starttls(context=context)
+    stage = "connect"
+    # Tighter timeout than the proxy + axios layer (axios timeout = 15s) so we
+    # always return a structured response, never a generic gateway error.
+    timeout_s = 10
+    try:
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=timeout_s) as s:
+                stage = "login"
+                if username:
+                    s.login(username, password)
+                stage = "send"
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=timeout_s) as s:
                 s.ehlo()
-            if username:
-                s.login(username, password)
-            s.send_message(msg)
+                if use_tls:
+                    stage = "starttls"
+                    s.starttls(context=context)
+                    s.ehlo()
+                if username:
+                    stage = "login"
+                    s.login(username, password)
+                stage = "send"
+                s.send_message(msg)
+    except SmtpDeliveryError:
+        raise
+    except BaseException as exc:  # noqa: BLE001
+        raise _classify_smtp_error(exc, stage) from exc
 
 
 async def send_localized_email(
@@ -264,14 +405,50 @@ async def send_localized_email(
         )
         logger.info("[EMAIL SENT] %s | to=%s", kind, to_email)
         return {"sent": True, "to": to_email}
-    except Exception as exc:  # noqa: BLE001
-        # Never let the email layer crash the request flow — we still log
-        # the link so the user can recover, and bubble a soft failure.
+    except SmtpDeliveryError as exc:
+        # Surface the classified failure to the caller. We log a full
+        # traceback at WARNING so an operator can correlate the exception
+        # with the admin UI message.
         logger.warning(
-            "[EMAIL SEND FAILED] %s | to=%s | err=%s | link=%s",
+            "[EMAIL SEND FAILED] %s | to=%s | stage=%s | reason=%s | smtp=%s/%s | err=%s | link=%s",
+            kind, to_email, exc.stage, exc.reason,
+            exc.smtp_code, exc.smtp_message, exc.message, link,
+            exc_info=True,
+        )
+        return {
+            "sent": False,
+            "reason": exc.reason,
+            "stage": exc.stage,
+            "error": exc.message,
+            "smtp_code": exc.smtp_code,
+            "smtp_message": exc.smtp_message,
+            "hint_key": exc.hint_key,
+            "link": link,
+        }
+    except EmailNotConfigured as exc:
+        logger.warning(
+            "[EMAIL SEND FAILED] %s | to=%s | reason=config_missing | err=%s | link=%s",
             kind, to_email, exc, link,
         )
-        return {"sent": False, "reason": "smtp_error", "error": str(exc), "link": link}
+        return {
+            "sent": False,
+            "reason": "smtp_not_configured",
+            "error": str(exc),
+            "link": link,
+        }
+    except Exception as exc:  # noqa: BLE001
+        # True fallback — anything we didn't anticipate still gets a
+        # structured response so the UI can render something useful.
+        logger.warning(
+            "[EMAIL SEND FAILED] %s | to=%s | reason=unknown | err=%s | link=%s",
+            kind, to_email, exc, link, exc_info=True,
+        )
+        return {
+            "sent": False,
+            "reason": "unknown",
+            "error": f"{type(exc).__name__}: {exc}",
+            "link": link,
+        }
 
 
 async def smtp_test_send(db, to_email: str, lang: str = "en") -> dict:

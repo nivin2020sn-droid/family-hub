@@ -658,3 +658,47 @@ End-to-end email-verification gate + email-link password reset + Admin SMTP sett
 - New: `/app/backend/email_service.py`, `/app/backend/tests/test_email_verification.py`, `/app/backend/tests/conftest.py`, `/app/frontend/src/pages/VerifyEmail.jsx`, `/app/frontend/src/pages/ForgotPassword.jsx`, `/app/frontend/src/pages/ResetPassword.jsx`, `/app/frontend/src/pages/VerificationPending.jsx`, `/app/frontend/src/pages/AdminEmailSettings.jsx`.
 - Updated: `/app/backend/auth_module.py` (constants + endpoints + register/login + admin email-settings routes + `_sha256_token` helper + ensure_indexes back-fill), `/app/backend/.env` (`PUBLIC_APP_URL`), `/app/frontend/src/App.js` (4 new routes), `/app/frontend/src/pages/Login.jsx` (verify-pending stage + forgot-link nav), `/app/frontend/src/pages/Admin.jsx` (Email Settings button), `/app/frontend/src/lib/auth.js` (7 helpers), `/app/frontend/src/lib/translations.js` (50 keys × 3 langs), `/app/backend/tests/test_*.py` (helpers updated for the new register→verify→login shape).
 
+
+
+
+## Updated (Feb 2026 — SMTP Error Diagnostics)
+
+The Admin → Email Settings → "Send test email" button no longer shows a generic "Something went wrong" toast. Every SMTP failure is now classified, logged with a full traceback, and rendered inline as a structured diagnostic panel so the admin can fix the SMTP configuration without digging through server logs.
+
+**Backend** (`email_service.py`):
+- New `SmtpDeliveryError` carries `reason / stage / message / smtp_code / smtp_message / hint_key`.
+- `_classify_smtp_error()` maps every interesting exception type to a specific `reason`:
+  - `smtplib.SMTPAuthenticationError` → `auth_failed` (preserves SMTP response code, e.g. 535 + Gmail's "Username and Password not accepted" body)
+  - `smtplib.SMTPNotSupportedError` → `tls_not_supported`
+  - `smtplib.SMTPSenderRefused` / `SMTPRecipientsRefused` / `SMTPHeloError` → `sender_refused / recipient_refused / helo_failed`
+  - `smtplib.SMTPServerDisconnected` → `server_disconnected`
+  - `smtplib.SMTPConnectError` → `connection_refused`
+  - `ssl.SSLError` → `tls_failed`
+  - `socket.gaierror` → `host_unknown`
+  - `socket.timeout / TimeoutError` → `timeout`
+  - `ConnectionRefusedError` → `connection_refused`
+  - `smtplib.SMTPException` → `smtp_error` (handled BEFORE the OSError catch-all because `SMTPException` inherits from `OSError`)
+  - `OSError` → `network_error`
+  - anything else → `unknown` (still returns the type name)
+- `_smtp_send()` tracks `stage = "connect" | "starttls" | "login" | "send"` and tightens the socket timeout to 10s (axios timeout is 15s on most endpoints; the test endpoint uses 30s) so the backend always returns a structured response before any gateway timeout can intervene.
+- `send_localized_email()` returns the rich dict `{sent, reason, stage, error, smtp_code, smtp_message, hint_key, link}` and logs `[EMAIL SEND FAILED]` with `exc_info=True` (full traceback in `/var/log/supervisor/backend.err.log`).
+
+**Frontend** (`AdminEmailSettings.jsx`):
+- `sendTest()` keeps the result in component state (no more transient toast) and routes axios `ECONNABORTED` to a `client_timeout` reason.
+- New `<TestResultPanel>` component renders a red diagnostic card with: Reason (localized label) · Stage (which SMTP step failed) · Server response (smtp_code + smtp_message in monospace) · Details (raw error in monospace) · How to fix (localized hint specific to the failure reason). Success path renders a green confirmation card.
+- `adminTestEmail()` uses a 30s axios timeout to give the 10s SMTP timeout headroom.
+
+**i18n** (~28 new keys × 3 languages — EN/AR/DE):
+- `admin.email.diag.{title, reason, stage, serverResponse, details, hint}`
+- `admin.email.reason.{auth_failed, tls_not_supported, tls_failed, sender_refused, recipient_refused, helo_failed, server_disconnected, connection_refused, host_unknown, timeout, network_error, smtp_not_configured, smtp_error, unknown, client_timeout, request_failed}`
+- `admin.email.stage.{connect, starttls, login, send}`
+- `admin.email.hint.{auth, tls, host, connection, timeout, sender, recipient, helo, disconnect}`
+
+**Verified live**:
+- curl tests: `host_unknown` (DNS), `connection_refused` (127.0.0.1:9999), `auth_failed` (smtp.gmail.com with wrong app pw → SMTP 535 + Gmail's actual message preserved). Full traceback logged at WARNING for each.
+- Playwright: diagnostic panel renders localized reason ("Host not found (DNS lookup failed)"), stage ("TCP connect / DNS"), monospace error details (`[Errno -2] Name or service not known`), and actionable hint.
+- pytest **15/15 PASS** (`tests/test_email_diagnostics.py` — 13 classifier unit tests + 2 integration tests via `send_localized_email`). All earlier suites also pass.
+
+**Affected files**:
+- New: `/app/backend/tests/test_email_diagnostics.py` (15 tests).
+- Updated: `/app/backend/email_service.py` (SmtpDeliveryError + _classify_smtp_error + stage tracking + structured error return), `/app/frontend/src/pages/AdminEmailSettings.jsx` (testResult state + TestResultPanel component), `/app/frontend/src/lib/auth.js` (adminTestEmail 30s timeout), `/app/frontend/src/lib/translations.js` (~28 keys × 3 languages), `/app/backend/tests/conftest.py` (autouse fixture clears SMTP between tests so a stale `smtp.gmail.com` host can't make every later test hang 10s on connect).

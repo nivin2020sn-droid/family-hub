@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Mail, Send, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, Mail, Send, Save, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +34,10 @@ const AdminEmailSettings = () => {
     sender_name: "My Life My Time",
   });
   const [testTo, setTestTo] = useState("");
+  // Persistent inline diagnostic for the last test send. Kept on the page
+  // (instead of a fleeting toast) so the admin can read the real SMTP error
+  // and act on it.
+  const [testResult, setTestResult] = useState(null);
 
   usePageMeta({ title: `${t("admin.email.title")} · My Life My Time` });
 
@@ -89,18 +93,33 @@ const AdminEmailSettings = () => {
   const sendTest = async () => {
     if (!testTo.trim()) return;
     setTesting(true);
+    setTestResult(null);
     try {
       const r = await adminTestEmail(testTo.trim().toLowerCase(), lang);
+      setTestResult(r);
       if (r?.sent) {
         toast.success(t("admin.email.testSent"));
       } else {
+        // Toast a one-liner; the inline panel renders the full breakdown.
         toast.error(
           t("admin.email.testFailed", {
-            error: r?.error || r?.reason || "unknown",
+            error:
+              r?.smtp_message || r?.error || r?.reason || "unknown",
           })
         );
       }
     } catch (err) {
+      // 5xx, network failure, axios timeout: still expose what we know.
+      const data = err?.response?.data?.detail;
+      setTestResult({
+        sent: false,
+        reason:
+          err?.code === "ECONNABORTED" ? "client_timeout" : "request_failed",
+        error:
+          (typeof data === "string" ? data : null) ||
+          err?.message ||
+          "Network error while contacting the backend",
+      });
       toast.error(err?.response?.data?.detail || t("auth.error.generic"));
     } finally {
       setTesting(false);
@@ -259,9 +278,93 @@ const AdminEmailSettings = () => {
                 {testing ? t("forgot.sending") : t("admin.email.test")}
               </Button>
             </div>
+
+            {testResult && (
+              <TestResultPanel result={testResult} />
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+/** Inline diagnostic for the last test send. Shows ALL the structured fields
+ *  the backend returns (reason, stage, smtp_code/message, hint) so the admin
+ *  can debug their SMTP config without digging through logs. */
+const TestResultPanel = ({ result }) => {
+  const { t } = useI18n();
+  if (result.sent) {
+    return (
+      <div
+        className="mt-3 rounded-2xl border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3 flex items-start gap-2"
+        data-testid="email-test-result-success"
+      >
+        <CheckCircle2 className="w-5 h-5 text-[#16A34A] shrink-0 mt-0.5" strokeWidth={2} />
+        <p className="text-xs text-[#166534] leading-relaxed">
+          {t("admin.email.testSent")}
+        </p>
+      </div>
+    );
+  }
+  const reasonKey = result.reason ? `admin.email.reason.${result.reason}` : null;
+  const reasonLabel = reasonKey ? t(reasonKey) : null;
+  const reasonText = reasonLabel && reasonLabel !== reasonKey ? reasonLabel : (result.reason || "unknown");
+  const stageKey = result.stage ? `admin.email.stage.${result.stage}` : null;
+  const stageLabel = stageKey ? t(stageKey) : null;
+  const stageText = stageLabel && stageLabel !== stageKey ? stageLabel : result.stage;
+  const hintKey = result.hint_key ? `admin.email.${result.hint_key}` : null;
+  const hintLabel = hintKey ? t(hintKey) : null;
+  const hintText = hintLabel && hintLabel !== hintKey ? hintLabel : null;
+  return (
+    <div
+      className="mt-3 rounded-2xl border border-[#FCDCD7] bg-[#FEF3F2] px-4 py-3"
+      data-testid="email-test-result-error"
+    >
+      <div className="flex items-start gap-2 mb-3">
+        <AlertTriangle className="w-5 h-5 text-[#B91C1C] shrink-0 mt-0.5" strokeWidth={2} />
+        <p className="text-sm font-semibold text-[#7F1D1D]">
+          {t("admin.email.diag.title")}
+        </p>
+      </div>
+      <dl className="text-xs text-[#7F1D1D] space-y-2 ps-7">
+        <div className="flex gap-2">
+          <dt className="font-semibold min-w-[100px]">{t("admin.email.diag.reason")}:</dt>
+          <dd className="flex-1" data-testid="email-test-reason">{reasonText}</dd>
+        </div>
+        {stageText && (
+          <div className="flex gap-2">
+            <dt className="font-semibold min-w-[100px]">{t("admin.email.diag.stage")}:</dt>
+            <dd className="flex-1" data-testid="email-test-stage">{stageText}</dd>
+          </div>
+        )}
+        {(result.smtp_code || result.smtp_message) && (
+          <div className="flex gap-2">
+            <dt className="font-semibold min-w-[100px]">{t("admin.email.diag.serverResponse")}:</dt>
+            <dd className="flex-1 font-mono break-words" data-testid="email-test-smtp-response">
+              {result.smtp_code ? `${result.smtp_code}` : ""}
+              {result.smtp_message ? ` ${result.smtp_message}` : ""}
+            </dd>
+          </div>
+        )}
+        {result.error && (
+          <div className="flex gap-2">
+            <dt className="font-semibold min-w-[100px]">{t("admin.email.diag.details")}:</dt>
+            <dd
+              className="flex-1 font-mono break-words text-[11px] opacity-80"
+              data-testid="email-test-error-detail"
+            >
+              {result.error}
+            </dd>
+          </div>
+        )}
+        {hintText && (
+          <div className="flex gap-2 pt-2 mt-1 border-t border-[#FCDCD7]">
+            <dt className="font-semibold min-w-[100px] text-[#2D2A26]">{t("admin.email.diag.hint")}:</dt>
+            <dd className="flex-1 text-[#2D2A26]" data-testid="email-test-hint">{hintText}</dd>
+          </div>
+        )}
+      </dl>
     </div>
   );
 };

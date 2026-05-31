@@ -350,10 +350,16 @@ export async function adminUpdateEmailSettings(patch) {
 
 export async function adminTestEmail(to, lang) {
   const token = getAccountToken();
+  // SMTP timeout on the backend is 10s — give axios 30s headroom so a
+  // slow handshake still resolves with the backend's structured error
+  // instead of a generic client-side timeout.
   const { data } = await api.post(
     "/api/admin/email-settings/test",
     { to, lang },
-    { headers: { Authorization: `Bearer ${token}` } }
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 30000,
+    }
   );
   return data;
 }
