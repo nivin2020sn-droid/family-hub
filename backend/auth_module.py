@@ -181,6 +181,15 @@ def verify_secret(plain: str, hashed: str) -> bool:
         return False
 
 
+def _sha256_token(token: str) -> str:
+    """Fast O(1) hash for high-entropy URL tokens. We use SHA-256 instead of
+    bcrypt because the tokens are 256 bits of `secrets.token_urlsafe`
+    randomness already — bcrypt would only add UX latency (16+ seconds on
+    invalid-link probes) without raising the practical security bar."""
+    import hashlib
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _secret() -> str:
     return os.environ["JWT_SECRET"]
 
@@ -362,8 +371,13 @@ def build_auth_router(db) -> APIRouter:
         )
 
     async def _issue_email_token(account: dict, kind: str, ttl_minutes: int) -> str:
-        """Generate a high-entropy URL-safe token, store its bcrypt hash with
-        an expiry, return the plaintext token to embed in the link."""
+        """Generate a high-entropy URL-safe token, store its SHA-256 hash with
+        an expiry, return the plaintext token to embed in the link.
+
+        We hash with SHA-256 (not bcrypt) on purpose: the token is already
+        256 bits of cryptographically-random entropy from `secrets.token_urlsafe`,
+        so the slow KDF would only buy us a 16-second response time on
+        invalid-link probes — pure UX/perf loss with no security gain."""
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
         await email_tokens.insert_one({
@@ -371,7 +385,7 @@ def build_auth_router(db) -> APIRouter:
             "kind": kind,
             "account_id": account["id"],
             "email": account.get("email"),
-            "token_hash": hash_secret(token),
+            "token_hash": _sha256_token(token),
             "expires_at": expires_at,
             "used": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -413,19 +427,20 @@ def build_auth_router(db) -> APIRouter:
         )
 
     async def _consume_email_token(token_plaintext: str, kind: str) -> dict:
-        """Look up a non-expired, non-used token of the given kind by
-        bcrypt-verifying the plaintext against each candidate row. Returns
-        the matched DB record. Raises 400 when nothing matches."""
+        """Look up a non-expired, non-used token of the given kind. We hash
+        the candidate with SHA-256 and ask MongoDB for an exact match —
+        O(1) lookup instead of an O(n) bcrypt sweep. Raises 400 when
+        nothing matches."""
         now = datetime.now(timezone.utc)
-        candidates = await email_tokens.find(
-            {"kind": kind, "used": False, "expires_at": {"$gt": now}},
+        match = await email_tokens.find_one(
+            {
+                "kind": kind,
+                "used": False,
+                "expires_at": {"$gt": now},
+                "token_hash": _sha256_token(token_plaintext),
+            },
             {"_id": 0},
-        ).sort("created_at", -1).limit(200).to_list(200)
-        match = None
-        for r in candidates:
-            if verify_secret(token_plaintext, r.get("token_hash", "")):
-                match = r
-                break
+        )
         if not match:
             raise HTTPException(status_code=400, detail="Invalid or expired link")
         await email_tokens.update_one(
@@ -1477,6 +1492,7 @@ async def ensure_indexes(db) -> None:
     await db.recovery_codes.create_index("expires_at", expireAfterSeconds=0)
     await db.email_tokens.create_index("expires_at", expireAfterSeconds=0)
     await db.email_tokens.create_index([("kind", 1), ("used", 1)])
+    await db.email_tokens.create_index("token_hash")
     await db.email_send_attempts.create_index("identifier")
     await db.login_attempts.create_index("identifier")
     # Back-fill `email_verified` for every pre-existing account so legacy

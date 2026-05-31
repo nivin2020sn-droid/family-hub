@@ -612,3 +612,49 @@ Two-phase, soft-then-hard delete with a 30-day grace window. Family admin only (
 - New: `/app/frontend/src/pages/PendingDeletion.jsx`, `/app/backend/tests/test_account_deletion.py`.
 - Updated: `/app/backend/server.py` (endpoints + purge loop), `/app/backend/auth_module.py` (login accepts deletion_requested status), `/app/backend/tenant.py` (middleware deletion-lock allowlist), `/app/frontend/src/lib/auth.js` (3 helpers), `/app/frontend/src/lib/translations.js` (28 keys × 3 langs), `/app/frontend/src/pages/WallBoard.jsx` (DeleteAccountDialog + button), `/app/frontend/src/pages/Login.jsx` (route to pending-deletion), `/app/frontend/src/App.js` (new route).
 
+
+
+## Implemented (Feb 2026 — Email Verification & Forgot Password)
+
+End-to-end email-verification gate + email-link password reset + Admin SMTP settings, with full EN/AR/DE localization. Existing accounts are backfilled to `email_verified=true` so no legacy regression.
+
+**Architecture choice**:
+- **Storage**: New `email_tokens` collection — `{id, kind: "verify"|"reset", account_id, email, token_hash, expires_at, used}` with TTL index on `expires_at` (Mongo auto-purges expired rows) and indexed lookup on `token_hash`.
+- **Hashing**: SHA-256 (not bcrypt). Tokens are 256 bits of `secrets.token_urlsafe` randomness, so the bcrypt KDF would only buy a 16-second response time on invalid-link probes — pure UX/perf loss with no security gain. SHA-256 + Mongo index → O(1) lookups, <200 ms even on a wrong token.
+- **Rate limiting**: `email_send_attempts` collection — `{identifier: "verify:email" or "reset:email", count, first_attempt}`. 3 sends per 15-minute window; 4th → HTTP 429. Window slides — first send outside the window resets the counter.
+- **Lifetimes**: Verification token 24 h, reset token 30 min (user-configured).
+- **SMTP**: BYO via `email_settings` singleton (admin-edited). Password is **write-only** — GET returns `smtp_password_set: bool`, PUT keeps the existing pw when the masked placeholder (`********`) is submitted, explicit empty string clears it.
+
+**Endpoints**:
+- `POST /api/auth/register` → now returns `{verification_sent: true, email_verified: false, email}` and **no tokens**. The verification email is sent best-effort.
+- `POST /api/auth/login` → 403 with `detail.code = "email_not_verified"` for unverified accounts (admin role bypasses).
+- `POST /api/auth/verify-email` — `{token}` → flips `email_verified=true`, marks the token `used`.
+- `POST /api/auth/resend-verification` — `{email, lang}`, rate-limited 3/15 min. Anti-enumeration: 200 for unknown emails. Returns `{already_verified: true}` for verified ones.
+- `POST /api/auth/forgot-password` — `{email, lang}` → sends an email-link reset (anti-enumeration: always 200).
+- `POST /api/auth/reset-password` — `{token, new_password}` → updates the password, invalidates any other outstanding reset tokens for the same account, clears any pending login lockout.
+- `GET /api/admin/email-settings`, `PUT /api/admin/email-settings`, `POST /api/admin/email-settings/test` — admin-only SMTP configuration + test send.
+
+**Frontend** (5 new pages + 1 wired-in stage):
+- `pages/VerifyEmail.jsx` (route `/verify-email?token=…`) — calls the API, shows success or fail card.
+- `pages/ForgotPassword.jsx` (route `/forgot-password`) — email input → "check your inbox" confirmation.
+- `pages/ResetPassword.jsx` (route `/reset-password?token=…`) — password + confirm fields, posts to /reset-password, redirects to /login.
+- `pages/VerificationPending.jsx` — "Check your inbox" screen with Resend button (rate-limit aware). Wired into `Login.jsx` as a stage (no top-level route).
+- `pages/AdminEmailSettings.jsx` (route `/admin/email-settings`) — SMTP form (host/port/username/password/use_tls/sender_email/sender_name) + Test Send button. Password mask flow preserves the saved pw across edits.
+- `pages/Login.jsx` — `handleAuthSuccess` routes to verify-pending stage when `data.verification_pending === true` (register response or login 403 with `email_not_verified`). "Forgot password?" link now navigates to `/forgot-password`.
+- `pages/Admin.jsx` — Email Settings nav button next to Content.
+- `lib/auth.js` — `verifyEmail`, `resendVerification`, `forgotPasswordEmail`, `resetPasswordWithToken`, `adminGetEmailSettings`, `adminUpdateEmailSettings`, `adminTestEmail`. `register()` no longer writes tokens.
+
+**Email templates** (`email_service.py`): HTML + plain-text variants of `verify` and `reset` in EN/AR/DE. RTL `<html dir="rtl">` on Arabic. Inline CSS only (no `<style>` blocks) for Gmail/Outlook compatibility.
+
+**i18n**: ~50 new keys × 3 languages — `verify.*`, `forgot.*`, `reset.*`, `admin.email.*`, `account.delete.*`/`account.pending.*` carried over from the deletion feature.
+
+**Backward compatibility**: `ensure_indexes` runs `accounts.update_many({email_verified: {$exists: false}}, {$set: {email_verified: true}})` at every startup — legacy accounts created before this feature shipped retain login access.
+
+**Verified**:
+- Backend pytest **55/55 PASSED** across 7 affected suites (test_email_verification 14/14 + test_account_deletion 8/8 + test_single_account 7/7 + test_tenant_isolation 15/15 + test_budget_owner 4/4 + test_beta_terms 6/6 + test_site_content 4/4). Invalid-token verification now responds in **~120 ms** (down from ~16 s pre-SHA-256 fix).
+- Playwright UI **PASS**: register → "check your inbox" screen → resend 3× → 4th hits 429 toast → fetch link from backend log → /verify-email success → login succeeds with both tokens. Forgot-password flow: /forgot-password → /reset-password with new pw → re-login works. Admin /admin/email-settings save + test-send + password masking flow all green.
+
+**Affected files**:
+- New: `/app/backend/email_service.py`, `/app/backend/tests/test_email_verification.py`, `/app/backend/tests/conftest.py`, `/app/frontend/src/pages/VerifyEmail.jsx`, `/app/frontend/src/pages/ForgotPassword.jsx`, `/app/frontend/src/pages/ResetPassword.jsx`, `/app/frontend/src/pages/VerificationPending.jsx`, `/app/frontend/src/pages/AdminEmailSettings.jsx`.
+- Updated: `/app/backend/auth_module.py` (constants + endpoints + register/login + admin email-settings routes + `_sha256_token` helper + ensure_indexes back-fill), `/app/backend/.env` (`PUBLIC_APP_URL`), `/app/frontend/src/App.js` (4 new routes), `/app/frontend/src/pages/Login.jsx` (verify-pending stage + forgot-link nav), `/app/frontend/src/pages/Admin.jsx` (Email Settings button), `/app/frontend/src/lib/auth.js` (7 helpers), `/app/frontend/src/lib/translations.js` (50 keys × 3 langs), `/app/backend/tests/test_*.py` (helpers updated for the new register→verify→login shape).
+
