@@ -689,6 +689,13 @@ const Login = () => {
       navigate("/admin", { replace: true });
       return;
     }
+    // Account is in the 30-day deletion grace window: bounce to a locked
+    // page where the user can only Cancel Deletion or sign out. No other
+    // routes work (backend gates them via require_active_account_token_async).
+    if (data?.pending_deletion) {
+      navigate("/account/pending-deletion", { replace: true });
+      return;
+    }
     // Single-account fast-path: the auth.js helper already wrote the
     // member_token to storage, so we can land straight on the Wall Board
     // without showing the "Who are you?" screen.

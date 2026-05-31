@@ -31,6 +31,8 @@ import {
   ShoppingCart,
   Users as UsersIcon,
   Coins,
+  AlertTriangle,
+  Trash,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -45,7 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { logout as authLogout, getMember as getCurrentMember, isSingleAccount, upgradeToFamily } from "@/lib/auth";
+import { logout as authLogout, getMember as getCurrentMember, isSingleAccount, upgradeToFamily, requestAccountDeletion } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import MemberBadge, { MemberAvatar } from "@/components/MemberBadge";
@@ -1142,6 +1144,7 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
   const [confirm, setConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const appVersion = useAppInfo().version || "";
   const me = getCurrentMember();
   const isFamilyAdmin = !!me?.is_family_admin;
@@ -1243,6 +1246,18 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
               {t("auth.upgrade.button")}
             </Button>
           )}
+          {isFamilyAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteOpen(true)}
+              className="w-full rounded-2xl border-[#FCA5A5] text-[#B91C1C] hover:bg-[#FEE2E2] justify-start gap-2"
+              data-testid="open-delete-account-btn"
+            >
+              <Trash className="w-4 h-4" strokeWidth={2} />
+              {t("account.delete.button")}
+            </Button>
+          )}
         </div>
         <div className="px-6 pb-5 pt-1 border-t border-[#E5E2DC] bg-[#FAF9F6]">
           <button
@@ -1297,6 +1312,159 @@ const WallSettingsDialog = ({ open, onOpenChange, onForceSync, pendingCount }) =
           onOpenChange={setUpgradeOpen}
           onUpgraded={() => { setUpgradeOpen(false); onOpenChange(false); }}
         />
+        <DeleteAccountDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ---------- Delete-account confirmation dialog (GDPR soft-delete) ----------
+const DeleteAccountDialog = ({ open, onOpenChange }) => {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Reset state on close.
+  useEffect(() => {
+    if (!open) {
+      setPassword("");
+      setConfirm("");
+      setBusy(false);
+    }
+  }, [open]);
+
+  const phraseValid = useMemo(() => {
+    const s = confirm.trim().toUpperCase();
+    return s === "DELETE" || s === "LÖSCHEN" || s === "LOSCHEN" || s === "حذف";
+  }, [confirm]);
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault?.();
+    if (busy || !phraseValid || !password) return;
+    setBusy(true);
+    try {
+      await requestAccountDeletion(password, confirm.trim());
+      toast.success(t("account.delete.toast"));
+      // Sign out locally then bounce to the pending-deletion landing page.
+      // The user will need to log back in to reach the Cancel screen.
+      authLogout();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      const code = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      if (code === 401) {
+        toast.error(t("account.delete.errorPassword"));
+      } else if (code === 400 && typeof detail === "string" && detail.toLowerCase().includes("phrase")) {
+        toast.error(t("account.delete.errorPhrase"));
+      } else {
+        toast.error(typeof detail === "string" ? detail : t("account.delete.errorGeneric"));
+      }
+      setBusy(false);
+    }
+  };
+
+  // Localized "what will be deleted" bullets — translation stores them as a
+  // pipe-separated string so translators can edit a single value per language.
+  const items = (t("account.delete.items") || "").split("|").filter(Boolean);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => onOpenChange(v)}>
+      <DialogContent
+        className="max-w-md rounded-3xl border border-[#FCDCD7] bg-white max-h-[92vh] overflow-y-auto"
+        data-testid="delete-account-dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl text-[#7F1D1D] flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-[#B91C1C]" strokeWidth={2} />
+            {t("account.delete.title")}
+          </DialogTitle>
+          <DialogDescription className="text-sm text-[#7A7571] leading-relaxed pt-1">
+            {t("account.delete.intro")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#FCDCD7] bg-[#FEF3F2] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#B91C1C] mb-2">
+              {t("account.delete.whatGoes")}
+            </p>
+            <ul className="text-xs text-[#7F1D1D] space-y-1 list-disc ps-5">
+              {items.map((it, i) => (
+                <li key={i}>{it.trim()}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-2xl border border-[#E5E2DC] bg-[#F3F0EA]/40 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#2D2A26] mb-1">
+              {t("account.delete.graceTitle")}
+            </p>
+            <p className="text-xs text-[#7A7571] leading-relaxed">
+              {t("account.delete.graceDesc")}
+            </p>
+          </div>
+          <p className="text-[11px] text-[#7A7571] leading-relaxed">
+            {t("account.delete.legalRetention")}
+          </p>
+
+          <form onSubmit={handleSubmit} className="space-y-3 pt-1">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+                {t("account.delete.passwordLabel")}
+              </Label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t("account.delete.passwordPh")}
+                className="rounded-xl border-[#E5E2DC] h-11 mt-1"
+                data-testid="delete-account-password"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+                {t("account.delete.confirmLabel")}
+              </Label>
+              <Input
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder={t("account.delete.confirmPh")}
+                className="rounded-xl border-[#E5E2DC] h-11 mt-1 font-mono"
+                data-testid="delete-account-confirm"
+                autoComplete="off"
+                required
+              />
+              <p className="text-[10px] text-[#A09B95] mt-1">
+                {t("account.delete.confirmHelp")}
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onOpenChange(false)}
+                className="rounded-full"
+                disabled={busy}
+                data-testid="delete-account-cancel"
+              >
+                {t("account.delete.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                disabled={busy || !phraseValid || !password}
+                className="rounded-full bg-[#B91C1C] hover:bg-[#991B1B] text-white"
+                data-testid="delete-account-submit"
+              >
+                {busy ? t("account.delete.submitting") : t("account.delete.submit")}
+              </Button>
+            </div>
+          </form>
+        </div>
       </DialogContent>
     </Dialog>
   );

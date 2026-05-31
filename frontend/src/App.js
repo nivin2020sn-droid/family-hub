@@ -21,6 +21,7 @@ import LegalNotice from "@/pages/LegalNotice";
 import Disclaimer from "@/pages/Disclaimer";
 import AdminContent from "@/pages/AdminContent";
 import Login from "@/pages/Login";
+import PendingDeletion from "@/pages/PendingDeletion";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
@@ -49,6 +50,7 @@ function App() {
             <RouteAnalytics />
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/account/pending-deletion" element={<PendingDeletion />} />
               <Route
                 path="/"
                 element={

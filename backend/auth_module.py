@@ -451,7 +451,7 @@ def build_auth_router(db) -> APIRouter:
             family = await families.find_one({"id": account["family_id"]}, {"_id": 0})
             if not family:
                 raise HTTPException(status_code=404, detail="Family not found")
-            if family.get("status") != "active":
+            if family.get("status") not in ("active", "deletion_requested"):
                 raise HTTPException(status_code=403, detail="Family account disabled")
         token = create_account_token(account["id"], account["family_id"], role)
         response = {

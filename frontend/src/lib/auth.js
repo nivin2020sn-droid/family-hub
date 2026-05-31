@@ -313,3 +313,40 @@ export async function adminDeleteFamily(familyId) {
   );
   return true;
 }
+
+// ---------- GDPR account deletion (soft-delete, 30-day grace window) ----------
+
+/** Request permanent account deletion. Server sets status="deletion_requested"
+ *  and schedules the hard-purge for +30 days. The caller must supply the
+ *  account password and one of the localized confirmation phrases (DELETE /
+ *  حذف / LÖSCHEN). */
+export async function requestAccountDeletion(password, confirm) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    "/api/account/request-delete",
+    { password, confirm },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+/** Revoke a pending deletion. Re-enables login and clears the schedule. */
+export async function cancelAccountDeletion() {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    "/api/account/cancel-delete",
+    {},
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+/** Read the current account's deletion status — used to drive the cancel
+ *  banner / pending-deletion page after login. */
+export async function fetchDeletionStatus() {
+  const token = getAccountToken();
+  const { data } = await api.get("/api/account/deletion-status", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}

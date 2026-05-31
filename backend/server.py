@@ -33,7 +33,7 @@ app = FastAPI()
 
 # Install the tenant middleware BEFORE any router so it sets the family
 # context for every /api/* call.
-install_tenant_middleware(app, os.environ['JWT_SECRET'])
+install_tenant_middleware(app, os.environ['JWT_SECRET'], db=raw_db)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")

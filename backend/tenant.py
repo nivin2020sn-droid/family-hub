@@ -151,13 +151,35 @@ class ScopedDB:
         return self.__getattr__(name)
 
 
-def install_middleware(app, jwt_secret: str):
+def install_middleware(app, jwt_secret: str, db=None):
     """Attach a FastAPI middleware that decodes the bearer token (if any) and
-    sets `current_family_id` for the duration of the request."""
+    sets `current_family_id` for the duration of the request.
+
+    When `db` is provided, the middleware ALSO blocks every `/api/*` request
+    whose family is currently `deletion_requested`, except a small allowlist
+    needed to cancel the deletion or sign back out. The check costs one
+    extra `families.find_one` per scoped request — acceptable given the
+    rarity of pending deletions and the importance of the gate.
+    """
+
+    # Routes that must keep working even when an account is being deleted,
+    # otherwise the user could never cancel or log out.
+    DELETION_ALLOWLIST_PREFIXES = (
+        "/api/account/cancel-delete",
+        "/api/account/deletion-status",
+        "/api/account/request-delete",
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/me",
+        "/api/auth/app/info",
+        "/api/admin/",
+        "/api/diag/",
+    )
 
     @app.middleware("http")
     async def family_scope_middleware(request: Request, call_next):
         fid = None
+        token_role = None
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             try:
@@ -166,11 +188,34 @@ def install_middleware(app, jwt_secret: str):
                     jwt_secret,
                     algorithms=["HS256"],
                 )
+                token_role = data.get("role")
                 # Only family-bound tokens set a scope. Admin tokens stay None.
-                if data.get("type") in {"account", "member"} and data.get("role") != "admin":
+                if data.get("type") in {"account", "member"} and token_role != "admin":
                     fid = data.get("fid")
             except jwt.PyJWTError:
                 pass
+
+        # GDPR deletion lock: if the family is parked, return 423 Locked on
+        # every data route. The cancel + logout endpoints stay open so the
+        # user always has an escape hatch.
+        if fid and db is not None:
+            path = request.url.path or ""
+            if not any(path.startswith(p) for p in DELETION_ALLOWLIST_PREFIXES):
+                family = await db.families.find_one(
+                    {"id": fid}, {"_id": 0, "status": 1}
+                )
+                if family and family.get("status") == "deletion_requested":
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=423,
+                        content={
+                            "detail": {
+                                "code": "account_pending_deletion",
+                                "message": "Account is scheduled for deletion. Cancel the deletion to regain access.",
+                            }
+                        },
+                    )
+
         token = current_family_id.set(fid)
         try:
             response = await call_next(request)

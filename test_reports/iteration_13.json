@@ -1,0 +1,33 @@
+{
+  "summary": "Full end-to-end verification of the GDPR account-deletion feature. Re-ran the 8 backend pytest cases in /app/backend/tests/test_account_deletion.py → ALL 8 PASS against the live preview URL. Drove the full UI flow with Playwright: register single account → WallBoard → Settings → Delete Account dialog → password+phrase → soft-delete → /login → re-login returns pending_deletion=true → /account/pending-deletion shows days-left chip + cancel + signout + mailto → Cancel deletion → /login → re-login succeeds normally with member_token → WallBoard reloads. Localization verified in EN/AR/DE for both the delete dialog and the pending-deletion page, including <html dir='rtl'> for Arabic and no raw translation keys anywhere.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "FastAPI startup/shutdown", "issue": "DeprecationWarnings for @app.on_event - non-blocking, but worth migrating to lifespan handlers"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_account_deletion.py",
+    "/app/test_reports/pytest/account_deletion_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PendingDeletion.jsx silently drops non-404 errors from fetchDeletionStatus (line ~52). Consider surfacing a toast so the user knows the status couldn't refresh, otherwise the page stays in the 'loading=false but status=null' state with the days-left chip hidden.",
+    "DeleteAccountDialog accepts both 'LÖSCHEN' and 'LOSCHEN' (line 1343) which is great for German users without umlauts, but the helper text 'Type one of: DELETE / حذف / LÖSCHEN' only shows the umlaut form; consider mentioning the fallback or normalizing on the server side too.",
+    "/api/account/request-delete relies on the same password check as login but does not appear to integrate with the brute-force lockout used by /api/auth/login. If repeated wrong-password attempts here don't increment the same counter, an attacker who already has the access_token could brute-force the deletion password. Worth confirming.",
+    "Background purge loop runs every 6h. Make sure the on_startup handler also fires once at boot so a long-running pod doesn't miss the first window (currently appears to sleep first then run)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Each test registers a fresh single account (del-*@example.com / Pass1234!) via POST /api/auth/register; no shared credentials needed.",
+  "seed_data_creation": "Backend tests create ~10 throwaway single accounts (test_*_returns_*). The permanent-purge test wipes one of them via _purge_overdue_deletions(). Remaining accounts stay in 'deletion_requested' or 'active' state — harmless for shared DBs because every account is a separate tenant.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests live in /app/backend/tests/test_account_deletion.py and require REACT_APP_BACKEND_URL to be exported (the conftest does not load /app/frontend/.env). Run with: REACT_APP_BACKEND_URL=https://family-timeplan.preview.emergentagent.com python -m pytest backend/tests/test_account_deletion.py. UI was driven by seeding localStorage (mfml_account_token, mfml_member_token, mfml_account, mfml_family, mfml_member, mfml_auth_ok) after calling /api/auth/register from the page context — the preview gateway returns 403 to raw urllib/requests from outside the browser, so use page.evaluate(fetch(...)) for any cross-call orchestration. Verified screenshots saved to /app/test_reports/ (03_wallboard.png … 09_pending_ar.png and dlg_{en,de,ar}.png).",
+  "rca of the issue": "N/A — no defects observed. Feature is fully functional end-to-end."
+}
