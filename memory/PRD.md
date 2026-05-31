@@ -576,3 +576,39 @@ User reported "zero events" in the GA4 dashboard for `G-QS0W3Z2484` on https://m
 4. Realtime reports: 1–5 min. Standard reports: up to 48 h on new properties.
 
 **Affected files**: `/app/frontend/src/lib/analytics.js` (hardening). Backend untouched, 27/27 tests still pass.
+
+
+## Implemented (Feb 2026 — GDPR Account Deletion / إنهاء العضوية)
+Two-phase, soft-then-hard delete with a 30-day grace window. Family admin only (account-token holder).
+
+**Backend** (`server.py`):
+- `POST /api/account/request-delete` — requires the account password + one of the localized phrases (`DELETE` / `حذف` / `LÖSCHEN` / `LOSCHEN`). Flips `accounts.status` and `families.status` to `deletion_requested`, sets `deletion_requested_at` + `scheduled_permanent_delete_at` (+30 days). Idempotent — second call returns `already_requested=true` with the original schedule. Returns 400 on wrong phrase, 401 on wrong password.
+- `POST /api/account/cancel-delete` — restores `status="active"` and clears the schedule. Re-enables full access on the next login.
+- `GET /api/account/deletion-status` — used by the frontend to drive the cancel banner / countdown.
+- `_purge_account_data()` + `_purge_overdue_deletions()` background task (runs immediately at startup then every 6h). Walks every tenant collection (`TENANT_COLLECTIONS`: 23 collections incl. wall_*, budget_*, routines, GPS, kids_money*, activity_log, shopping, locations) + account-scoped (`recovery_codes`, `login_attempts`, `password_resets`), then deletes the family + account documents. **Writes a legal-only `deletion_audit` row** with `{account_id, hashed_email (bcrypt), account_type, deletion_requested_at, permanently_deleted_at, reason: "user_request", counts}`. No photos, names, or personal content retained.
+
+**Tenant middleware** (`tenant.py`):
+- `install_middleware(app, jwt_secret, db=raw_db)` upgraded with a deletion-lock allowlist. Any `/api/*` request whose family is `deletion_requested` is rejected with **HTTP 423 Locked** + `{detail: {code: "account_pending_deletion"}}`. Allowlist: `/api/account/cancel-delete`, `/api/account/request-delete` (for idempotency), `/api/account/deletion-status`, `/api/auth/*`, `/api/admin/*`, `/api/diag/*`. This guarantees a deletion-flagged user can no longer mutate ANY data, but can still log in, see the countdown, and cancel.
+
+**Auth** (`auth_module.py`):
+- Login now accepts `family.status ∈ {active, deletion_requested}` so the user can sign back in to cancel. When `pending_deletion=true`, the response **omits** `member_token` and adds `pending_deletion`, `deletion_requested_at`, `scheduled_permanent_delete_at` so the frontend can route the user to the dedicated locked page.
+- `POST /api/auth/member/select` rejects deletion_requested accounts with 423 — no PIN unlock during the grace window.
+
+**Frontend** (3 new touches):
+- `lib/auth.js` — `requestAccountDeletion(password, confirm)`, `cancelAccountDeletion()`, `fetchDeletionStatus()`.
+- `pages/WallBoard.jsx` — `DeleteAccountDialog` component + red "Delete Account" entry in WallSettingsDialog (visible only when `getCurrentMember()?.is_family_admin === true`). Submit button stays disabled until the user types one of the localized phrases AND a password. On success: shows toast → logs out → /login.
+- `pages/PendingDeletion.jsx` (new) — landing page at `/account/pending-deletion`. Shows scheduled permanent-delete date, days-left chip, Cancel Deletion button, Sign Out, mailto help. After successful cancel: logs out → /login (user re-authenticates against the now-active account).
+- `pages/Login.jsx` — `handleAuthSuccess` routes to `/account/pending-deletion` when `data.pending_deletion === true`.
+- `App.js` — new public route `/account/pending-deletion`.
+
+**i18n**: 28 new keys × EN/AR/DE — `account.delete.*` (12 keys: button, title, intro, whatGoes, items pipe-list, familyAdminOnly, graceTitle, graceDesc, legalRetention, passwordLabel, passwordPh, confirmLabel, confirmHelp, confirmPh, submit, submitting, cancel, errorPhrase, errorPassword, errorGeneric, toast), `account.pending.*` (10 keys: title, desc with {date}, daysLeft / .one, cancelBtn, cancelling, cancelled, signOut, helpEmail, locked).
+
+**Verified**:
+- Backend pytest **8/8 PASSED** (`tests/test_account_deletion.py`): wrong-phrase 400, wrong-password 401, request locks data routes (423 on `/api/wall/notes`), deletion-status, login returns pending_deletion flag, cancel restores access + re-issues member_token, localized phrases all accepted, idempotent request, force-purge wipes account+family+wall_notes and writes deletion_audit with bcrypt-hashed email.
+- Existing regressions still green: `test_single_account.py` 6/6, `test_tenant_isolation.py` 15/15, `test_budget_owner.py` 2/2, `test_site_content.py` 4/4, `test_beta_terms.py` 6/6 — total **41/41 passing**.
+- Playwright UI end-to-end PASSED: register single account → WallBoard → Settings cog → "Delete Account" red button → DeleteAccountDialog with warning + bullet list + password + DELETE phrase → submit → logged out → /login → re-login returns pending_deletion=true → `/account/pending-deletion` shows the days-left chip + Cancel button + Sign Out + help mailto → Cancel deletion → /login → re-login succeeds normally with member_token → WallBoard renders. EN/AR/DE all render correctly (no raw key leaks, `<html dir="rtl">` set for Arabic).
+
+**Affected files**:
+- New: `/app/frontend/src/pages/PendingDeletion.jsx`, `/app/backend/tests/test_account_deletion.py`.
+- Updated: `/app/backend/server.py` (endpoints + purge loop), `/app/backend/auth_module.py` (login accepts deletion_requested status), `/app/backend/tenant.py` (middleware deletion-lock allowlist), `/app/frontend/src/lib/auth.js` (3 helpers), `/app/frontend/src/lib/translations.js` (28 keys × 3 langs), `/app/frontend/src/pages/WallBoard.jsx` (DeleteAccountDialog + button), `/app/frontend/src/pages/Login.jsx` (route to pending-deletion), `/app/frontend/src/App.js` (new route).
+
