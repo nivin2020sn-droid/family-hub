@@ -702,3 +702,60 @@ The Admin → Email Settings → "Send test email" button no longer shows a gene
 **Affected files**:
 - New: `/app/backend/tests/test_email_diagnostics.py` (15 tests).
 - Updated: `/app/backend/email_service.py` (SmtpDeliveryError + _classify_smtp_error + stage tracking + structured error return), `/app/frontend/src/pages/AdminEmailSettings.jsx` (testResult state + TestResultPanel component), `/app/frontend/src/lib/auth.js` (adminTestEmail 30s timeout), `/app/frontend/src/lib/translations.js` (~28 keys × 3 languages), `/app/backend/tests/conftest.py` (autouse fixture clears SMTP between tests so a stale `smtp.gmail.com` host can't make every later test hang 10s on connect).
+
+
+## Updated (Feb 2026 — SMTP per-step timing + connectivity probe)
+
+The admin reported a generic "Browser timed out waiting for the server" toast from IONOS, with no way to tell which SMTP phase actually hung. This update adds:
+
+**Backend** (`email_service.py`):
+- `_smtp_send()` is now instrumented with `time.perf_counter()` around every phase: `dns → connect → starttls → login → send`. Per-step seconds are collected into a `step_durations` dict that's attached to both the success receipt and `SmtpDeliveryError`. On timeout you can now see exactly which phase consumed the budget.
+- The socket timeout knob is exposed in `email_settings.smtp_timeout_seconds` (default **60 s**, up from the previous 10 s). This lets slow EU providers (IONOS, OVH, etc.) finish their TLS/AUTH handshake.
+- DNS is now an **explicit** `getaddrinfo()` call so its latency is attributed separately from the TCP connect step. The resolved IP is surfaced on the success path so the admin can sanity-check what host their backend actually talks to.
+- New `_smtp_connectivity_check()` helper does **DNS + TCP only** (no AUTH, no STARTTLS) and reads the server banner. Used by the connectivity probe endpoint to differentiate "network unreachable" from "credentials wrong".
+- `[SMTP STEP]` info-level log line emitted per phase (e.g., `dns_ok host=smtp.ionos.de -> 212.227.24.208 | 0.059s`) so a backend operator can correlate the UI panel against the server log.
+
+**New endpoint**: `POST /api/admin/email-settings/connectivity` (admin only) returns:
+```json
+{
+  "reachable": true,
+  "resolved_ip": "212.227.24.208",
+  "banner": "220 smtp.ionos.de ESMTP RZmta (P1 -)",
+  "step_durations": {"dns": 0.059, "connect": 0.234}
+}
+```
+or on failure:
+```json
+{
+  "reachable": false,
+  "reason": "connection_refused" | "host_unknown" | "timeout" | ...,
+  "stage": "dns" | "connect",
+  "error": "...",
+  "hint_key": "...",
+  "step_durations": {"dns": 0.041}
+}
+```
+
+**Frontend** (`AdminEmailSettings.jsx`):
+- **Network reachability check** card with a **"Test connectivity"** button — runs the new probe and shows resolved IP + server banner + per-step timing.
+- **Step timing list** now rendered inline inside every diagnostic panel (success or failure). Each step gets a localized label + `0.345s` style measurement (DNS lookup · TCP connect + EHLO · STARTTLS handshake · AUTH login · Send message).
+- **Failure panel** now shows: Reason + Stage + Server response (smtp_code/message) + Details (raw error in mono) + **Step timing** + How to fix.
+- Reused `<FailurePanel>` between the test-send result and the connectivity result so the markup stays DRY.
+- `adminTestEmail()` axios timeout raised to **90 s** (was 30 s) and `adminTestSmtpConnectivity()` uses the same 90 s budget. Backend SMTP timeout of 60 s now safely fits within that envelope, so axios will never time out before the backend returns a structured response.
+
+**Verified live against IONOS** from the Emergent container:
+- Connectivity probe: `reachable=true, resolved_ip=212.227.24.208, banner="220 smtp.ionos.de ESMTP RZmta (P1 -)", durations={dns:0.059, connect:0.234}` → **network reachability is fine**.
+- Full test send with deliberately wrong password: `reason=auth_failed, stage=login, smtp_code=535, smtp_message="Authentication credentials invalid", durations={dns:0.016, connect:0.349, starttls:0.512}` → IONOS reached STARTTLS in 0.5s, then rejected the bad password in <1s.
+
+This confirms the original "Browser timed out" toast was purely the 30 s axios timeout firing **before** the backend got a chance to surface IONOS's reply. The user's earlier symptom is now impossible — backend resolves within ~2 s for credential errors and timing is always visible.
+
+**i18n** (15 new keys × 3 languages — EN/AR/DE):
+- `admin.email.diag.{timing, ip, banner}`
+- `admin.email.step.{dns, connect, starttls, login, send}`
+- `admin.email.connProbeLabel`, `admin.email.connProbeDesc`, `admin.email.connProbe`, `admin.email.connOk`, `admin.email.connFailed`, `admin.email.connFailedTitle`
+
+**Tests**: pytest **29/29 PASS** (15 `test_email_diagnostics.py` + 14 `test_email_verification.py`).
+
+**Affected files**:
+- Updated: `/app/backend/email_service.py` (per-step timing + connectivity probe + DNS as separate step + 60s timeout knob), `/app/backend/auth_module.py` (new `POST /api/admin/email-settings/connectivity` route), `/app/frontend/src/pages/AdminEmailSettings.jsx` (Test connectivity button + ConnectivityPanel + reusable FailurePanel + StepTimings list), `/app/frontend/src/lib/auth.js` (90 s timeout + adminTestSmtpConnectivity), `/app/frontend/src/lib/translations.js` (15 new keys × 3 languages).
+

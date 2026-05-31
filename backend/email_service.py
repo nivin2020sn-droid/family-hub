@@ -179,13 +179,18 @@ class SmtpDeliveryError(Exception):
     def __init__(self, *, reason: str, stage: str, message: str,
                  smtp_code: Optional[int] = None,
                  smtp_message: Optional[str] = None,
-                 hint_key: Optional[str] = None):
+                 hint_key: Optional[str] = None,
+                 step_durations: Optional[dict] = None):
         self.reason = reason
         self.stage = stage
         self.message = message
         self.smtp_code = smtp_code
         self.smtp_message = smtp_message
         self.hint_key = hint_key
+        # Mapping of step → seconds, populated by `_smtp_send` so the admin
+        # can see exactly which phase consumed the budget when a timeout
+        # fires.
+        self.step_durations: dict = step_durations or {}
         super().__init__(message)
 
 
@@ -305,10 +310,18 @@ def _smtp_send(
     subject: str,
     text_body: str,
     html_body: str,
-) -> None:
+) -> dict:
     """Synchronous SMTP send used inside `run_in_executor` to keep the event
-    loop free. Raises `SmtpDeliveryError` with a classified reason so the
-    caller can surface the right hint in the admin UI."""
+    loop free. Tracks per-step timing (DNS lookup, TCP connect, STARTTLS,
+    AUTH, send) and either returns the timings on success or raises
+    `SmtpDeliveryError` carrying the timings + the stage where it broke.
+
+    The user-tunable timeout knob is `smtp_timeout_seconds` in `email_settings`
+    (default 60s). This is the per-socket-op timeout — STARTTLS handshake,
+    DNS, and AUTH each get their own budget."""
+    import socket as _socket
+    import time as _time
+
     host = (settings.get("smtp_host") or "").strip()
     port = int(settings.get("smtp_port") or 587)
     username = (settings.get("smtp_username") or "").strip()
@@ -316,6 +329,9 @@ def _smtp_send(
     use_tls = bool(settings.get("use_tls", True))
     sender_email = (settings.get("sender_email") or username or "").strip()
     sender_name = (settings.get("sender_name") or BRAND_NAME).strip()
+    # Per-step socket timeout in seconds. Generous default so slow EU
+    # servers like IONOS get a real chance to respond.
+    timeout_s = max(5, int(settings.get("smtp_timeout_seconds") or 60))
 
     if not host or not sender_email:
         raise EmailNotConfigured("SMTP host or sender_email missing")
@@ -328,34 +344,139 @@ def _smtp_send(
     msg.add_alternative(html_body, subtype="html")
 
     context = ssl.create_default_context()
-    stage = "connect"
-    # Tighter timeout than the proxy + axios layer (axios timeout = 15s) so we
-    # always return a structured response, never a generic gateway error.
-    timeout_s = 10
+    stage = "dns"
+    durations: dict = {}
+
+    def _mark(step: str, t0: float) -> None:
+        durations[step] = round(_time.perf_counter() - t0, 3)
+
     try:
+        # ---- 1. DNS lookup (explicit, so we can attribute the latency) ----
+        t_dns = _time.perf_counter()
+        try:
+            resolved = _socket.getaddrinfo(host, port, proto=_socket.IPPROTO_TCP)
+            resolved_ip = resolved[0][4][0] if resolved else None
+        finally:
+            _mark("dns", t_dns)
+        logger.info(
+            "[SMTP STEP] dns_ok host=%s -> %s | %.3fs",
+            host, resolved_ip, durations.get("dns", -1),
+        )
+
+        # ---- 2. TCP connect + EHLO ----
+        stage = "connect"
+        t_connect = _time.perf_counter()
         if port == 465:
-            with smtplib.SMTP_SSL(host, port, context=context, timeout=timeout_s) as s:
-                stage = "login"
-                if username:
-                    s.login(username, password)
-                stage = "send"
-                s.send_message(msg)
+            s = smtplib.SMTP_SSL(host, port, context=context, timeout=timeout_s)
         else:
-            with smtplib.SMTP(host, port, timeout=timeout_s) as s:
+            s = smtplib.SMTP(host, port, timeout=timeout_s)
+            s.ehlo()
+        _mark("connect", t_connect)
+        logger.info("[SMTP STEP] connect_ok | %.3fs", durations.get("connect", -1))
+
+        try:
+            # ---- 3. STARTTLS (skip for port 465 — already wrapped in TLS) ----
+            if port != 465 and use_tls:
+                stage = "starttls"
+                t_tls = _time.perf_counter()
+                s.starttls(context=context)
                 s.ehlo()
-                if use_tls:
-                    stage = "starttls"
-                    s.starttls(context=context)
-                    s.ehlo()
-                if username:
-                    stage = "login"
-                    s.login(username, password)
-                stage = "send"
-                s.send_message(msg)
+                _mark("starttls", t_tls)
+                logger.info(
+                    "[SMTP STEP] starttls_ok | %.3fs",
+                    durations.get("starttls", -1),
+                )
+
+            # ---- 4. AUTH ----
+            if username:
+                stage = "login"
+                t_login = _time.perf_counter()
+                s.login(username, password)
+                _mark("login", t_login)
+                logger.info(
+                    "[SMTP STEP] login_ok user=%s | %.3fs",
+                    username, durations.get("login", -1),
+                )
+
+            # ---- 5. Send the message ----
+            stage = "send"
+            t_send = _time.perf_counter()
+            s.send_message(msg)
+            _mark("send", t_send)
+            logger.info("[SMTP STEP] send_ok | %.3fs", durations.get("send", -1))
+        finally:
+            try:
+                s.quit()
+            except Exception:  # noqa: BLE001
+                pass
+
+        return {"step_durations": durations, "resolved_ip": resolved_ip}
     except SmtpDeliveryError:
         raise
     except BaseException as exc:  # noqa: BLE001
-        raise _classify_smtp_error(exc, stage) from exc
+        err = _classify_smtp_error(exc, stage)
+        err.step_durations = durations
+        raise err from exc
+
+
+def _smtp_connectivity_check(settings: dict) -> dict:
+    """Quick "can the backend even reach this host" probe — does DNS + TCP
+    connect (no STARTTLS / no AUTH). Used by the Admin → Email Settings
+    page when the user clicks "Test connectivity" to differentiate between
+    network reachability problems and credential problems."""
+    import socket as _socket
+    import time as _time
+
+    host = (settings.get("smtp_host") or "").strip()
+    port = int(settings.get("smtp_port") or 587)
+    timeout_s = max(5, int(settings.get("smtp_timeout_seconds") or 60))
+
+    if not host:
+        raise EmailNotConfigured("SMTP host missing")
+
+    durations: dict = {}
+    stage = "dns"
+    try:
+        t_dns = _time.perf_counter()
+        try:
+            resolved = _socket.getaddrinfo(host, port, proto=_socket.IPPROTO_TCP)
+            family, socktype, _proto, _canon, sockaddr = resolved[0]
+            resolved_ip = sockaddr[0]
+        finally:
+            durations["dns"] = round(_time.perf_counter() - t_dns, 3)
+
+        stage = "connect"
+        t_connect = _time.perf_counter()
+        sock = _socket.socket(family, socktype)
+        sock.settimeout(timeout_s)
+        try:
+            sock.connect(sockaddr)
+            # Try to read the SMTP banner (`220 ...`) so we know the server
+            # actually answered the protocol — a plain TCP open doesn't
+            # prove an MTA is on the other side.
+            banner = b""
+            try:
+                sock.settimeout(min(timeout_s, 10))
+                banner = sock.recv(512)
+            except Exception:  # noqa: BLE001
+                banner = b""
+        finally:
+            try:
+                sock.close()
+            except Exception:  # noqa: BLE001
+                pass
+            durations["connect"] = round(_time.perf_counter() - t_connect, 3)
+
+        return {
+            "reachable": True,
+            "resolved_ip": resolved_ip,
+            "banner": banner.decode("utf-8", errors="replace").strip() or None,
+            "step_durations": durations,
+        }
+    except BaseException as exc:  # noqa: BLE001
+        err = _classify_smtp_error(exc, stage)
+        err.step_durations = durations
+        raise err from exc
 
 
 async def send_localized_email(
@@ -398,21 +519,32 @@ async def send_localized_email(
 
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
+        send_info = await loop.run_in_executor(
             None,
             _smtp_send,
             settings, to_email, subject, text_body, html_body,
         )
-        logger.info("[EMAIL SENT] %s | to=%s", kind, to_email)
-        return {"sent": True, "to": to_email}
+        step_durations = (send_info or {}).get("step_durations") or {}
+        resolved_ip = (send_info or {}).get("resolved_ip")
+        logger.info(
+            "[EMAIL SENT] %s | to=%s | ip=%s | steps=%s",
+            kind, to_email, resolved_ip, step_durations,
+        )
+        return {
+            "sent": True,
+            "to": to_email,
+            "step_durations": step_durations,
+            "resolved_ip": resolved_ip,
+        }
     except SmtpDeliveryError as exc:
         # Surface the classified failure to the caller. We log a full
         # traceback at WARNING so an operator can correlate the exception
         # with the admin UI message.
         logger.warning(
-            "[EMAIL SEND FAILED] %s | to=%s | stage=%s | reason=%s | smtp=%s/%s | err=%s | link=%s",
+            "[EMAIL SEND FAILED] %s | to=%s | stage=%s | reason=%s | smtp=%s/%s | steps=%s | err=%s | link=%s",
             kind, to_email, exc.stage, exc.reason,
-            exc.smtp_code, exc.smtp_message, exc.message, link,
+            exc.smtp_code, exc.smtp_message,
+            exc.step_durations, exc.message, link,
             exc_info=True,
         )
         return {
@@ -423,6 +555,7 @@ async def send_localized_email(
             "smtp_code": exc.smtp_code,
             "smtp_message": exc.smtp_message,
             "hint_key": exc.hint_key,
+            "step_durations": exc.step_durations,
             "link": link,
         }
     except EmailNotConfigured as exc:
@@ -448,6 +581,55 @@ async def send_localized_email(
             "reason": "unknown",
             "error": f"{type(exc).__name__}: {exc}",
             "link": link,
+        }
+
+
+async def smtp_connectivity_test(db) -> dict:
+    """Backend connectivity probe — confirms DNS + TCP reachability to the
+    configured SMTP host:port WITHOUT requiring valid credentials.
+
+    Returns a rich receipt so the admin can quickly tell the difference
+    between a network problem (Render → IONOS unreachable) and a credential
+    problem (host reachable, login rejected)."""
+    import asyncio
+    settings = await db.email_settings.find_one({"_key": "global"}, {"_id": 0}) or {}
+    if not settings.get("smtp_host"):
+        return {"reachable": False, "reason": "smtp_not_configured",
+                "error": "SMTP host missing"}
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _smtp_connectivity_check, settings)
+        logger.info(
+            "[SMTP CONNECTIVITY] host=%s ip=%s banner=%r steps=%s",
+            settings.get("smtp_host"),
+            result.get("resolved_ip"),
+            result.get("banner"),
+            result.get("step_durations"),
+        )
+        return result
+    except SmtpDeliveryError as exc:
+        logger.warning(
+            "[SMTP CONNECTIVITY FAILED] host=%s stage=%s reason=%s steps=%s err=%s",
+            settings.get("smtp_host"), exc.stage, exc.reason,
+            exc.step_durations, exc.message,
+        )
+        return {
+            "reachable": False,
+            "reason": exc.reason,
+            "stage": exc.stage,
+            "error": exc.message,
+            "hint_key": exc.hint_key,
+            "step_durations": exc.step_durations,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[SMTP CONNECTIVITY FAILED] host=%s reason=unknown err=%s",
+            settings.get("smtp_host"), exc, exc_info=True,
+        )
+        return {
+            "reachable": False,
+            "reason": "unknown",
+            "error": f"{type(exc).__name__}: {exc}",
         }
 
 

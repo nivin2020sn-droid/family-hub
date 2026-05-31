@@ -1484,6 +1484,14 @@ def build_admin_router(db) -> APIRouter:
         receipt = await smtp_test_send(db, to, lang=lang)
         return receipt
 
+    @router.post("/email-settings/connectivity")
+    async def test_smtp_connectivity(_: dict = Depends(require_admin)):
+        """DNS + TCP-only probe to the configured SMTP host:port. Useful for
+        diagnosing whether the production network (e.g. Render → IONOS) can
+        even reach the SMTP server before worrying about credentials."""
+        from email_service import smtp_connectivity_test
+        return await smtp_connectivity_test(db)
+
     return router
 
 async def ensure_indexes(db) -> None:
