@@ -37,6 +37,28 @@
         <title>My Life My Time</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <style>#emergent-badge,a[href*="emergent.sh"]{display:none !important;visibility:hidden !important;}</style>
+
+        <!-- Google Analytics 4 (gtag.js) — async, non-blocking.
+             Tracks page_view (manually via SPA route listener), session_start
+             (auto), button clicks (delegated, see lib/analytics.js), form
+             submissions (delegated), and contact_request events (footer/legal
+             mailto links). The script tag is `async` so it never blocks
+             rendering; trackEvent() helpers are no-ops until gtag loads. -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-QS0W3Z2484"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){ dataLayer.push(arguments); }
+            window.gtag = gtag;
+            gtag('js', new Date());
+            // We disable GA's automatic SPA page_view so the React Router
+            // listener in src/lib/analytics.js owns the page_view firing;
+            // otherwise we'd get duplicate hits on every navigation.
+            gtag('config', 'G-QS0W3Z2484', {
+                send_page_view: false,
+                anonymize_ip: true,
+                cookie_flags: 'SameSite=None;Secure'
+            });
+        </script>
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>

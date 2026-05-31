@@ -475,3 +475,44 @@ Single-pass rebrand from the older "My Family My Life" / interim "My Family My T
 - `/app/frontend/public/index.html` + `manifest.json` (static SEO/PWA metadata).
 - `/app/backend/server.py` (migration step 8 — clear v2 hero defaults).
 - Plus the sed pass touched every file that mentioned the old names — auth_module.py, tenant.py, server.py headers, Dashboard.jsx, LegalLayout.jsx, LegalNotice.jsx, PrivacyPolicy.jsx, TermsOfService.jsx, Login.jsx, WallBoard.jsx, service-worker.js, beta_terms test, backend_test, PRD.md.
+
+
+## Implemented (Feb 2026 — Google Analytics 4 integration)
+GA4 measurement ID **`G-QS0W3Z2484`** added to the live build. Tracks page views, sessions, button clicks, form submissions, and contact requests across every route — works both on the preview domain and on https://mylife-mytime.com. Async-loaded, zero perceptible render impact.
+
+**Static loader** (`frontend/public/index.html`, in `<head>`):
+- `<script async src="https://www.googletagmanager.com/gtag/js?id=G-QS0W3Z2484"></script>` (async, non-blocking).
+- Inline `dataLayer` + `gtag()` shim immediately after, so React code can call `window.gtag(...)` even before the remote script finishes downloading (calls are queued in `dataLayer`).
+- `gtag('config', 'G-QS0W3Z2484', { send_page_view: false, anonymize_ip: true, cookie_flags: 'SameSite=None;Secure' })`. We disable GA's automatic page_view because we own SPA navigation; firing both would double-count every route change.
+
+**Analytics helper** (`frontend/src/lib/analytics.js`):
+- `trackEvent(name, params)` — safe wrapper, no-ops when gtag isn't loaded (ad-blockers, offline, SSR). Never throws — analytics MUST NOT break the page.
+- `trackPageView(path)` — fires `event: page_view` with `page_path`, `page_location`, `page_title`, `send_to: G-QS0W3Z2484`.
+- `useRouteAnalytics()` — React hook mounted once inside `<BrowserRouter>` (via the tiny `<RouteAnalytics />` component in `App.js`). Fires `page_view` on every `useLocation()` change, scheduled via `requestAnimationFrame` so it never competes with the route's own paint work.
+- `initGlobalEventDelegation()` — installs ONE capture-phase `click` and `submit` listener on `document` (idempotent, run at module import). Handles:
+  - Any element with `data-ga-event="<name>"` → fires `<name>` with optional `data-ga-<key>` extras.
+  - Plain `<button>` clicks → `button_click` with `label` (aria-label / data-testid / textContent, truncated to 80 chars).
+  - `<a href="mailto:...">` clicks → `contact_request { method: 'email', email, label }`.
+  - External `<a href="https?://...">` clicks → `outbound_click { link_url, label }`.
+  - `<form>` submits → `form_submit { form_name }` from `data-ga-form` / `name` / `data-testid`.
+  - The delegated approach means we did NOT have to sprinkle `trackEvent()` calls across every page — wiring is centralised.
+
+**Sessions**: GA4's Enhanced Measurement handles `session_start` and `user_engagement` automatically on the GA side. No client code required.
+
+**Live verification** (Playwright on the preview deploy):
+- Loading `/login` → `gtag` present, GA script tag present, **1 `page_view`** event in `dataLayer` with `page_title='My Life My Time'`, `page_path='/login'`.
+- Clicking the footer "Privacy Policy" link (SPA nav) → **2 `page_view`** events total; second one carries `page_path='/privacy'`, `page_title='Privacy Policy · My Life My Time'`. Confirms route-change tracking works.
+- Clicking the `mailto:` footer link → **1 `contact_request`** event: `{method: 'email', email: 'info@mylife-mytime.com', label: 'info@mylife-mytime.com'}`.
+- Clicking the "Personal Account" tile + submitting the login form with bad creds → **2 `button_click`** (`label: pick-single`, `label: login-submit`) + **1 `form_submit`** (`form_name: login-form`).
+
+**Performance & privacy notes**:
+- Loader is `async`, no `defer`, no render-blocking CSS dependency. Lighthouse-style smoke: first contentful paint of `/login` unchanged (~ same as before).
+- `anonymize_ip: true` is set (legacy flag, still respected by GA4 for IP truncation).
+- **GDPR / Karlsruhe consideration**: tracking starts on first visit per the user's explicit request. If you later need explicit consent before any GA hit, switch the config to call `gtag('consent', 'default', { analytics_storage: 'denied' })` immediately, then `gtag('consent', 'update', { analytics_storage: 'granted' })` only after the user accepts a cookie banner. The helper API and event delegation stay identical.
+
+**Affected files**:
+- `/app/frontend/public/index.html` (GA4 loader + config in `<head>`).
+- `/app/frontend/src/lib/analytics.js` **(new)** — helper + hook + global delegation.
+- `/app/frontend/src/App.js` (init delegation at module load + mount `<RouteAnalytics />` inside `<BrowserRouter>`).
+
+Backend untouched. Database untouched. Backend pytest **23/23 PASSED** (regression).

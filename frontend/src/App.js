@@ -23,6 +23,20 @@ import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
 import { I18nProvider } from "@/lib/i18n";
+import {
+  initGlobalEventDelegation,
+  useRouteAnalytics,
+} from "@/lib/analytics";
+
+// One-time global click/submit delegation for GA4. Safe to call at module
+// import time: it's idempotent and never throws if gtag hasn't loaded yet.
+initGlobalEventDelegation();
+
+// Mount inside the Router so SPA navigations fire a `page_view` event.
+function RouteAnalytics() {
+  useRouteAnalytics();
+  return null;
+}
 
 function App() {
   return (
@@ -30,6 +44,7 @@ function App() {
       <div className="App">
         <ErrorBoundary>
           <BrowserRouter>
+            <RouteAnalytics />
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route
