@@ -1833,8 +1833,8 @@ const WallBoard = () => {
               className="w-7 h-7 rounded-lg object-cover ring-1 ring-[#E5E2DC]"
             />
             <div className="leading-tight text-center">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-[#7A7571] font-semibold">My Family</p>
-              <p className="text-xs font-heading text-[#2D2A26] -mt-0.5">My Life</p>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[#7A7571] font-semibold">{t("app.brandLine1")}</p>
+              <p className="text-xs font-heading text-[#2D2A26] -mt-0.5">{t("app.brandLine2")}</p>
             </div>
           </div>
           <div className="flex items-center gap-1 -mr-1">

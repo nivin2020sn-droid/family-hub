@@ -1,4 +1,4 @@
-"""Multi-tenant auth + family management for My Family My Life.
+"""Multi-tenant auth + family management for My Life My Time.
 
 Two tokens are issued by this module:
   * account_token — issued by /api/auth/login; proves the family account.
@@ -554,7 +554,7 @@ def build_auth_router(db) -> APIRouter:
     @router.get("/app/info")
     async def app_info():
         return {
-            "name": "My Family My Life",
+            "name": "My Life My Time",
             "version": APP_VERSION,
             "stage": APP_STAGE,
         }

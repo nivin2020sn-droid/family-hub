@@ -14,13 +14,13 @@ import { usePageMeta } from "@/lib/usePageMeta";
 
 const TITLE = "Privacy Policy";
 const DESCRIPTION =
-  "Learn how My Family My Time collects, uses, and protects your personal information across all our services.";
+  "Learn how My Life My Time collects, uses, and protects your personal information across all our services.";
 
 const PrivacyPolicy = () => {
   usePageMeta({
-    title: `${TITLE} · My Family My Time`,
+    title: `${TITLE} · My Life My Time`,
     description: DESCRIPTION,
-    ogTitle: `${TITLE} · My Family My Time`,
+    ogTitle: `${TITLE} · My Life My Time`,
     ogDescription: DESCRIPTION,
   });
 
@@ -33,7 +33,7 @@ const PrivacyPolicy = () => {
     >
       <Section title="Overview">
         <P>
-          My Family My Time respects your privacy and is committed to
+          My Life My Time respects your privacy and is committed to
           protecting your personal information.
         </P>
       </Section>

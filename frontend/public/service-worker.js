@@ -1,4 +1,4 @@
-/* My Family My Life — service worker
+/* My Life My Time — service worker
    IMPORTANT: This SW is intentionally minimal. It uses NETWORK-FIRST for
    HTML/JS/CSS so deployed builds are NEVER stale. It only caches static
    media as a stale-while-revalidate. API calls go through the network and

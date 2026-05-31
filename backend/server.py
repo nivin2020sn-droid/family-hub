@@ -336,7 +336,7 @@ class LocationPointOut(BaseModel):
 
 @api_router.get("/")
 async def root():
-    return {"message": "My Family My Life API"}
+    return {"message": "My Life My Time API"}
 
 
 # ============= Legacy users / family-code endpoints (REMOVED in Feb 2026) =====
@@ -3027,5 +3027,23 @@ async def migrate_legacy_to_nasser(rdb):
         if res.modified_count:
             logger.warning(
                 "[MIGRATE] wall_settings.%s: cleared %d legacy-default rows",
+                field, res.modified_count,
+            )
+
+    # 8) Same idea for the (very short-lived) v2 defaults that landed before
+    # the "My Life My Time" rebrand. Cleared so the new localized strings
+    # surface for every existing family.
+    legacy_v2_wall_defaults = {
+        "hero_title": "Organize your day, reach your goals",
+        "hero_subtitle": "All your plans, notes, and tasks in one place",
+    }
+    for field, legacy_value in legacy_v2_wall_defaults.items():
+        res = await rdb.wall_settings.update_many(
+            {field: legacy_value},
+            {"$set": {field: ""}},
+        )
+        if res.modified_count:
+            logger.warning(
+                "[MIGRATE] wall_settings.%s (v2): cleared %d rows",
                 field, res.modified_count,
             )

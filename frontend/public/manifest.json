@@ -1,7 +1,7 @@
 {
-  "short_name": "My Family",
-  "name": "My Family My Life",
-  "description": "One App to Organize Your Entire Family Life",
+  "short_name": "My Life My Time",
+  "name": "My Life My Time",
+  "description": "Organize your life, manage your time, achieve your goals.",
   "icons": [
     {
       "src": "favicon.ico",

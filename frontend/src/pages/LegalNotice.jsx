@@ -13,13 +13,13 @@ import { usePageMeta } from "@/lib/usePageMeta";
 
 const TITLE = "Legal Notice";
 const DESCRIPTION =
-  "Operator and contact details for My Family My Time, plus disclaimers regarding accuracy and external links.";
+  "Operator and contact details for My Life My Time, plus disclaimers regarding accuracy and external links.";
 
 const LegalNotice = () => {
   usePageMeta({
-    title: `${TITLE} · My Family My Time`,
+    title: `${TITLE} · My Life My Time`,
     description: DESCRIPTION,
-    ogTitle: `${TITLE} · My Family My Time`,
+    ogTitle: `${TITLE} · My Life My Time`,
     ogDescription: DESCRIPTION,
   });
 
@@ -33,7 +33,7 @@ const LegalNotice = () => {
     >
       <Section title="Operator">
         <P>
-          <strong className="font-semibold">My Family My Time</strong>
+          <strong className="font-semibold">My Life My Time</strong>
         </P>
         <P>
           <span className="text-[#7A7571] dark:text-white/60 text-xs uppercase tracking-wider">

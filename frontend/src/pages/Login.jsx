@@ -1,4 +1,4 @@
-// Multi-step auth screen for My Family My Life.
+// Multi-step auth screen for My Life My Time.
 //
 // Flow:
 //   1. AccountType  — choose "Family" or "Single" (Single is locked for v1).

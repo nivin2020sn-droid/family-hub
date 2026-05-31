@@ -13,7 +13,7 @@ export const LEGAL_LINKS = [
   { to: "/legal-notice", label: "Legal Notice", testid: "footer-link-legal" },
 ];
 
-const APP_NAME = "My Family My Time";
+const APP_NAME = "My Life My Time";
 const SUPPORT_EMAIL = "info@mylife-mytime.com";
 
 export const LegalFooter = ({ className = "" }) => (

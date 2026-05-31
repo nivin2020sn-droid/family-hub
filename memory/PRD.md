@@ -1,7 +1,7 @@
-# My Family My Life — PRD
+# My Life My Time — PRD
 
 ## Original Problem Statement
-صمّم تطبيق ويب حديث ومتطور باسم "My Family My Life" بواجهة كاملة باللغة الإنجليزية. في المرحلة الأولى يجب أن يكون قسم Time Plan فقط هو القسم الفعّال، بينما يظهر القسمان الآخران كبطاقات جذابة تحمل عبارة "Coming Soon".
+صمّم تطبيق ويب حديث ومتطور باسم "My Life My Time" بواجهة كاملة باللغة الإنجليزية. في المرحلة الأولى يجب أن يكون قسم Time Plan فقط هو القسم الفعّال، بينما يظهر القسمان الآخران كبطاقات جذابة تحمل عبارة "Coming Soon".
 
 ## User Choices (gathered)
 - Authentication: **Two fixed pre-seeded users (wife/husband), no auth**
@@ -36,7 +36,7 @@
 - PWA: manifest.json, service-worker.js, register-on-load
 - Offline cache fallback in API client (localStorage)
 - Online/offline toast indicator
-- **Feb 2026 (latest)**: Replaced app branding — new "My Family My Life" illustrated logo applied to favicon.ico, logo192/512/1024.png, apple-touch-icon.png, og-image.png, manifest icons (with maskable purpose), and Dashboard header (replaces previous gradient "M" tile). Added OG/Twitter meta tags.
+- **Feb 2026 (latest)**: Replaced app branding — new "My Life My Time" illustrated logo applied to favicon.ico, logo192/512/1024.png, apple-touch-icon.png, og-image.png, manifest icons (with maskable purpose), and Dashboard header (replaces previous gradient "M" tile). Added OG/Twitter meta tags.
 - **Feb 2026 (latest)**: 100% translation coverage. Expanded `lib/translations.js` to ~150 keys per locale covering: every section title, button label, empty state, placeholder, tooltip, dialog header/description, toast (success/error/info/warning), sync state label, month name (Jan–Dec), short weekday name (Sun–Sat), default user names, and error boundary copy. Refactored every visible component to consume `useT()`: `pages/Login.jsx`, `pages/WallBoard.jsx` (main + every editor dialog + GoalHistory + WallSettings), `pages/TimePlan.jsx` (header, sync pill, month/day headers via `t("month.N")` / `t("day.short.N")`, Quick Fill bar, toasts), `components/EventDialog.jsx`, `components/EventTypesDialog.jsx`, `components/DayDetailPopover.jsx` (with locale-aware `toLocaleDateString`), `components/ProfilesDialog.jsx`, `components/ErrorBoundary.jsx` (class component reads `localStorage.mfml_lang` directly). User-saved content (custom hero title, MOTD text, goal labels, profile names like "Theresa"/"Bahaa") is preserved untouched — only the chrome and defaults translate. RTL fully working for Arabic; LTR for English/German; `<html lang dir>` updates automatically on language change.
 - **Feb 2026**: Our Goals enhanced with archive + full history. Added 3 new timestamps to `wall_goals` (auto-stamped server-side): `updated_at` (every PUT), `completed_at` (set when `done` flips to true, cleared when un-done), `archived_at` (set via PUT `{archived: true}`, cleared by `{archived: false}`). GET `/api/wall/goals` excludes archived by default; `?include_archived=true` returns all. New Archive button per goal row (between Edit and Delete). Single "History" button at the bottom of the Our Goals card opens `GoalHistoryDialog` showing active + archived goals; tap any goal to see its 4 timestamps; archived goals have Restore + permanent-delete actions. Long goal text now wraps to multiple lines (replaced `truncate` with `break-words whitespace-pre-wrap`). No other sections changed.
 - **Feb 2026**: **Wall Board is now the real main Dashboard (`/`).** Old static Dashboard removed from routing; `/wall-board` and `/dashboard` redirect to `/`. All sections fully editable + persisted in MongoDB:
@@ -403,7 +403,7 @@ The existing `/terms` (beta-consent review) is kept untouched.
 
 **Shared layout** (`components/LegalLayout.jsx`):
 - `LegalLayout`: sticky top bar with "Back to Home" button + brand chip, breadcrumb (`Home › <Page>`), icon-prefixed hero (3xl→5xl heading, sub-text, auto `Last Updated: <today, en-GB>`), white rounded content card, `LegalFooter`.
-- `LegalFooter`: `© <year> My Family My Time. All rights reserved.` + `Privacy Policy | Terms of Service | Legal Notice | info@mylife-mytime.com` (data-testid `site-footer`).
+- `LegalFooter`: `© <year> My Life My Time. All rights reserved.` + `Privacy Policy | Terms of Service | Legal Notice | info@mylife-mytime.com` (data-testid `site-footer`).
 - Helpers `Section / P / Bullets / MailLink` so each page reads like a document, not JSX soup.
 - Exports `LEGAL_LINKS` (id + label + testid array) consumed by both the Login footer strip and the Wall Board Settings dialog.
 - Responsive grid: max-w-4xl on desktop, full-width on mobile (sm:px-6 / px-4). Dark-mode tokens (`dark:bg-[#15140F]`, `dark:text-white/90`, `dark:border-white/10`) auto-applied via `prefers-color-scheme`.
@@ -420,7 +420,7 @@ The existing `/terms` (beta-consent review) is kept untouched.
 
 **Verified** on https://family-timeplan.preview.emergentagent.com/:
 - `/privacy`, `/terms-of-service`, `/legal-notice` render on desktop (1440px) and mobile (420px) with full content, working Back to Home, breadcrumb, and footer.
-- `document.title` switches per page (`"Privacy Policy · My Family My Time"`, etc.) and `og:title` / `og:description` mirror the title — no stale "My Family My Life" leaking through.
+- `document.title` switches per page (`"Privacy Policy · My Life My Time"`, etc.) and `og:title` / `og:description` mirror the title — no stale "My Life My Time" leaking through.
 - Footer link click navigates between pages instantly; current page is shown in a darker tint via React Router styling.
 - Login page shows the legal strip cleanly under the © brand line.
 - Backend regression: pytest 23/23 PASSED unchanged.
@@ -428,3 +428,50 @@ The existing `/terms` (beta-consent review) is kept untouched.
 **Affected files**:
 - New: `/app/frontend/src/lib/usePageMeta.js`, `/app/frontend/src/components/LegalLayout.jsx`, `/app/frontend/src/pages/PrivacyPolicy.jsx`, `/app/frontend/src/pages/TermsOfService.jsx`, `/app/frontend/src/pages/LegalNotice.jsx`.
 - Updated: `/app/frontend/src/App.js` (3 new public routes + imports), `/app/frontend/src/pages/Login.jsx` (legal links strip × 3 shells, `LEGAL_LINKS` import), `/app/frontend/src/pages/WallBoard.jsx` (legal links in Settings dialog, `Link` + `LEGAL_LINKS` imports).
+
+
+## Implemented (Feb 2026 — Full rebrand to "My Life My Time")
+Single-pass rebrand from the older "My Family My Life" / interim "My Family My Time" identity to the official **My Life My Time** name with the domain mylife-mytime.com. Functions, database, and internal route paths untouched; only branding/copy and `wall_settings` legacy defaults were rewritten.
+
+**Bulk rename** (sed pass across `frontend/src`, `frontend/public`, `backend`, `memory`):
+- `My Family My Life` → `My Life My Time`
+- `My Family My Time` → `My Life My Time`
+- `MY FAMILY MY LIFE` → `MY LIFE MY TIME`
+- `MY FAMILY MY TIME` → `MY LIFE MY TIME`
+
+**Hero copy & brand-line keys** (`frontend/src/lib/translations.js`, EN / AR / DE):
+- `app.appName`: `My Life My Time` (EN/DE) · `حياتي وقتي` (AR)
+- `app.brandLine1`: `My Life` (EN/DE) · `حياتي` (AR)  *(top-bar uppercase eyebrow)*
+- `app.brandLine2`: `My Time` (EN/DE) · `وقتي` (AR)  *(top-bar heading)*
+- `hero.defaultTitle` / `.single` (both pinned to the brand name):
+  - EN/DE: `My Life My Time`
+  - AR: `حياتي وقتي`
+- `hero.defaultSubtitle` / `.single` (per-language slogan):
+  - EN: `Organize your life, manage your time, achieve your goals.`
+  - AR: `نظم حياتك، أدر وقتك، وحقق أهدافك.`
+  - DE: `Organisiere dein Leben, verwalte deine Zeit und erreiche deine Ziele.`
+- `auth.chooseType.desc` (AR): `كيف ستستخدم تطبيق حياتي وقتي؟`
+
+**Top-bar logo** (`pages/WallBoard.jsx`): the hard-coded `<p>My Family</p><p>My Life</p>` block now reads from `t("app.brandLine1")` / `t("app.brandLine2")`, so the eyebrow + heading switch with the active language (EN → "MY LIFE / My Time", AR → "حياتي / وقتي", DE → "MY LIFE / My Time").
+
+**Static SEO/PWA assets**:
+- `frontend/public/index.html`: `<title>My Life My Time</title>`, `meta[name=description]` + `og:title` + `og:description` + `twitter:title` + `twitter:description` all updated to the new tagline.
+- `frontend/public/manifest.json`: `name="My Life My Time"`, `short_name="My Life My Time"`, `description` rebranded.
+
+**Backend migration step 8** (`backend/server.py`): on startup the new pass also scrubs the short-lived v2 hero defaults (`"Organize your day, reach your goals"`, `"All your plans, notes, and tasks in one place"`) out of `wall_settings`, so every existing family now picks up the new "My Life My Time" copy from i18n instead of the stale per-row strings. Custom user-saved hero text is preserved untouched.
+
+**Verified**:
+- Backend pytest **23/23 PASSED** (tenant isolation + single account + budget owner regressions, unchanged).
+- Playwright screenshots on https://family-timeplan.preview.emergentagent.com/:
+  - `/login` (logged out) — Logo "My Life My Time", subtitle "How will you use My Life My Time?", footer "© My Life My Time · Built with care".
+  - `/privacy` — top-bar brand "MY LIFE MY TIME", title `Privacy Policy · My Life My Time`, body text mentions "My Life My Time".
+  - `/` Wall Board (EN, single) — Top-bar logo "MY LIFE / My Time", Hero "My Life My Time / Organize your life, manage your time, achieve your goals.", Welcome strip "Welcome, Layla / Have a great day".
+  - `/` Wall Board (AR, single) — Top-bar logo "حياتي / وقتي", Hero "حياتي وقتي / نظم حياتك، أدر وقتك، وحقق أهدافك.", Welcome strip "مرحباً Layla / نتمنى لك يوماً سعيداً".
+- `document.title` and `og:title` switch per-page via the `usePageMeta` hook (Legal pages add `· My Life My Time` suffix automatically).
+
+**Affected files**:
+- `/app/frontend/src/lib/translations.js` (EN/AR/DE brand keys + hero defaults + chooseType subtitle).
+- `/app/frontend/src/pages/WallBoard.jsx` (top-bar logo now reads `app.brandLine1/2`).
+- `/app/frontend/public/index.html` + `manifest.json` (static SEO/PWA metadata).
+- `/app/backend/server.py` (migration step 8 — clear v2 hero defaults).
+- Plus the sed pass touched every file that mentioned the old names — auth_module.py, tenant.py, server.py headers, Dashboard.jsx, LegalLayout.jsx, LegalNotice.jsx, PrivacyPolicy.jsx, TermsOfService.jsx, Login.jsx, WallBoard.jsx, service-worker.js, beta_terms test, backend_test, PRD.md.

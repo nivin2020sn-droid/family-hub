@@ -20,9 +20,9 @@ export const TRANSLATIONS = {
 
     // ===== App =====
     "app.tagline": "Built with care",
-    "app.appName": "My Family My Life",
-    "app.brandLine1": "My Family",
-    "app.brandLine2": "My Life",
+    "app.appName": "My Life My Time",
+    "app.brandLine1": "My Life",
+    "app.brandLine2": "My Time",
 
     // ===== Bottom nav =====
     "nav.home": "Home",
@@ -45,10 +45,10 @@ export const TRANSLATIONS = {
     "hero.uploadPhoto": "Upload photo",
     "hero.changePhoto": "Change photo",
     "hero.removePhoto": "Remove",
-    "hero.defaultTitle": "Together We Build Beautiful Memories",
-    "hero.defaultTitle.single": "Organize your day, reach your goals",
-    "hero.defaultSubtitle": "Our Family, Our Dreams, Our Happiness",
-    "hero.defaultSubtitle.single": "All your plans, notes, and tasks in one place",
+    "hero.defaultTitle": "My Life My Time",
+    "hero.defaultTitle.single": "My Life My Time",
+    "hero.defaultSubtitle": "Organize your life, manage your time, achieve your goals.",
+    "hero.defaultSubtitle.single": "Organize your life, manage your time, achieve your goals.",
     "hero.tapToAdd": "Tap edit to add a family photo",
     "hero.tapToAdd.single": "Tap edit to add a cover photo",
     // Personal welcome strip (single account)
@@ -649,7 +649,7 @@ export const TRANSLATIONS = {
     "budget.contracts.openForecast": "Open forecast",
 
     // ===== Auth (multi-tenant accounts) =====
-    "auth.chooseType.desc": "How will you use My Family My Life?",
+    "auth.chooseType.desc": "How will you use My Life My Time?",
     "auth.type.family": "Family Account",
     "auth.type.familyDesc": "One account, several members with their own PIN.",
     "auth.type.single": "Personal Account",
@@ -834,7 +834,7 @@ export const TRANSLATIONS = {
     "activity.generic": "Activity recorded",
 
     "beta.chip": "Beta · v{version}",
-    "beta.title": "Welcome to My Family My Life Beta",
+    "beta.title": "Welcome to My Life My Time Beta",
     "beta.subtitle": "Please read and accept the terms below before creating your account.",
     "beta.viewTerms": "View Beta Terms · Privacy · Disclaimer",
     "beta.continue": "I accept and continue",
@@ -929,9 +929,9 @@ export const TRANSLATIONS = {
     "login.unableToUnlock": "تعذّر فتح التطبيق",
 
     "app.tagline": "صُمم بحب",
-    "app.appName": "عائلتي حياتي",
-    "app.brandLine1": "عائلتي",
-    "app.brandLine2": "حياتي",
+    "app.appName": "حياتي وقتي",
+    "app.brandLine1": "حياتي",
+    "app.brandLine2": "وقتي",
 
     "nav.home": "الرئيسية",
     "nav.timePlan": "خطة الوقت",
@@ -952,10 +952,10 @@ export const TRANSLATIONS = {
     "hero.uploadPhoto": "رفع صورة",
     "hero.changePhoto": "تغيير الصورة",
     "hero.removePhoto": "إزالة",
-    "hero.defaultTitle": "معاً نصنع أجمل الذكريات",
-    "hero.defaultTitle.single": "نظّم يومك وحقّق أهدافك",
-    "hero.defaultSubtitle": "عائلتنا، أحلامنا، سعادتنا",
-    "hero.defaultSubtitle.single": "كل خططك وملاحظاتك ومهامك في مكان واحد",
+    "hero.defaultTitle": "حياتي وقتي",
+    "hero.defaultTitle.single": "حياتي وقتي",
+    "hero.defaultSubtitle": "نظم حياتك، أدر وقتك، وحقق أهدافك.",
+    "hero.defaultSubtitle.single": "نظم حياتك، أدر وقتك، وحقق أهدافك.",
     "hero.tapToAdd": "اضغط للتعديل وإضافة صورة العائلة",
     "hero.tapToAdd.single": "اضغط للتعديل وإضافة صورة غلاف",
     "wallboard.welcome.single": "مرحباً {name}",
@@ -1533,7 +1533,7 @@ export const TRANSLATIONS = {
     "budget.contracts.openForecast": "فتح التوقع",
 
     // ===== Auth (multi-tenant accounts) =====
-    "auth.chooseType.desc": "كيف ستستخدم تطبيق عائلتي حياتي؟",
+    "auth.chooseType.desc": "كيف ستستخدم تطبيق حياتي وقتي؟",
     "auth.type.family": "حساب عائلة",
     "auth.type.familyDesc": "حساب واحد بعدة أفراد، لكل فرد PIN خاص به.",
     "auth.type.single": "حساب فردي",
@@ -1718,7 +1718,7 @@ export const TRANSLATIONS = {
     "activity.generic": "تم تسجيل نشاط",
 
     "beta.chip": "بيتا · إصدار {version}",
-    "beta.title": "مرحباً بك في النسخة التجريبية من My Family My Life",
+    "beta.title": "مرحباً بك في النسخة التجريبية من My Life My Time",
     "beta.subtitle": "يرجى قراءة الشروط التالية والموافقة عليها قبل إنشاء الحساب.",
     "beta.viewTerms": "عرض شروط النسخة التجريبية · الخصوصية · إخلاء المسؤولية",
     "beta.continue": "أوافق وأتابع",
@@ -1813,9 +1813,9 @@ export const TRANSLATIONS = {
     "login.unableToUnlock": "Entsperren nicht möglich",
 
     "app.tagline": "Mit Liebe gebaut",
-    "app.appName": "My Family My Life",
-    "app.brandLine1": "My Family",
-    "app.brandLine2": "My Life",
+    "app.appName": "My Life My Time",
+    "app.brandLine1": "My Life",
+    "app.brandLine2": "My Time",
 
     "nav.home": "Start",
     "nav.timePlan": "Zeitplan",
@@ -1836,10 +1836,10 @@ export const TRANSLATIONS = {
     "hero.uploadPhoto": "Foto hochladen",
     "hero.changePhoto": "Foto ändern",
     "hero.removePhoto": "Entfernen",
-    "hero.defaultTitle": "Gemeinsam schaffen wir wunderschöne Erinnerungen",
-    "hero.defaultTitle.single": "Organisiere deinen Tag, erreiche deine Ziele",
-    "hero.defaultSubtitle": "Unsere Familie, unsere Träume, unser Glück",
-    "hero.defaultSubtitle.single": "Alle deine Pläne, Notizen und Aufgaben an einem Ort",
+    "hero.defaultTitle": "My Life My Time",
+    "hero.defaultTitle.single": "My Life My Time",
+    "hero.defaultSubtitle": "Organisiere dein Leben, verwalte deine Zeit und erreiche deine Ziele.",
+    "hero.defaultSubtitle.single": "Organisiere dein Leben, verwalte deine Zeit und erreiche deine Ziele.",
     "hero.tapToAdd": "Tippe auf Bearbeiten, um ein Familienfoto hinzuzufügen",
     "hero.tapToAdd.single": "Tippe auf Bearbeiten, um ein Coverfoto hinzuzufügen",
     "wallboard.welcome.single": "Willkommen, {name}",
@@ -2417,7 +2417,7 @@ export const TRANSLATIONS = {
     "budget.contracts.openForecast": "Prognose öffnen",
 
     // ===== Auth (multi-tenant accounts) =====
-    "auth.chooseType.desc": "Wie möchtest du My Family My Life verwenden?",
+    "auth.chooseType.desc": "Wie möchtest du My Life My Time verwenden?",
     "auth.type.family": "Familienkonto",
     "auth.type.familyDesc": "Ein Konto, mehrere Mitglieder mit eigenem PIN.",
     "auth.type.single": "Einzelkonto",
@@ -2602,7 +2602,7 @@ export const TRANSLATIONS = {
     "activity.generic": "Aktivität erfasst",
 
     "beta.chip": "Beta · v{version}",
-    "beta.title": "Willkommen zur Beta von My Family My Life",
+    "beta.title": "Willkommen zur Beta von My Life My Time",
     "beta.subtitle": "Bitte lies die folgenden Bedingungen und akzeptiere sie, bevor du dein Konto erstellst.",
     "beta.viewTerms": "Beta-Bedingungen · Datenschutz · Haftungsausschluss anzeigen",
     "beta.continue": "Ich akzeptiere und fahre fort",

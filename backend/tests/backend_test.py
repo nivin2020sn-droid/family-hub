@@ -1,4 +1,4 @@
-"""Backend API tests for My Family My Life app."""
+"""Backend API tests for My Life My Time app."""
 import os
 import uuid
 import pytest

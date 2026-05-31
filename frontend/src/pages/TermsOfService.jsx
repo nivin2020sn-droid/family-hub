@@ -13,13 +13,13 @@ import { usePageMeta } from "@/lib/usePageMeta";
 
 const TITLE = "Terms of Service";
 const DESCRIPTION =
-  "The terms that govern your use of My Family My Time — eligibility, accounts, acceptable use, and limitations.";
+  "The terms that govern your use of My Life My Time — eligibility, accounts, acceptable use, and limitations.";
 
 const TermsOfService = () => {
   usePageMeta({
-    title: `${TITLE} · My Family My Time`,
+    title: `${TITLE} · My Life My Time`,
     description: DESCRIPTION,
-    ogTitle: `${TITLE} · My Family My Time`,
+    ogTitle: `${TITLE} · My Life My Time`,
     ogDescription: DESCRIPTION,
   });
 
@@ -27,12 +27,12 @@ const TermsOfService = () => {
     <LegalLayout
       icon={FileText}
       title={TITLE}
-      subtitle="By accessing or using My Family My Time, you agree to these terms."
+      subtitle="By accessing or using My Life My Time, you agree to these terms."
       testid="page-terms-of-service"
     >
       <Section title="Acceptance of Terms">
         <P>
-          By accessing or using My Family My Time, you agree to these Terms of
+          By accessing or using My Life My Time, you agree to these Terms of
           Service.
         </P>
       </Section>

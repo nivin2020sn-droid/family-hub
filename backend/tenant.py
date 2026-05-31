@@ -1,4 +1,4 @@
-"""Multi-tenant isolation for My Family My Life.
+"""Multi-tenant isolation for My Life My Time.
 
 Wraps Motor's `AsyncIOMotorCollection` so that data collections automatically
 filter every read by the current request's `family_id` and inject the same

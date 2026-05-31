@@ -46,12 +46,12 @@ const Dashboard = () => {
           <div className="flex items-center gap-3">
             <img
               src="/logo192.png"
-              alt="My Family My Life"
+              alt="My Life My Time"
               className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover shadow-md ring-1 ring-[#E5E2DC]"
               data-testid="app-logo"
             />
             <div>
-              <p className="font-heading text-base font-semibold text-[#2D2A26] leading-none">My Family My Life</p>
+              <p className="font-heading text-base font-semibold text-[#2D2A26] leading-none">My Life My Time</p>
               <p className="text-xs text-[#7A7571] mt-1 tracking-wide">Family Hub</p>
             </div>
           </div>
@@ -153,7 +153,7 @@ const Dashboard = () => {
           <p className="text-xs text-[#7A7571] tracking-wide">
             Built with care · Works offline · PWA ready
           </p>
-          <p className="text-xs text-[#7A7571] tracking-wide">© My Family My Life</p>
+          <p className="text-xs text-[#7A7571] tracking-wide">© My Life My Time</p>
         </div>
       </div>
     </div>

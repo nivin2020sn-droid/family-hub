@@ -18,7 +18,7 @@ class TestAppInfo:
         r = requests.get(f"{API}/auth/app/info", timeout=15)
         assert r.status_code == 200
         d = r.json()
-        assert d.get("name") == "My Family My Life"
+        assert d.get("name") == "My Life My Time"
         assert d.get("version") == "0.9.0-beta"
         assert d.get("stage") == "beta"
 
