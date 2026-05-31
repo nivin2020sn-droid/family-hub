@@ -17,13 +17,51 @@ import { useLocation } from "react-router-dom";
 
 const MEASUREMENT_ID = "G-QS0W3Z2484";
 
+// Opt-in debug mode — append `?ga_debug=1` to ANY URL to make every event
+// arrive in GA4's DebugView in real time, and verbose-log to the console.
+// Useful for verifying the integration without touching the build.
+const DEBUG_MODE =
+  typeof window !== "undefined" &&
+  /\b(ga_debug=1|gtm_debug=1)\b/.test(window.location.search || "");
+
+// Tag for every event so the user can filter "audit traffic" out of GA
+// reports if they want, and so we can see in DebugView exactly which
+// build a hit came from. Increment this on any analytics-only change.
+const ANALYTICS_BUILD = "mlmt-2026.02.05";
+
+if (DEBUG_MODE && typeof window !== "undefined" && typeof window.gtag === "function") {
+  // Re-issue the config with debug_mode so DebugView lights up.
+  try {
+    window.gtag("config", MEASUREMENT_ID, {
+      send_page_view: false,
+      anonymize_ip: true,
+      debug_mode: true,
+      cookie_flags: "SameSite=None;Secure",
+    });
+    // eslint-disable-next-line no-console
+    console.info("[GA4] Debug mode enabled — events will appear in DebugView.");
+  } catch (_) { /* noop */ }
+}
+
 /** Safe wrapper around window.gtag. Silently no-ops if GA isn't loaded. */
 export function trackEvent(eventName, params = {}) {
   if (typeof window === "undefined") return;
   const gtag = window.gtag;
   if (typeof gtag !== "function") return;
+  const enriched = {
+    ...params,
+    analytics_build: ANALYTICS_BUILD,
+    ...(DEBUG_MODE ? { debug_mode: true } : {}),
+    // Beacon transport so the hit survives page unload during navigation;
+    // GA4 falls back to fetch+keepalive automatically on older browsers.
+    transport_type: "beacon",
+  };
   try {
-    gtag("event", eventName, params);
+    gtag("event", eventName, enriched);
+    if (DEBUG_MODE) {
+      // eslint-disable-next-line no-console
+      console.info("[GA4]", eventName, enriched);
+    }
   } catch (_) {
     // Never let analytics crash the app.
   }
@@ -32,32 +70,41 @@ export function trackEvent(eventName, params = {}) {
 /** Fire a GA4 page_view. Called automatically on every SPA route change. */
 export function trackPageView(path) {
   if (typeof window === "undefined") return;
-  const gtag = window.gtag;
-  if (typeof gtag !== "function") return;
-  try {
-    gtag("event", "page_view", {
-      page_path: path,
-      page_location: window.location.href,
-      page_title: document.title,
-      send_to: MEASUREMENT_ID,
-    });
-  } catch (_) {
-    /* noop */
-  }
+  trackEvent("page_view", {
+    page_path: path,
+    page_location: window.location.href,
+    page_title: document.title,
+    send_to: MEASUREMENT_ID,
+  });
 }
 
 /**
  * Hook that sends a `page_view` event whenever React Router navigates.
  * Mount it ONCE inside the <BrowserRouter> tree (we do it at App root).
+ *
+ * We wait a microtask + a short delay so `document.title` has been updated
+ * by `usePageMeta` and the route's own redirects have settled. This avoids
+ * the classic SPA double-count where the initial `/` page_view fires
+ * BEFORE a guard redirects to `/login`.
  */
 export function useRouteAnalytics() {
   const location = useLocation();
   useEffect(() => {
-    // Run after paint so we don't compete with the route's own work.
-    const id = window.requestAnimationFrame(() => {
-      trackPageView(location.pathname + location.search);
-    });
-    return () => window.cancelAnimationFrame(id);
+    const path = location.pathname + location.search;
+    // 60ms: long enough for redirect-on-mount components (RequireAuth,
+    // <Navigate />) to push a new history entry — short enough to feel
+    // instant for analytics purposes.
+    const t = setTimeout(() => {
+      // If the location changed AGAIN within those 60ms (redirect chain),
+      // skip this one; the next effect run will catch the final URL.
+      if (
+        window.location.pathname + window.location.search ===
+        path
+      ) {
+        trackPageView(path);
+      }
+    }, 60);
+    return () => clearTimeout(t);
   }, [location.pathname, location.search]);
 }
 

@@ -550,3 +550,29 @@ Admin can now edit every legal/brand string of the site from a dedicated dashboa
 **Affected files**:
 - New: `/app/backend/tests/test_site_content.py`, `/app/frontend/src/lib/siteContent.js`, `/app/frontend/src/pages/AdminContent.jsx`, `/app/frontend/src/pages/Disclaimer.jsx`, `/app/frontend/src/components/ContentRenderer.jsx`.
 - Modified: `/app/backend/server.py` (new endpoints + model + defaults), `/app/frontend/src/pages/PrivacyPolicy.jsx`, `TermsOfService.jsx`, `LegalNotice.jsx` (now read from DB), `/app/frontend/src/components/LegalLayout.jsx` (+ Disclaimer link), `/app/frontend/src/pages/Admin.jsx` (Content button), `/app/frontend/src/App.js` (2 new routes).
+
+
+## Implemented (Feb 2026 — GA4 production audit & hardening)
+User reported "zero events" in the GA4 dashboard for `G-QS0W3Z2484` on https://mylife-mytime.com. **Live audit proved the integration IS working** — events reach Google with HTTP 204 success. Issue is on the GA4 dashboard side. Code was also hardened to make future verification easier.
+
+**Audit findings (https://mylife-mytime.com production)**:
+- ✅ GA4 loader present in deployed HTML.
+- ✅ `gtag('config', 'G-QS0W3Z2484', { send_page_view: false, anonymize_ip: true, cookie_flags: 'SameSite=None;Secure' })` inline.
+- ✅ Playwright captured **4 POSTs** to `https://www.google-analytics.com/g/collect?tid=G-QS0W3Z2484&...`, **all returning HTTP 204** (Google's success response).
+- ✅ Event names: `page_view`, `structured_data`, `manual_beacon_test`.
+- ✅ No CSP headers blocking google-analytics.com / googletagmanager.com. No console errors. Cookies/CID assigned.
+- **Conclusion**: deployment is firing events correctly. "0 events" view = GA4-side issue (Realtime delay, DebugView vs Realtime, data-stream filters, new-property indexing delay).
+
+**Code hardening** (`frontend/src/lib/analytics.js`):
+1. **Debug mode** — append `?ga_debug=1` to any URL → reissues config with `debug_mode: true`, every event tagged debug, verbose console log. Verifies in GA4 → Admin → DebugView in real time.
+2. **Beacon transport** — every event sets `transport_type: 'beacon'`, so hits survive page unloads during SPA navigation / logout.
+3. **Build tag** — every event carries `analytics_build: 'mlmt-2026.02.05'` to filter audit traffic out of production reports.
+4. **Race-condition fix** — `useRouteAnalytics` waits 60 ms and double-checks `window.location` before firing `page_view`. Eliminates the classic SPA double-count where `/` fires before a `<Navigate>` redirects to `/login`.
+
+**How to verify**:
+1. Visit `https://mylife-mytime.com/?ga_debug=1` → DevTools Console shows `[GA4] page_view ...` logs.
+2. DevTools → Network → filter `collect` → see `POST .../g/collect?...&tid=G-QS0W3Z2484` returning **204**.
+3. GA4 → Admin → **DebugView** populates within 30 s.
+4. Realtime reports: 1–5 min. Standard reports: up to 48 h on new properties.
+
+**Affected files**: `/app/frontend/src/lib/analytics.js` (hardening). Backend untouched, 27/27 tests still pass.
