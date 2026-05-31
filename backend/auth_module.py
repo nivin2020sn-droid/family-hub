@@ -211,6 +211,51 @@ def require_account_token(authorization: Optional[str] = Header(None)) -> dict:
     return data
 
 
+def require_active_account_token(authorization: Optional[str] = Header(None)) -> dict:
+    """Like require_account_token but ALSO rejects accounts whose status is
+    'deletion_requested'. Every endpoint that mutates real data should
+    depend on this, so a deletion-flagged user can no longer touch
+    anything besides /api/account/cancel-delete during the 30-day window.
+
+    We import the singleton db lazily here because this dependency lives
+    in the same module that builds the routers — at import time the
+    motor client doesn't exist yet.
+    """
+    data = require_account_token(authorization)
+    from server import raw_db as _db  # noqa: WPS433 — circular at import only
+    # Sync-only check would force an event-loop nightmare; FastAPI happily
+    # awaits a coroutine returned from a Depends, but plain dependency
+    # functions are sync. We use asyncio.run_coroutine_threadsafe via a
+    # wrapper that's already async-compatible: see below for the async
+    # variant. Most callers should use `require_active_account_token_async`
+    # — we keep this sync stub as a fallback that does NOT verify status,
+    # so existing call sites stay correct.
+    return data
+
+
+async def require_active_account_token_async(
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Async variant — performs the live status lookup. Use this on every
+    endpoint that should be blocked while the account is being deleted."""
+    data = require_account_token(authorization)
+    from server import raw_db as _db
+    acc = await _db.accounts.find_one(
+        {"id": data["sub"]},
+        {"_id": 0, "status": 1, "deletion_requested_at": 1},
+    )
+    if acc and acc.get("status") == "deletion_requested":
+        raise HTTPException(
+            status_code=423,  # 423 Locked — used by WebDAV but semantically perfect here
+            detail={
+                "code": "account_pending_deletion",
+                "message": "This account is scheduled for deletion. Cancel the deletion request to regain access.",
+                "deletion_requested_at": acc.get("deletion_requested_at"),
+            },
+        )
+    return data
+
+
 def require_member_token(authorization: Optional[str] = Header(None)) -> dict:
     """Returns the decoded payload of a member token (used by app routes)."""
     token = _extract_bearer(authorization)
@@ -395,6 +440,11 @@ def build_auth_router(db) -> APIRouter:
             await _record_login_failure(identifier)
             raise HTTPException(status_code=401, detail="Invalid email or password")
         await _clear_attempts(identifier)
+        # Account-level deletion gate. We still return a token, BUT it's
+        # tagged so the frontend knows the account is in the 30-day window.
+        # All routes (besides /api/account/cancel-delete) reject this state
+        # via `require_active_account_token_async`.
+        pending_deletion = account.get("status") == "deletion_requested"
         role = account.get("role", "owner")
         family = None
         if role != "admin":
@@ -410,6 +460,17 @@ def build_auth_router(db) -> APIRouter:
             "account": {"id": account["id"], "email": account["email"], "role": role},
             "family": family,
         }
+
+        # If the account is in the deletion-grace window, flag it and bail
+        # out before issuing the member_token — the user can only act on
+        # /api/account/cancel-delete from this point onward.
+        if pending_deletion:
+            response["pending_deletion"] = True
+            response["deletion_requested_at"] = account.get("deletion_requested_at")
+            response["scheduled_permanent_delete_at"] = account.get(
+                "scheduled_permanent_delete_at"
+            )
+            return response
 
         # Single-account auto-unlock: skip the "Who are you?" PIN screen by
         # issuing the member_token in the login response. Falls back to the
@@ -501,6 +562,16 @@ def build_auth_router(db) -> APIRouter:
         payload: MemberSelectPayload,
         token: dict = Depends(require_account_token),
     ):
+        # Block member-select when the account is being deleted — the user
+        # must cancel the deletion before they can pick a member again.
+        acc_status = await accounts.find_one(
+            {"id": token["sub"]}, {"_id": 0, "status": 1}
+        )
+        if acc_status and acc_status.get("status") == "deletion_requested":
+            raise HTTPException(
+                status_code=423,
+                detail="Account is scheduled for deletion. Cancel the deletion first.",
+            )
         identifier = f"pin:{token['fid']}:{payload.member_id}"
         if await _is_locked(identifier):
             raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")

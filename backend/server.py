@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
+import asyncio
 from datetime import datetime, timezone, timedelta
 from calendar import monthrange
 
@@ -46,7 +47,11 @@ from auth_module import (
     seed_admin as auth_seed_admin,
     seed_default_family as auth_seed_default_family,
     require_member_token,
+    require_account_token,
+    require_active_account_token_async,
     require_admin,
+    hash_secret,
+    verify_secret,
 )
 
 # Auth/admin routers need cross-tenant access → raw_db, not the scoped wrapper.
@@ -3007,6 +3012,248 @@ async def update_site_content(
     return await _read_site_content()
 
 
+# ============= Account Deletion (GDPR) =============
+# Two-phase, soft-then-hard delete with a 30-day grace window:
+#  1) POST /api/account/request-delete   → marks status="deletion_requested"
+#                                          + sets the +30d schedule, requires
+#                                          password confirmation + the
+#                                          localized "DELETE" string.
+#  2) POST /api/account/cancel-delete    → restores the account during the
+#                                          grace window.
+#  3) Background job (`_purge_overdue_deletions`) wipes EVERY tenant-scoped
+#                                          collection for the family and
+#                                          writes a minimal legal-only
+#                                          record into `deletion_audit`.
+#
+# Auth: both endpoints accept the regular account_token. The token survives
+# the deletion request (so the user can cancel by logging back in), but
+# every OTHER endpoint guards via `require_active_account_token_async` and
+# rejects with HTTP 423.
+
+DELETION_GRACE_DAYS = 30
+
+# Localized confirmation strings — admin must type one of these literally.
+DELETION_CONFIRM_WORDS = {"DELETE", "حذف", "LÖSCHEN", "LOSCHEN"}
+
+# Every Mongo collection that may carry tenant-scoped data tied to a
+# family_id. The purge walks this list and deletes every doc with the
+# matching family_id. Account-level docs (the account itself + sessions)
+# are handled separately.
+TENANT_COLLECTIONS = (
+    "family_members",
+    "events",
+    "budget_income",
+    "budget_expenses",
+    "budget_bills",
+    "budget_debts",
+    "budget_loans",
+    "wall_settings",
+    "wall_messages",
+    "wall_photos",
+    "wall_goals",
+    "wall_achievements",
+    "wall_notes",
+    "wall_countdown",
+    "shopping_lists",
+    "shopping_items",
+    "routines",
+    "routine_logs",
+    "kids_money",
+    "kids_money_goals",
+    "kids_money_tx",
+    "activity_log",
+    "locations",
+    "location_consents",
+)
+
+# Account-level collections (keyed by account_id, not family_id).
+ACCOUNT_COLLECTIONS = (
+    "password_resets",
+    "login_attempts",
+    "recovery_codes",
+)
+
+
+class RequestDeletePayload(BaseModel):
+    password: str
+    confirm: str  # must equal one of DELETION_CONFIRM_WORDS
+
+
+@api_router.post("/account/request-delete")
+async def request_account_deletion(
+    payload: RequestDeletePayload,
+    token: dict = Depends(require_account_token),
+):
+    """Initiate GDPR account deletion. Soft-marks the account and schedules
+    permanent purge in +30 days. Reversible via /cancel-delete."""
+    # 1) Confirmation phrase
+    typed = (payload.confirm or "").strip().upper()
+    if typed not in DELETION_CONFIRM_WORDS:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation phrase mismatch. Please type DELETE / حذف / LÖSCHEN.",
+        )
+    # 2) Password re-confirmation — protects against session-hijack scenarios.
+    acc = await raw_db.accounts.find_one({"id": token["sub"]}, {"_id": 0})
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if not verify_secret(payload.password, acc.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Wrong password")
+    if acc.get("status") == "deletion_requested":
+        # Idempotent: report the existing schedule.
+        return {
+            "ok": True,
+            "already_requested": True,
+            "deletion_requested_at": acc.get("deletion_requested_at"),
+            "scheduled_permanent_delete_at": acc.get("scheduled_permanent_delete_at"),
+            "grace_days": DELETION_GRACE_DAYS,
+        }
+    now = datetime.now(timezone.utc)
+    scheduled = now + timedelta(days=DELETION_GRACE_DAYS)
+    await raw_db.accounts.update_one(
+        {"id": acc["id"]},
+        {"$set": {
+            "status": "deletion_requested",
+            "deletion_requested_at": now.isoformat(),
+            "scheduled_permanent_delete_at": scheduled.isoformat(),
+            "deletion_cancelled_at": None,
+        }},
+    )
+    # Family is parked too — login still works (so user can cancel) but the
+    # family-level status flips so member tokens are also invalidated.
+    if acc.get("family_id"):
+        await raw_db.families.update_one(
+            {"id": acc["family_id"]},
+            {"$set": {"status": "deletion_requested"}},
+        )
+    logger.warning(
+        "[DELETION] requested account=%s family=%s purge_at=%s",
+        acc["id"], acc.get("family_id"), scheduled.isoformat(),
+    )
+    return {
+        "ok": True,
+        "deletion_requested_at": now.isoformat(),
+        "scheduled_permanent_delete_at": scheduled.isoformat(),
+        "grace_days": DELETION_GRACE_DAYS,
+    }
+
+
+@api_router.post("/account/cancel-delete")
+async def cancel_account_deletion(
+    token: dict = Depends(require_account_token),
+):
+    """Revoke a pending deletion. Restores the account + family to active."""
+    acc = await raw_db.accounts.find_one({"id": token["sub"]}, {"_id": 0})
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if acc.get("status") != "deletion_requested":
+        return {"ok": True, "noop": True}
+    now = datetime.now(timezone.utc).isoformat()
+    await raw_db.accounts.update_one(
+        {"id": acc["id"]},
+        {"$set": {
+            "status": "active",
+            "deletion_cancelled_at": now,
+            "scheduled_permanent_delete_at": None,
+        }},
+    )
+    if acc.get("family_id"):
+        await raw_db.families.update_one(
+            {"id": acc["family_id"]},
+            {"$set": {"status": "active"}},
+        )
+    logger.warning(
+        "[DELETION] cancelled account=%s family=%s",
+        acc["id"], acc.get("family_id"),
+    )
+    return {"ok": True, "cancelled_at": now}
+
+
+@api_router.get("/account/deletion-status")
+async def account_deletion_status(
+    token: dict = Depends(require_account_token),
+):
+    """Used by the frontend after login to display the cancel-deletion banner."""
+    acc = await raw_db.accounts.find_one(
+        {"id": token["sub"]},
+        {"_id": 0, "status": 1, "deletion_requested_at": 1,
+         "scheduled_permanent_delete_at": 1, "deletion_cancelled_at": 1},
+    )
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {
+        "status": acc.get("status") or "active",
+        "deletion_requested_at": acc.get("deletion_requested_at"),
+        "scheduled_permanent_delete_at": acc.get("scheduled_permanent_delete_at"),
+        "deletion_cancelled_at": acc.get("deletion_cancelled_at"),
+        "grace_days": DELETION_GRACE_DAYS,
+    }
+
+
+async def _purge_account_data(account: dict) -> dict:
+    """Hard-delete every record tied to the account / family + write the
+    legal-only audit row. Returns counts for observability.
+
+    Only call this for accounts whose `scheduled_permanent_delete_at` is in
+    the past — the caller is responsible for that check.
+    """
+    counts = {}
+    fid = account.get("family_id")
+    aid = account["id"]
+    # 1) Tenant-scoped data (everything keyed by family_id).
+    if fid:
+        for col in TENANT_COLLECTIONS:
+            res = await raw_db[col].delete_many({"family_id": fid})
+            if res.deleted_count:
+                counts[col] = res.deleted_count
+        # site_content is GLOBAL — never purge it from here.
+    # 2) Account-scoped data.
+    for col in ACCOUNT_COLLECTIONS:
+        res = await raw_db[col].delete_many({"account_id": aid})
+        if res.deleted_count:
+            counts[col] = res.deleted_count
+    # 3) Audit log (legal-only fields, no PII besides the hashed email).
+    await raw_db.deletion_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "account_id": aid,
+        "hashed_email": hash_secret(account.get("email", "")),
+        "account_type": (await raw_db.families.find_one(
+            {"id": fid}, {"_id": 0, "account_type": 1}
+        ) or {}).get("account_type", "unknown") if fid else "unknown",
+        "deletion_requested_at": account.get("deletion_requested_at"),
+        "permanently_deleted_at": datetime.now(timezone.utc).isoformat(),
+        "reason": "user_request",
+        "counts": counts,
+    })
+    # 4) Finally: remove the family + account documents themselves.
+    if fid:
+        await raw_db.families.delete_one({"id": fid})
+    await raw_db.accounts.delete_one({"id": aid})
+    logger.warning(
+        "[DELETION] PURGED account=%s family=%s counts=%s",
+        aid, fid, counts,
+    )
+    return counts
+
+
+async def _purge_overdue_deletions():
+    """Single scan-and-purge pass. Run on startup AND on a 6-hour timer."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cursor = raw_db.accounts.find(
+        {
+            "status": "deletion_requested",
+            "scheduled_permanent_delete_at": {"$lte": now_iso, "$ne": None},
+        },
+        {"_id": 0},
+    )
+    purged = 0
+    async for acc in cursor:
+        await _purge_account_data(acc)
+        purged += 1
+    if purged:
+        logger.warning("[DELETION] purge pass complete — %d accounts removed", purged)
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -3041,6 +3288,21 @@ async def on_startup():
         await migrate_legacy_to_nasser(raw_db)
     except Exception as exc:  # never fail to start because of seed errors
         logger.exception("Auth bootstrap failed: %s", exc)
+
+    # Kick off the deletion-purge periodic task. Runs an immediate scan and
+    # then sleeps 6h between passes. Daemon-style — failures are logged
+    # but never escape the loop so the server stays up.
+    async def _deletion_purge_loop():
+        while True:
+            try:
+                await _purge_overdue_deletions()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Deletion purge pass failed: %s", exc)
+            # 6 hours — well below the 30-day grace, so we hit the schedule
+            # within < quarter-day of the deadline.
+            await asyncio.sleep(6 * 60 * 60)
+
+    asyncio.create_task(_deletion_purge_loop())
 
 
 async def migrate_legacy_to_nasser(rdb):
