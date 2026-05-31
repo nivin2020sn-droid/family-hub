@@ -24,6 +24,10 @@ API = f"{BASE_URL}/api"
 
 
 def _register(account_type="single", email_suffix=""):
+    """Register + verify the email in one shot so the rest of the test can
+    use the returned tokens directly. The deletion flow doesn't care about
+    email verification — it only needs an active account."""
+    from tests.conftest import verify_account_email
     ts = f"{int(time.time()*1000)}{email_suffix}"
     payload = {
         "family_name": "Delete Test",
@@ -37,8 +41,16 @@ def _register(account_type="single", email_suffix=""):
     }
     r = requests.post(f"{API}/auth/register", json=payload, timeout=15)
     assert r.status_code == 200, r.text
-    data = r.json()
-    return data, payload["email"], payload["password"]
+    # New flow: register no longer returns tokens. Verify the email then log
+    # in so the rest of the test has the same shape it had before.
+    verify_account_email(payload["email"])
+    r2 = requests.post(
+        f"{API}/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+        timeout=15,
+    )
+    assert r2.status_code == 200, r2.text
+    return r2.json(), payload["email"], payload["password"]
 
 
 def _auth_headers(token):

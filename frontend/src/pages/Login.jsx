@@ -36,6 +36,7 @@ import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { LEGAL_LINKS } from "@/components/LegalLayout";
 import BetaTerms from "@/components/BetaTerms";
+import VerificationPending from "@/pages/VerificationPending";
 import { useAppInfo } from "@/lib/useAppInfo";
 
 const formatError = (err, fallback) => {
@@ -217,8 +218,19 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess, accountType }) => {
         const niceName = isSingle
           ? displayName
           : (data.family?.name || familyName);
-        toast.success(t(isSingle ? "auth.toast.welcomeSingle" : "auth.toast.registered", { name: niceName }));
-        onSuccess("register", data);
+        // Register no longer returns tokens — we route to a "Check your
+        // inbox" screen instead. The user must verify their email before
+        // they can sign in.
+        if (data?.verification_sent || data?.email_verified === false) {
+          onSuccess("register-pending-verify", {
+            verification_pending: true,
+            email: (data.email || email).trim(),
+            name: niceName,
+          });
+        } else {
+          toast.success(t(isSingle ? "auth.toast.welcomeSingle" : "auth.toast.registered", { name: niceName }));
+          onSuccess("register", data);
+        }
       } else if (isForgot) {
         if (!forgotSent) {
           await apiForgot(email.trim());
@@ -238,6 +250,20 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess, accountType }) => {
         onSuccess("login", data);
       }
     } catch (err) {
+      // Email-verification gate — route the user to the "Check your inbox"
+      // screen instead of just showing a toast.
+      const detail = err?.response?.data?.detail;
+      if (
+        err?.response?.status === 403 &&
+        (detail?.code === "email_not_verified" ||
+          (typeof detail === "string" && detail.toLowerCase().includes("verify")))
+      ) {
+        onSuccess("login-needs-verify", {
+          verification_pending: true,
+          email: detail?.email || email.trim(),
+        });
+        return;
+      }
       toast.error(formatError(err, t("auth.error.generic")));
     } finally {
       setBusy(false);
@@ -403,14 +429,13 @@ const AuthScreen = ({ mode, onMode, onBack, onSuccess, accountType }) => {
             </button>
           )}
           {mode === "login" && (
-            <button
-              type="button"
-              onClick={() => onMode("forgot")}
+            <Link
+              to="/forgot-password"
               className="text-[#7A7571] hover:underline"
               data-testid="login-go-forgot"
             >
               {t("auth.toForgot")}
-            </button>
+            </Link>
           )}
         </div>
       </form>
@@ -669,6 +694,7 @@ const Login = () => {
   const [stage, setStage] = useState(hasAccountOnly ? "member" : "type");
   const [authMode, setAuthMode] = useState("login"); // login | register | forgot
   const [accountType, setAccountType] = useState("family"); // family | single
+  const [pendingVerifyEmail, setPendingVerifyEmail] = useState("");
 
   // Admins never see the family flow — they belong to no family. As soon as
   // we detect an admin token in storage, jump straight to the admin console.
@@ -685,6 +711,13 @@ const Login = () => {
   // Right after a successful login/register we may now have an admin token —
   // skip the member-select stage and go directly to /admin.
   const handleAuthSuccess = (_kind, data) => {
+    // Email-verification gate — register response or login 403 with
+    // email_not_verified routes the user to a "Check your inbox" screen.
+    if (data?.verification_pending) {
+      setPendingVerifyEmail(data.email || "");
+      setStage("verify-pending");
+      return;
+    }
     if (isAdmin()) {
       navigate("/admin", { replace: true });
       return;
@@ -730,6 +763,14 @@ const Login = () => {
         accountType={accountType}
         onBack={() => setStage("type")}
         onSuccess={handleAuthSuccess}
+      />
+    );
+  }
+  if (stage === "verify-pending") {
+    return (
+      <VerificationPending
+        email={pendingVerifyEmail}
+        onBack={() => { setPendingVerifyEmail(""); setStage("auth"); setAuthMode("login"); }}
       />
     );
   }

@@ -59,6 +59,7 @@ class TestRegisterConsents:
         assert r.status_code == 400
 
     def test_register_all_three_consents_succeeds(self):
+        from tests.conftest import verify_account_email
         email = _email("ok")
         r = requests.post(
             f"{API}/auth/register",
@@ -67,15 +68,20 @@ class TestRegisterConsents:
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert "access_token" in body
-        assert body["account"]["email"] == email.lower()
-        # Login afterwards — should succeed without re-prompting for consents
+        # New flow: register no longer returns tokens — it returns the
+        # "verification_sent" envelope. The audit trail still lives on the
+        # account; verify post-login.
+        assert body.get("verification_sent") is True
+        assert body.get("email") == email.lower()
+        # Verify the email then login — should succeed without re-prompting for consents
+        verify_account_email(email.lower())
         login = requests.post(
             f"{API}/auth/login",
             json={"email": email, "password": "Pass1234!"},
             timeout=15,
         )
         assert login.status_code == 200, login.text
+        assert "access_token" in login.json()
 
 
 # Consents persisted on accounts doc — verified via login (no migration break)

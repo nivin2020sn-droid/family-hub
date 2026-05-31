@@ -22,6 +22,10 @@ import Disclaimer from "@/pages/Disclaimer";
 import AdminContent from "@/pages/AdminContent";
 import Login from "@/pages/Login";
 import PendingDeletion from "@/pages/PendingDeletion";
+import VerifyEmail from "@/pages/VerifyEmail";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import AdminEmailSettings from "@/pages/AdminEmailSettings";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
@@ -51,6 +55,9 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/account/pending-deletion" element={<PendingDeletion />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route
                 path="/"
                 element={
@@ -115,6 +122,7 @@ function App() {
               <Route path="/disclaimer" element={<Disclaimer />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/admin/content" element={<AdminContent />} />
+              <Route path="/admin/email-settings" element={<AdminEmailSettings />} />
               {/* Legacy paths -> redirect to home */}
               <Route path="/wall-board" element={<Navigate to="/" replace />} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />

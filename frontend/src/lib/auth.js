@@ -129,16 +129,32 @@ export async function register(payload) {
   // (otherwise the new family would inherit the previous browser's cache).
   purgeAllFamilyCaches();
   const { data } = await api.post("/api/auth/register", payload);
-  write(KEY_ACCOUNT_TOKEN, data.access_token);
-  writeJson(KEY_ACCOUNT, data.account);
-  writeJson(KEY_FAMILY, data.family);
-  write(LEGACY_AUTH_OK, "true");
-  // Single-account fast-path: the backend already issued the member_token
-  // along with the account_token (one human, no "Who are you?" PIN screen).
-  if (data.member_token) {
-    write(KEY_MEMBER_TOKEN, data.member_token);
-    writeJson(KEY_MEMBER, data.member);
-  }
+  // The current flow returns NO tokens — the user must verify their email
+  // before signing in. We just hand the response back so the page can show
+  // a "Check your inbox" screen.
+  return data;
+}
+
+export async function verifyEmail(token) {
+  const { data } = await api.post("/api/auth/verify-email", { token });
+  return data;
+}
+
+export async function resendVerification(email, lang) {
+  const { data } = await api.post("/api/auth/resend-verification", { email, lang });
+  return data;
+}
+
+export async function forgotPasswordEmail(email, lang) {
+  const { data } = await api.post("/api/auth/forgot-password", { email, lang });
+  return data;
+}
+
+export async function resetPasswordWithToken(token, newPassword) {
+  const { data } = await api.post("/api/auth/reset-password", {
+    token,
+    new_password: newPassword,
+  });
   return data;
 }
 
@@ -312,6 +328,34 @@ export async function adminDeleteFamily(familyId) {
     { headers: { Authorization: `Bearer ${token}` } }
   );
   return true;
+}
+
+// ---------- Admin email (SMTP) settings ----------
+
+export async function adminGetEmailSettings() {
+  const token = getAccountToken();
+  const { data } = await api.get("/api/admin/email-settings", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function adminUpdateEmailSettings(patch) {
+  const token = getAccountToken();
+  const { data } = await api.put("/api/admin/email-settings", patch, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function adminTestEmail(to, lang) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    "/api/admin/email-settings/test",
+    { to, lang },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
 }
 
 // ---------- GDPR account deletion (soft-delete, 30-day grace window) ----------

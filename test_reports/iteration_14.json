@@ -1,0 +1,34 @@
+{
+  "summary": "Tested Email Verification + Forgot/Reset Password + Admin Email Settings end-to-end. Backend: 53/55 pytests pass (test_email_verification.py 12/14 + 41/41 related suites). The 2 failing email-verification tests are real PERFORMANCE bug, not functional: POST /api/auth/verify-email and /api/auth/reset-password iterate bcrypt.checkpw() over up to 200 candidate token hashes (~16s wall-time on invalid token) which exceeds the 15s test-client timeout. Functional correctness verified by curl (HTTP 400 returned, just slowly). Frontend Playwright: registration→verification-pending-page, resend-rate-limit (statuses [200,200,429]) visible, unverified-login routes to pending, /verify-email valid token→success, /forgot-password sends confirmation, /reset-password updates pw and login with new pw works (200, both access_token+member_token), admin /admin/email-settings page renders, save+test-send work, password masking confirmed via curl matrix. SMTP cleared at end as requested.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/auth/verify-email and /api/auth/reset-password", "issue": "Performance: _consume_email_token() bcrypt.checkpw()-loops up to 200 unused token hashes. With bcrypt cost 12 this is ~16s on a miss (invalid/expired/already-used token), exceeding pytest's 15s timeout in test_verify_email_rejects_invalid_token and test_verify_email_token_single_use. Functionally correct (HTTP 400) but slow. Recommendation: index tokens by sha256(token) (constant-time hex lookup) instead of bcrypt-verifying every unused row, OR store an indexed `token_hash` field and do a direct find_one. This also affects the user-visible reset/verify response time (~16s for a slightly-wrong link).", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_email_verification.py",
+    "/app/test_reports/pytest/email_verification.xml"
+  ],
+  "action_items": [
+    "Replace the bcrypt-loop in _consume_email_token() with sha256(token) lookup so /verify-email and /reset-password respond in <500ms on all paths (functional behaviour unchanged, but tests will pass and UX won't show a 16s spinner on a wrong/expired link).",
+    "Once the perf fix lands, re-run only `pytest tests/test_email_verification.py::test_verify_email_rejects_invalid_token tests/test_email_verification.py::test_verify_email_token_single_use` to confirm full 14/14 green."
+  ],
+  "critical_code_review_comments": [
+    "auth_module.py _consume_email_token() iterates `async for row in tokens.find({...used:False}).limit(200): bcrypt.checkpw(...)`. On a miss this runs ~200 bcrypt verifies (~16s with cost 12). Tokens are 32-byte URL-safe random, so a cryptographic hash (sha256) is sufficient — bcrypt is meant for low-entropy passwords. Add an indexed `token_sha256` field and look it up directly.",
+    "Same code path is used by both verify-email and reset-password; fix once, both improve."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "96%", "frontend": "100%"},
+  "test_credentials": "Admin: bsn.1988@hotmail.com / 11qqQQ!! (verified working). Test accounts generated on the fly.",
+  "seed_data_creation": "Several e2e accounts (e2eui-<ts>@example.com / Pass1234!) registered for the UI flow tests. SMTP settings cleared at the end so subsequent suites don't see SMTP-failure noise.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend host for tests requires REACT_APP_BACKEND_URL env var: https://family-timeplan.preview.emergentagent.com. The 2 email-verification test failures are NOT functional regressions, they are a 16s bcrypt-loop perf issue documented above. Admin email-settings full curl matrix is in /tmp/admin_email.sh (regenerable). When testing UI register flow, after picking 'single' account, accept beta-terms (3 checkboxes + continue) before reaching the register form. /admin/email-settings is reached by logging in as admin via the regular /auth/login (no separate admin login endpoint).",
+  "rca of the issue": "RCA — 16s response on bad verify-email/reset-password tokens:\n1. Reproduction: `time curl -X POST $BASE/api/auth/verify-email -d '{\"token\":\"deadbeef\"}'` → HTTP 400 in ~16s.\n2. Root cause: auth_module.py _consume_email_token() (~line 410) does `async for row in tokens.find({purpose, used:False, expires_at:{$gt:now}}).limit(200): if bcrypt.checkpw(token.encode(), row['token_hash'].encode()): ...`. Bcrypt cost-12 ≈ 80ms × up to 200 rows = ~16s on a token that doesn't match anything. Test_verify_email_rejects_invalid_token and test_verify_email_token_single_use both hit this and exceed the 15s requests timeout.\n3. Mitigation: switch to sha256(token) hex-stored in an indexed `token_sha256` field; do a single `find_one_and_update({token_sha256:..., used:False, ...}, {$set:{used:True}})`. Constant-time, ~5ms, security identical for high-entropy random URL tokens."
+}

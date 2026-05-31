@@ -68,18 +68,26 @@ def test_put_site_content_requires_admin():
     assert r.status_code == 401, r.text
 
     # Register a regular family account and try with its token → 403.
+    from tests.conftest import verify_account_email
     ts = int(time.time() * 1000)
-    reg = requests.post(
+    email = f"mock-{ts}@example.com"
+    requests.post(
         f"{API}/auth/register",
         json={
             "family_name": f"Mock {ts}",
-            "email": f"mock-{ts}@example.com",
+            "email": email,
             "password": "Pass1234!",
             "confirm_password": "Pass1234!",
             "accepted_beta_terms": True,
             "accepted_privacy_policy": True,
             "accepted_disclaimer": True,
         },
+        timeout=10,
+    )
+    verify_account_email(email)
+    reg = requests.post(
+        f"{API}/auth/login",
+        json={"email": email, "password": "Pass1234!"},
         timeout=10,
     ).json()
     r = requests.put(

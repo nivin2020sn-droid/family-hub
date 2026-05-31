@@ -21,6 +21,7 @@ TIMEOUT = 20
 
 # --------------------------------------------------------------------- helpers
 def _register(email_tag: str, family_name: str):
+    from tests.conftest import verify_account_email
     payload = {
         "email": f"qa-iso-{email_tag}-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}@example.com",
         "password": "Pass1234!",
@@ -32,7 +33,16 @@ def _register(email_tag: str, family_name: str):
     }
     r = requests.post(f"{BASE_URL}/api/auth/register", json=payload, timeout=TIMEOUT)
     assert r.status_code == 200, f"register failed: {r.status_code} {r.text}"
-    return payload["email"], r.json()
+    # Verify the email + login so the test gets the access_token shape it
+    # expects (register itself no longer returns tokens).
+    verify_account_email(payload["email"])
+    r2 = requests.post(
+        f"{BASE_URL}/api/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+        timeout=TIMEOUT,
+    )
+    assert r2.status_code == 200, f"login failed: {r2.status_code} {r2.text}"
+    return payload["email"], r2.json()
 
 
 def _add_member(token, name, pin="1234", is_admin=True):

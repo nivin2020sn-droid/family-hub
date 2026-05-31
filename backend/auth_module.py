@@ -34,6 +34,13 @@ RECOVERY_CODE_TTL_MINUTES = 30
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_MINUTES = 15
 
+# Email verification + email-link password reset.
+EMAIL_VERIFY_TTL_HOURS = 24
+EMAIL_RESET_TTL_MINUTES = 30
+# Rate-limit: max 3 verification/reset emails per identifier per 15-minute window.
+EMAIL_SEND_MAX_PER_WINDOW = 3
+EMAIL_SEND_WINDOW_MINUTES = 15
+
 # Public app version — surfaced to the client so the Settings page can show
 # a "Beta vX.Y.Z" chip and so consent records remain traceable to a build.
 APP_VERSION = os.environ.get("APP_VERSION", "0.9.0-beta")
@@ -106,11 +113,34 @@ class UpgradeToFamilyPayload(BaseModel):
 
 class ForgotPayload(BaseModel):
     email: EmailStr
+    lang: Optional[str] = "en"
 
 
 class ResetPayload(BaseModel):
     code: str
     new_password: str
+
+
+class ForgotPasswordLinkPayload(BaseModel):
+    """Email-link reset (newer flow). The frontend sends the user's email +
+    locale; the backend generates a one-time token, stores its hash, and
+    emails the link via the admin-configured SMTP."""
+    email: EmailStr
+    lang: Optional[str] = "en"
+
+
+class ResetPasswordLinkPayload(BaseModel):
+    token: str
+    new_password: str
+
+
+class VerifyEmailPayload(BaseModel):
+    token: str
+
+
+class ResendVerificationPayload(BaseModel):
+    email: EmailStr
+    lang: Optional[str] = "en"
 
 
 class MemberCreate(BaseModel):
@@ -292,6 +322,117 @@ def build_auth_router(db) -> APIRouter:
     members = db.family_members
     recovery = db.recovery_codes
     attempts = db.login_attempts
+    email_tokens = db.email_tokens
+    email_send_attempts = db.email_send_attempts
+
+    # ------- Email helpers (verification + password-reset link) -------
+    public_app_url = os.environ.get("PUBLIC_APP_URL", "").rstrip("/")
+
+    async def _email_rate_limit(identifier: str) -> None:
+        """Block when too many verify/reset emails were requested recently.
+        Identifier is shaped like 'verify:user@example.com' or 'reset:...'."""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=EMAIL_SEND_WINDOW_MINUTES)
+        row = await email_send_attempts.find_one({"identifier": identifier}, {"_id": 0})
+        if not row:
+            return
+        try:
+            first = datetime.fromisoformat(row.get("first_attempt"))
+        except (ValueError, TypeError):
+            first = None
+        if first and first < cutoff:
+            # Outside the window — reset on the next write.
+            await email_send_attempts.delete_one({"identifier": identifier})
+            return
+        if int(row.get("count", 0)) >= EMAIL_SEND_MAX_PER_WINDOW:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many email requests. Please wait a few minutes before trying again.",
+            )
+
+    async def _record_email_send(identifier: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        await email_send_attempts.update_one(
+            {"identifier": identifier},
+            {
+                "$inc": {"count": 1},
+                "$set": {"last_attempt": now},
+                "$setOnInsert": {"first_attempt": now, "identifier": identifier},
+            },
+            upsert=True,
+        )
+
+    async def _issue_email_token(account: dict, kind: str, ttl_minutes: int) -> str:
+        """Generate a high-entropy URL-safe token, store its bcrypt hash with
+        an expiry, return the plaintext token to embed in the link."""
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        await email_tokens.insert_one({
+            "id": str(uuid.uuid4()),
+            "kind": kind,
+            "account_id": account["id"],
+            "email": account.get("email"),
+            "token_hash": hash_secret(token),
+            "expires_at": expires_at,
+            "used": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return token
+
+    async def _send_verify_email(account: dict, lang: str = "en") -> dict:
+        from email_service import send_localized_email
+        identifier = f"verify:{account.get('email')}"
+        await _email_rate_limit(identifier)
+        token = await _issue_email_token(account, "verify", EMAIL_VERIFY_TTL_HOURS * 60)
+        await _record_email_send(identifier)
+        base = public_app_url or "https://mylife-mytime.com"
+        link = f"{base}/verify-email?token={token}"
+        return await send_localized_email(
+            db,
+            kind="verify",
+            to_email=account["email"],
+            name=account.get("email", "").split("@", 1)[0],
+            link=link,
+            lang=lang,
+        )
+
+    async def _send_reset_email(account: dict, lang: str = "en") -> dict:
+        from email_service import send_localized_email
+        identifier = f"reset:{account.get('email')}"
+        await _email_rate_limit(identifier)
+        token = await _issue_email_token(account, "reset", EMAIL_RESET_TTL_MINUTES)
+        await _record_email_send(identifier)
+        base = public_app_url or "https://mylife-mytime.com"
+        link = f"{base}/reset-password?token={token}"
+        return await send_localized_email(
+            db,
+            kind="reset",
+            to_email=account["email"],
+            name=account.get("email", "").split("@", 1)[0],
+            link=link,
+            lang=lang,
+        )
+
+    async def _consume_email_token(token_plaintext: str, kind: str) -> dict:
+        """Look up a non-expired, non-used token of the given kind by
+        bcrypt-verifying the plaintext against each candidate row. Returns
+        the matched DB record. Raises 400 when nothing matches."""
+        now = datetime.now(timezone.utc)
+        candidates = await email_tokens.find(
+            {"kind": kind, "used": False, "expires_at": {"$gt": now}},
+            {"_id": 0},
+        ).sort("created_at", -1).limit(200).to_list(200)
+        match = None
+        for r in candidates:
+            if verify_secret(token_plaintext, r.get("token_hash", "")):
+                match = r
+                break
+        if not match:
+            raise HTTPException(status_code=400, detail="Invalid or expired link")
+        await email_tokens.update_one(
+            {"id": match["id"]},
+            {"$set": {"used": True, "used_at": now.isoformat()}},
+        )
+        return match
 
     async def _record_login_failure(identifier: str) -> int:
         now = datetime.now(timezone.utc)
@@ -365,7 +506,7 @@ def build_auth_router(db) -> APIRouter:
         family_doc.pop("_id", None)
 
         account_id = str(uuid.uuid4())
-        await accounts.insert_one({
+        account_doc = {
             "id": account_id,
             "family_id": family_id,
             "email": email,
@@ -373,6 +514,8 @@ def build_auth_router(db) -> APIRouter:
             "password_hash": hash_secret(payload.password),
             "role": "owner",  # account-level role: owner | admin
             "created_at": now.isoformat(),
+            # New accounts must confirm their email before they can sign in.
+            "email_verified": False,
             # Persist the consents so we have a tamper-evident audit trail
             # if a user later asks "what did I agree to and when?".
             "consents": {
@@ -382,21 +525,11 @@ def build_auth_router(db) -> APIRouter:
                 "accepted_at": now.isoformat(),
                 "app_version": APP_VERSION,
             },
-        })
-
-        token = create_account_token(account_id, family_id, "owner")
-        response = {
-            "access_token": token,
-            "token_type": "bearer",
-            "account": {"id": account_id, "email": email, "role": "owner"},
-            "family": family_doc,
         }
+        await accounts.insert_one(account_doc)
 
-        # ---- Single-account bootstrap ----
-        # Single accounts have exactly one human (the account owner). We auto-
-        # provision their member doc here so they never see the "Who are you?"
-        # PIN screen, and we issue their member_token in the same response
-        # so the frontend can skip member-select entirely.
+        # Single-account bootstrap: pre-provision the lone member so the
+        # "Who are you?" PIN screen is skipped after they verify + sign in.
         if payload.account_type == "single":
             display_name = (
                 (payload.family_name or "").strip()
@@ -415,18 +548,26 @@ def build_auth_router(db) -> APIRouter:
                 "avatar": None,
                 "created_at": now.isoformat(),
             })
-            member_token = create_member_token(
-                account_id, family_id, member_id, "adult", True,
-            )
-            response["member_token"] = member_token
-            response["member"] = {
-                "id": member_id, "family_id": family_id, "name": display_name,
-                "role": "adult", "is_family_admin": True,
-                "color": _pick_member_color([]), "avatar": None,
-                "created_at": now.isoformat(),
-            }
 
-        return response
+        # Best-effort verification email. The frontend ALWAYS routes
+        # registrants to a "Check your inbox" screen — even if SMTP isn't
+        # configured the link is logged to the backend log.
+        try:
+            await _send_verify_email(account_doc, lang=getattr(payload, "lang", None) or "en")
+        except HTTPException:
+            # Rate limit shouldn't fail registration — re-attempts are sent
+            # via the Resend button.
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[VERIFY] send failed for %s: %s", email, exc)
+
+        return {
+            # No tokens yet — the account must verify first. We DO return
+            # email so the frontend can show "we sent a link to X".
+            "email": email,
+            "email_verified": False,
+            "verification_sent": True,
+        }
 
     # ------- LOGIN -------
     @router.post("/login")
@@ -440,6 +581,19 @@ def build_auth_router(db) -> APIRouter:
             await _record_login_failure(identifier)
             raise HTTPException(status_code=401, detail="Invalid email or password")
         await _clear_attempts(identifier)
+        # Email verification gate — accounts registered after this feature
+        # ship must confirm their email before they can sign in. Admins
+        # (account.role == 'admin') bypass the check entirely since they
+        # were seeded directly.
+        if account.get("role") != "admin" and account.get("email_verified") is False:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "email_not_verified",
+                    "message": "Please verify your email address before signing in.",
+                    "email": account.get("email"),
+                },
+            )
         # Account-level deletion gate. We still return a token, BUT it's
         # tagged so the frontend knows the account is in the 30-day window.
         # All routes (besides /api/account/cancel-delete) reject this state
@@ -504,7 +658,7 @@ def build_auth_router(db) -> APIRouter:
         ).sort("created_at", 1).to_list(100)
         return {"account": account, "family": family, "members": member_docs}
 
-    # ------- FORGOT PASSWORD -------
+    # ------- FORGOT PASSWORD (legacy 6-digit code, admin-manual) -------
     @router.post("/forgot")
     async def forgot(payload: ForgotPayload):
         email = payload.email.lower().strip()
@@ -531,7 +685,7 @@ def build_auth_router(db) -> APIRouter:
             )
         return {"ok": True, "ttl_minutes": RECOVERY_CODE_TTL_MINUTES}
 
-    # ------- RESET PASSWORD -------
+    # ------- RESET PASSWORD (legacy 6-digit code) -------
     @router.post("/reset")
     async def reset(payload: ResetPayload):
         if len(payload.new_password) < 6:
@@ -554,6 +708,72 @@ def build_auth_router(db) -> APIRouter:
         await recovery.update_one(
             {"id": match["id"]}, {"$set": {"used": True, "used_at": now.isoformat()}}
         )
+        return {"ok": True}
+
+    # ------- EMAIL VERIFICATION -------
+    @router.post("/verify-email")
+    async def verify_email(payload: VerifyEmailPayload):
+        match = await _consume_email_token(payload.token, "verify")
+        await accounts.update_one(
+            {"id": match["account_id"]},
+            {"$set": {
+                "email_verified": True,
+                "email_verified_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        return {"ok": True, "email": match.get("email")}
+
+    @router.post("/resend-verification")
+    async def resend_verification(payload: ResendVerificationPayload):
+        """Re-send the verification email. Rate-limited to 3/15min/email.
+        Idempotent — silently no-ops for already-verified or unknown accounts
+        to avoid leaking which emails are registered."""
+        email = payload.email.lower().strip()
+        account = await accounts.find_one({"email": email}, {"_id": 0})
+        if account and account.get("email_verified"):
+            return {"ok": True, "already_verified": True}
+        if account:
+            await _send_verify_email(account, lang=payload.lang or "en")
+        return {"ok": True}
+
+    # ------- FORGOT PASSWORD (email link) -------
+    @router.post("/forgot-password")
+    async def forgot_password(payload: ForgotPasswordLinkPayload):
+        """Email-link password reset. Generates a 30-min one-time token,
+        bcrypt-hashed in `email_tokens`, then emails the user. Always 200
+        regardless of account existence (anti-enumeration)."""
+        email = payload.email.lower().strip()
+        account = await accounts.find_one(
+            {"$or": [{"email": email}, {"recovery_email": email}]},
+            {"_id": 0},
+        )
+        if account:
+            try:
+                await _send_reset_email(account, lang=payload.lang or "en")
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[RESET] email send failed: %s", exc)
+        return {"ok": True, "ttl_minutes": EMAIL_RESET_TTL_MINUTES}
+
+    @router.post("/reset-password")
+    async def reset_password(payload: ResetPasswordLinkPayload):
+        """Consume the email-link token + set the new password."""
+        if len(payload.new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password too short")
+        match = await _consume_email_token(payload.token, "reset")
+        await accounts.update_one(
+            {"id": match["account_id"]},
+            {"$set": {"password_hash": hash_secret(payload.new_password)}},
+        )
+        # Invalidate any other outstanding reset tokens for this account so
+        # an old link can never be replayed after the password changes.
+        await email_tokens.update_many(
+            {"account_id": match["account_id"], "kind": "reset", "used": False},
+            {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        # Also clear any pending login lockout so the user can sign in fresh.
+        await attempts.delete_many({"identifier": f"login:{match['email']}"})
         return {"ok": True}
 
     # ------- MEMBER SELECT -------
@@ -1168,13 +1388,104 @@ def build_admin_router(db) -> APIRouter:
         )
         return {"ok": True, "family_id": family_id, "deleted": deleted}
 
+    # ------- EMAIL SETTINGS (admin only) -------
+    EMAIL_SETTINGS_KEY = "global"
+    PASSWORD_MASK = "********"
+
+    def _sanitize_settings(doc: Optional[dict]) -> dict:
+        """Strip the SMTP password before returning to the client. The frontend
+        renders a masked field — when the admin sends back the mask we
+        keep the existing password instead of overwriting with placeholder."""
+        if not doc:
+            return {
+                "smtp_host": "", "smtp_port": 587, "smtp_username": "",
+                "smtp_password_set": False, "use_tls": True,
+                "sender_email": "", "sender_name": "My Life My Time",
+            }
+        return {
+            "smtp_host": doc.get("smtp_host", "") or "",
+            "smtp_port": int(doc.get("smtp_port") or 587),
+            "smtp_username": doc.get("smtp_username", "") or "",
+            "smtp_password_set": bool(doc.get("smtp_password")),
+            "use_tls": bool(doc.get("use_tls", True)),
+            "sender_email": doc.get("sender_email", "") or "",
+            "sender_name": doc.get("sender_name") or "My Life My Time",
+            "updated_at": doc.get("updated_at"),
+            "updated_by": doc.get("updated_by"),
+        }
+
+    @router.get("/email-settings")
+    async def get_email_settings(_: dict = Depends(require_admin)):
+        doc = await db.email_settings.find_one({"_key": EMAIL_SETTINGS_KEY}, {"_id": 0})
+        return _sanitize_settings(doc)
+
+    @router.put("/email-settings")
+    async def put_email_settings(body: dict, admin: dict = Depends(require_admin)):
+        update = {}
+        if "smtp_host" in body:
+            update["smtp_host"] = (body.get("smtp_host") or "").strip()
+        if "smtp_port" in body:
+            try:
+                update["smtp_port"] = int(body.get("smtp_port") or 587)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="smtp_port must be an integer")
+        if "smtp_username" in body:
+            update["smtp_username"] = (body.get("smtp_username") or "").strip()
+        if "smtp_password" in body:
+            pw = body.get("smtp_password") or ""
+            # Keep current password if the masked placeholder is submitted.
+            if pw and pw != PASSWORD_MASK:
+                update["smtp_password"] = pw
+            elif pw == "":
+                # Explicit empty string clears the password.
+                update["smtp_password"] = ""
+        if "use_tls" in body:
+            update["use_tls"] = bool(body.get("use_tls"))
+        if "sender_email" in body:
+            update["sender_email"] = (body.get("sender_email") or "").strip()
+        if "sender_name" in body:
+            update["sender_name"] = (body.get("sender_name") or "").strip() or "My Life My Time"
+        if not update:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        update["updated_by"] = admin.get("sub")
+        await db.email_settings.update_one(
+            {"_key": EMAIL_SETTINGS_KEY},
+            {"$set": update, "$setOnInsert": {"_key": EMAIL_SETTINGS_KEY}},
+            upsert=True,
+        )
+        doc = await db.email_settings.find_one({"_key": EMAIL_SETTINGS_KEY}, {"_id": 0})
+        return _sanitize_settings(doc)
+
+    @router.post("/email-settings/test")
+    async def test_email_settings(body: dict, _: dict = Depends(require_admin)):
+        """Send a sample message using the saved SMTP credentials so the
+        admin can verify configuration end-to-end before relying on it."""
+        from email_service import smtp_test_send
+        to = (body.get("to") or "").strip().lower()
+        lang = (body.get("lang") or "en").lower().strip()
+        if "@" not in to:
+            raise HTTPException(status_code=400, detail="Valid recipient email required")
+        receipt = await smtp_test_send(db, to, lang=lang)
+        return receipt
+
     return router
 
 async def ensure_indexes(db) -> None:
     await db.accounts.create_index("email", unique=True)
     await db.family_members.create_index([("family_id", 1)])
     await db.recovery_codes.create_index("expires_at", expireAfterSeconds=0)
+    await db.email_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.email_tokens.create_index([("kind", 1), ("used", 1)])
+    await db.email_send_attempts.create_index("identifier")
     await db.login_attempts.create_index("identifier")
+    # Back-fill `email_verified` for every pre-existing account so legacy
+    # users keep their access — the new gate only blocks brand-new
+    # registrations that haven't confirmed their email yet.
+    await db.accounts.update_many(
+        {"email_verified": {"$exists": False}},
+        {"$set": {"email_verified": True}},
+    )
     # Migrate legacy members: anyone whose role is "parent" but who has no
     # `is_family_admin` flag becomes a family admin automatically. This keeps
     # already-active families manageable after the permission model change.

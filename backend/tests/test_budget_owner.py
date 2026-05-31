@@ -24,6 +24,7 @@ API = f"{BASE_URL}/api"
 
 
 def _register(suffix=""):
+    from tests.conftest import verify_account_email
     ts = f"{int(time.time()*1000)}{suffix}"
     payload = {
         "family_name": f"Owner Test {ts}",
@@ -36,7 +37,14 @@ def _register(suffix=""):
     }
     r = requests.post(f"{API}/auth/register", json=payload, timeout=15)
     assert r.status_code == 200, r.text
-    return r.json()["access_token"]
+    verify_account_email(payload["email"])
+    r2 = requests.post(
+        f"{API}/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+        timeout=15,
+    )
+    assert r2.status_code == 200, r2.text
+    return r2.json()["access_token"]
 
 
 def _add_member(acc_token, name, pin="1234"):

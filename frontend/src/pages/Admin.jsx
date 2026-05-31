@@ -260,6 +260,16 @@ const Admin = () => {
             </button>
             <button
               type="button"
+              onClick={() => navigate("/admin/email-settings")}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full hover:bg-[#F3F0EA] text-[#2D2A26]"
+              data-testid="admin-open-email"
+              title={t("admin.email.title")}
+            >
+              <Mail className="w-3.5 h-3.5" strokeWidth={2} />
+              <span className="hidden sm:inline">{t("admin.nav.email")}</span>
+            </button>
+            <button
+              type="button"
               onClick={refresh}
               className="w-9 h-9 rounded-full flex items-center justify-center text-[#2D2A26] active:bg-[#F3F0EA]"
               data-testid="admin-refresh-btn"

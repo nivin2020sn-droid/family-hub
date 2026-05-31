@@ -21,6 +21,10 @@ API = f"{BASE_URL}/api"
 
 
 def _register_single(name="Alex", email_suffix=""):
+    """Register, verify the email, then login so the returned dict has both
+    tokens. The original test contract was: after register the caller has
+    access_token + member_token. We preserve that shape post-verify-gate."""
+    from tests.conftest import verify_account_email
     ts = f"{int(time.time()*1000)}{email_suffix}"
     payload = {
         "family_name": name,
@@ -34,7 +38,14 @@ def _register_single(name="Alex", email_suffix=""):
     }
     r = requests.post(f"{API}/auth/register", json=payload, timeout=15)
     assert r.status_code == 200, r.text
-    return r.json(), payload["email"], payload["password"]
+    verify_account_email(payload["email"])
+    r2 = requests.post(
+        f"{API}/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+        timeout=15,
+    )
+    assert r2.status_code == 200, r2.text
+    return r2.json(), payload["email"], payload["password"]
 
 
 def test_single_register_returns_both_tokens_and_member():
@@ -50,6 +61,7 @@ def test_single_register_returns_both_tokens_and_member():
 
 def test_single_register_defaults_name_to_email_local_part():
     """If family_name is empty for a single account, fall back to email prefix."""
+    from tests.conftest import verify_account_email
     ts = int(time.time() * 1000)
     email = f"jane-{ts}@example.com"
     r = requests.post(
@@ -66,10 +78,14 @@ def test_single_register_defaults_name_to_email_local_part():
         },
         timeout=15,
     )
-    # family_name="" → backend uses "My Family" for the family doc, but the
-    # auto-member name comes from the email local-part. Verify the member.
     assert r.status_code == 200, r.text
-    data = r.json()
+    verify_account_email(email)
+    r2 = requests.post(
+        f"{API}/auth/login",
+        json={"email": email, "password": "Pass1234!"},
+        timeout=15,
+    )
+    data = r2.json()
     member = data.get("member")
     assert member is not None
     assert member["name"].startswith(f"jane-{ts}")
