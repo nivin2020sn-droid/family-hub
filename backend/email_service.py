@@ -667,6 +667,108 @@ async def smtp_connectivity_test(db) -> dict:
         }
 
 
+# Default probe matrix — covers every common SMTP transport. When the admin
+# triggers the network-diagnose endpoint we probe ALL of these from the host
+# the Backend is running on, then return the matrix so the admin can see at
+# a glance which ports / providers are reachable.
+DEFAULT_NETWORK_DIAGNOSE_TARGETS = [
+    ("smtp.gmail.com", 587),
+    ("smtp.gmail.com", 465),
+    ("smtp.gmail.com", 25),
+    ("smtp.ionos.de", 587),
+    ("smtp.ionos.de", 465),
+    ("smtp.office365.com", 587),
+    ("smtp-mail.outlook.com", 587),
+    ("smtp.sendgrid.net", 587),
+]
+
+
+async def smtp_network_diagnose(targets: Optional[list] = None) -> dict:
+    """Fan out a DNS + TCP probe to every target in `targets` and return
+    the matrix. Runs entirely from the host the Backend is deployed on —
+    when called against the Render instance it reveals which providers /
+    ports Render's outbound firewall allows.
+
+    A single short timeout per target keeps the total response under
+    `len(targets) * timeout` even if every host is blocked. The probes are
+    sequential (not concurrent) so per-target timing stays accurate."""
+    import asyncio
+    import platform as _platform
+    import os as _os
+
+    targets = targets or list(DEFAULT_NETWORK_DIAGNOSE_TARGETS)
+    # Tight per-target timeout — 8 s is plenty to either complete a TCP
+    # handshake or expose a deny-by-firewall behaviour. Configurable via env
+    # for low-latency users who want a faster sweep.
+    timeout_s = int(_os.environ.get("SMTP_DIAGNOSE_TIMEOUT", "8"))
+
+    def _probe_one(host: str, port: int) -> dict:
+        try:
+            result = _smtp_connectivity_check({
+                "smtp_host": host,
+                "smtp_port": port,
+                "smtp_timeout_seconds": timeout_s,
+            })
+            return {
+                "host": host, "port": port, "reachable": True,
+                "resolved_ip": result.get("resolved_ip"),
+                "banner": result.get("banner"),
+                "step_durations": result.get("step_durations"),
+            }
+        except SmtpDeliveryError as exc:
+            return {
+                "host": host, "port": port, "reachable": False,
+                "reason": exc.reason, "stage": exc.stage,
+                "error": exc.message,
+                "step_durations": exc.step_durations,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "host": host, "port": port, "reachable": False,
+                "reason": "unknown",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+    loop = asyncio.get_event_loop()
+    logger.warning(
+        "[NET DIAGNOSE START] backend_host=%s python=%s targets=%d timeout=%ds",
+        _platform.node(), _platform.python_version(), len(targets), timeout_s,
+    )
+    results = []
+    for host, port in targets:
+        res = await loop.run_in_executor(None, _probe_one, host, port)
+        # Log EACH probe at WARNING so it always shows up in Render's log
+        # stream (even on stricter log filters). Format chosen so the line
+        # is greppable in any log viewer.
+        if res["reachable"]:
+            logger.warning(
+                "[NET DIAGNOSE] %s:%d → REACHABLE ip=%s steps=%s",
+                res["host"], res["port"], res.get("resolved_ip"),
+                res.get("step_durations"),
+            )
+        else:
+            logger.warning(
+                "[NET DIAGNOSE] %s:%d → BLOCKED reason=%s stage=%s steps=%s err=%s",
+                res["host"], res["port"], res.get("reason"),
+                res.get("stage"), res.get("step_durations"), res.get("error"),
+            )
+        results.append(res)
+
+    summary = {
+        "backend_host": _platform.node(),
+        "python_version": _platform.python_version(),
+        "per_target_timeout_seconds": timeout_s,
+        "reachable_count": sum(1 for r in results if r["reachable"]),
+        "total": len(results),
+        "results": results,
+    }
+    logger.warning(
+        "[NET DIAGNOSE END] backend_host=%s reachable=%d/%d",
+        _platform.node(), summary["reachable_count"], summary["total"],
+    )
+    return summary
+
+
 async def smtp_test_send(db, to_email: str, lang: str = "en") -> dict:
     """Admin-only — send a sample message to verify SMTP credentials."""
     lang = _normalize_lang(lang)

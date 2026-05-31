@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Mail, Send, Save, Loader2, AlertTriangle, CheckCircle2, Wifi } from "lucide-react";
+import { ArrowLeft, Mail, Send, Save, Loader2, AlertTriangle, CheckCircle2, Wifi, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,7 @@ import {
   adminUpdateEmailSettings,
   adminTestEmail,
   adminTestSmtpConnectivity,
+  adminDiagnoseNetwork,
   isAdmin,
 } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
@@ -41,6 +42,8 @@ const AdminEmailSettings = () => {
   const [testResult, setTestResult] = useState(null);
   const [connTesting, setConnTesting] = useState(false);
   const [connResult, setConnResult] = useState(null);
+  const [diagTesting, setDiagTesting] = useState(false);
+  const [diagResult, setDiagResult] = useState(null);
 
   usePageMeta({ title: `${t("admin.email.title")} · My Life My Time` });
 
@@ -154,6 +157,35 @@ const AdminEmailSettings = () => {
       toast.error(err?.response?.data?.detail || t("auth.error.generic"));
     } finally {
       setConnTesting(false);
+    }
+  };
+
+  const runNetworkDiagnose = async () => {
+    setDiagTesting(true);
+    setDiagResult(null);
+    try {
+      const r = await adminDiagnoseNetwork();
+      setDiagResult(r);
+      const reach = r?.reachable_count || 0;
+      const total = r?.total || 0;
+      if (reach === 0) {
+        toast.error(t("admin.email.diag.netAllBlocked"));
+      } else if (reach < total) {
+        toast.warning(t("admin.email.diag.netPartial", { reach, total }));
+      } else {
+        toast.success(t("admin.email.diag.netAllOk", { reach }));
+      }
+    } catch (err) {
+      setDiagResult({
+        error:
+          err?.code === "ECONNABORTED"
+            ? "Browser timed out waiting for the diagnose response"
+            : err?.message || "Network error",
+        results: [],
+      });
+      toast.error(err?.response?.data?.detail || t("auth.error.generic"));
+    } finally {
+      setDiagTesting(false);
     }
   };
 
@@ -309,6 +341,31 @@ const AdminEmailSettings = () => {
               {connResult && <ConnectivityPanel result={connResult} />}
             </div>
 
+            {/* Multi-target outbound network sweep — confirms which SMTP
+                providers/ports the backend host's firewall allows. */}
+            <div className="pt-3 border-t border-[#E5E2DC]">
+              <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+                {t("admin.email.diag.netLabel")}
+              </Label>
+              <p className="text-[11px] text-[#A09B95] mt-1 mb-2 leading-relaxed">
+                {t("admin.email.diag.netDesc")}
+              </p>
+              <Button
+                type="button"
+                onClick={runNetworkDiagnose}
+                disabled={diagTesting}
+                variant="outline"
+                className="rounded-full gap-2"
+                data-testid="email-diagnose-btn"
+              >
+                <Globe className="w-4 h-4" strokeWidth={2} />
+                {diagTesting
+                  ? t("admin.email.diag.netRunning")
+                  : t("admin.email.diag.netRun")}
+              </Button>
+              {diagResult && <DiagnosePanel result={diagResult} />}
+            </div>
+
             <div className="pt-3 border-t border-[#E5E2DC]">
               <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">{t("admin.email.testTo")}</Label>
               <div className="flex flex-col sm:flex-row gap-2 mt-1">
@@ -380,6 +437,110 @@ const ConnectivityPanel = ({ result }) => {
     );
   }
   return <FailurePanel result={result} title={t("admin.email.connFailedTitle")} testid="email-conn-result-error" />;
+};
+
+/** Matrix view for the multi-target network diagnose probe. Renders each
+ *  host:port row with reach status, IP, banner snippet, and timing breakdown.
+ *  Designed to make it obvious which providers a Render-style firewall blocks. */
+const DiagnosePanel = ({ result }) => {
+  const { t } = useI18n();
+  const rows = result?.results || [];
+  return (
+    <div
+      className="mt-3 rounded-2xl border border-[#E5E2DC] bg-white px-4 py-3"
+      data-testid="email-diagnose-result"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-[#2D2A26]">
+          {t("admin.email.diag.netHeading")}
+        </p>
+        {typeof result?.reachable_count === "number" && (
+          <span
+            className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+              result.reachable_count === result.total
+                ? "bg-[#DCFCE7] text-[#166534]"
+                : result.reachable_count === 0
+                ? "bg-[#FEE2E2] text-[#7F1D1D]"
+                : "bg-[#FEF3C7] text-[#92400E]"
+            }`}
+            data-testid="email-diagnose-summary"
+          >
+            {result.reachable_count}/{result.total} {t("admin.email.diag.netReachableCount")}
+          </span>
+        )}
+      </div>
+      {result?.backend_host && (
+        <p className="text-[10px] text-[#7A7571] mb-3 font-mono break-all">
+          {t("admin.email.diag.netBackendHost")}: {result.backend_host}
+        </p>
+      )}
+      <div className="space-y-2">
+        {rows.map((row, i) => (
+          <DiagnoseRow key={`${row.host}:${row.port}:${i}`} row={row} />
+        ))}
+      </div>
+      {result?.error && rows.length === 0 && (
+        <p className="text-xs text-[#B91C1C] mt-2" data-testid="email-diagnose-error">
+          {result.error}
+        </p>
+      )}
+    </div>
+  );
+};
+
+const DiagnoseRow = ({ row }) => {
+  const { t } = useI18n();
+  const ok = !!row.reachable;
+  const totalMs = Object.values(row.step_durations || {}).reduce(
+    (acc, v) => acc + (Number(v) || 0),
+    0,
+  );
+  return (
+    <div
+      className={`rounded-xl border px-3 py-2 ${
+        ok ? "border-[#BBF7D0] bg-[#F0FDF4]" : "border-[#FCDCD7] bg-[#FEF3F2]"
+      }`}
+      data-testid={`email-diagnose-row-${row.host}-${row.port}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-xs text-[#2D2A26] break-all">
+          {row.host}:{row.port}
+        </span>
+        <span
+          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+            ok ? "bg-[#16A34A] text-white" : "bg-[#B91C1C] text-white"
+          }`}
+        >
+          {ok ? t("admin.email.diag.netReach") : t("admin.email.diag.netBlock")}
+        </span>
+      </div>
+      <div className="mt-1 text-[10px] text-[#7A7571] font-mono space-y-0.5">
+        {row.resolved_ip && (
+          <div>{t("admin.email.diag.ip")}: {row.resolved_ip}</div>
+        )}
+        {row.banner && (
+          <div className="truncate" title={row.banner}>
+            {t("admin.email.diag.banner")}: {row.banner}
+          </div>
+        )}
+        {!ok && row.error && (
+          <div className="text-[#B91C1C] break-words">
+            {t("admin.email.diag.details")}: {row.error}
+          </div>
+        )}
+        {row.step_durations && Object.keys(row.step_durations).length > 0 && (
+          <div>
+            {Object.entries(row.step_durations).map(([k, v]) => (
+              <span key={k} className="ms-2 first:ms-0">
+                {t(`admin.email.step.${k}`)}: {v}s
+              </span>
+            ))}
+            {totalMs > 0 && <span className="ms-2">∑ {totalMs.toFixed(3)}s</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 /** Reusable inline timings list — shown for both connectivity and send. */

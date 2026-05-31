@@ -377,6 +377,23 @@ export async function adminTestSmtpConnectivity() {
   return data;
 }
 
+/** Fan-out network probe — tests Gmail, IONOS, Outlook, SendGrid etc. from
+ *  inside whatever backend host is serving the request. Designed to expose
+ *  which providers a deployment's outbound firewall blocks. */
+export async function adminDiagnoseNetwork(targets) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    "/api/admin/email-settings/diagnose-network",
+    targets ? { targets } : {},
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      // 8 targets × ~8 s worst case = ~64 s. 120 s window gives slack.
+      timeout: 120000,
+    }
+  );
+  return data;
+}
+
 // ---------- GDPR account deletion (soft-delete, 30-day grace window) ----------
 
 /** Request permanent account deletion. Server sets status="deletion_requested"

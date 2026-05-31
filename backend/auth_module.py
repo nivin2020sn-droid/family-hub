@@ -1492,6 +1492,41 @@ def build_admin_router(db) -> APIRouter:
         from email_service import smtp_connectivity_test
         return await smtp_connectivity_test(db)
 
+    @router.post("/email-settings/diagnose-network")
+    async def diagnose_smtp_network(
+        body: Optional[dict] = None,
+        _: dict = Depends(require_admin),
+    ):
+        """Run a fan-out DNS + TCP probe from THIS backend against a list of
+        common SMTP providers (Gmail, IONOS, Outlook, SendGrid …).
+
+        When called against a Render deployment this reveals exactly which
+        providers / ports the Render outbound firewall allows. When called
+        against a working backend (Emergent Preview, local dev) all targets
+        return `reachable=true` — proving the gap is environmental, not code.
+
+        Custom target list can be passed as `{"targets": [["host", 587], ...]}`.
+        Without a body it sweeps `DEFAULT_NETWORK_DIAGNOSE_TARGETS`.
+
+        Every probe is also logged at WARNING level with the prefix
+        `[NET DIAGNOSE]` so the result is readable in Render's log stream
+        even without watching the HTTP response."""
+        from email_service import smtp_network_diagnose
+        custom = (body or {}).get("targets") if body else None
+        targets = None
+        if isinstance(custom, list) and custom:
+            # Accept `[["host", 587], ...]` or `[{"host": "...", "port": 587}, ...]`.
+            normalized = []
+            for entry in custom:
+                if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                    normalized.append((str(entry[0]), int(entry[1])))
+                elif isinstance(entry, dict) and entry.get("host"):
+                    normalized.append((str(entry["host"]),
+                                       int(entry.get("port") or 587)))
+            if normalized:
+                targets = normalized
+        return await smtp_network_diagnose(targets)
+
     return router
 
 async def ensure_indexes(db) -> None:
