@@ -516,3 +516,37 @@ GA4 measurement ID **`G-QS0W3Z2484`** added to the live build. Tracks page views
 - `/app/frontend/src/App.js` (init delegation at module load + mount `<RouteAnalytics />` inside `<BrowserRouter>`).
 
 Backend untouched. Database untouched. Backend pytest **23/23 PASSED** (regression).
+
+
+## Implemented (Feb 2026 — Legal & Content Management dashboard)
+Admin can now edit every legal/brand string of the site from a dedicated dashboard, and the public legal pages pull their content from the database — no redeploy required for copy changes.
+
+**Backend** (`server.py`):
+- New collection `site_content` (singleton doc keyed by `_key="global"`). Tenant-isolation N/A — this is site-wide content.
+- New Pydantic models `SiteContent` (10 fields) and `SiteContentUpdate` (all optional → partial PATCH semantics).
+- `DEFAULT_SITE_CONTENT` constant holds production-ready defaults for all four legal texts so a brand-new install still renders text. The helper `_read_site_content()` merges the DB doc with the defaults: explicit empty strings from the admin transparently fall back to the default value (gives admin a "reset this field" gesture).
+- `GET /api/site-content` — **public**, no auth, returns the merged document. Used by Privacy / ToS / Legal Notice / Disclaimer pages.
+- `PUT /api/site-content` — **admin-only** via `require_admin` dependency. Accepts a partial body; only fields actually sent are persisted. Returns the updated merged doc + an `updated_at` ISO timestamp and `updated_by` (admin account id) audit trail.
+
+**Frontend**:
+- `src/lib/siteContent.js` — tiny axios wrapper: `getSiteContent()` (public, returns `null` on failure for graceful degradation) + `updateSiteContent(patch)` (admin, sends only changed fields).
+- `src/pages/AdminContent.jsx` — new admin route `/admin/content`. Sticky top bar with Back / Reset / Save, top-level "unsaved changes" indicator, then five cards: **Brand & Contact** (6 short fields in a 2-col grid: app_name / app_version / company_name / contact_email / phone_number / address textarea) + **Privacy Policy** + **Terms of Service** + **Legal Notice** + **Disclaimer** (each a tall textarea). Auto-computed patch = diff vs the last-loaded snapshot, so Save is disabled until something actually changed and we only PATCH the diff.
+- `src/components/ContentRenderer.jsx` — converts the admin's plain text into a structured page: blocks separated by blank lines, lines starting with `- ` become bullet lists, single-line short blocks followed by content become `<h2>` section headings, bare emails auto-link to mailto. Zero-friction editor (no Markdown required), formatted output.
+- `src/pages/PrivacyPolicy.jsx`, `TermsOfService.jsx`, `LegalNotice.jsx` — rewritten to fetch `/api/site-content` once on mount and render the appropriate field through `<ContentRenderer>`. Layout (icon hero, breadcrumb, Back to Home, footer) untouched.
+- `src/pages/Disclaimer.jsx` — brand-new public page at `/disclaimer`, same pattern as the other three.
+- `src/components/LegalLayout.jsx` — `LEGAL_LINKS` extended with `/disclaimer`. The shared footer + Login legal strip + Settings dialog legal strip ALL pick up the new link automatically.
+- `src/pages/Admin.jsx` — new "Content" button in the admin top bar (FileText icon) routing to `/admin/content`.
+- `src/App.js` — registered `/disclaimer` and `/admin/content` routes.
+
+**Tested**:
+- Backend pytest **27/27 PASSED** (4 new in `tests/test_site_content.py` — GET public + all-keys present + non-empty defaults / PUT auth gates (401 + 403 for non-admin) / PUT partial + round-trip / empty body 400) + 23 existing regressions unchanged.
+- Live curl + Playwright:
+  1. `PUT /api/site-content` with `{disclaimer:"...custom...", app_version:"1.0.0-rc1", phone_number:"+49 …"}` as admin → 200 + updated doc.
+  2. Public `GET /api/site-content` returns the custom values.
+  3. `/disclaimer` page renders the custom disclaimer with "Key Points" auto-detected as `<h2>`, bullet list rendered properly, email auto-linked.
+  4. `/admin/content` shows all 6 brand fields pre-populated, 4 long textareas, sticky Save / Reset header.
+- Auth: non-admin token → 403, no token → 401 (verified).
+
+**Affected files**:
+- New: `/app/backend/tests/test_site_content.py`, `/app/frontend/src/lib/siteContent.js`, `/app/frontend/src/pages/AdminContent.jsx`, `/app/frontend/src/pages/Disclaimer.jsx`, `/app/frontend/src/components/ContentRenderer.jsx`.
+- Modified: `/app/backend/server.py` (new endpoints + model + defaults), `/app/frontend/src/pages/PrivacyPolicy.jsx`, `TermsOfService.jsx`, `LegalNotice.jsx` (now read from DB), `/app/frontend/src/components/LegalLayout.jsx` (+ Disclaimer link), `/app/frontend/src/pages/Admin.jsx` (Content button), `/app/frontend/src/App.js` (2 new routes).

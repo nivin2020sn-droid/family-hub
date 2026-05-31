@@ -1,17 +1,17 @@
-// Legal Notice / Imprint — public route. Long text comes from /api/site-content.
+// Disclaimer — public route. Long text comes from /api/site-content.
 
 import { useEffect, useState } from "react";
-import { Scale } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { LegalLayout } from "@/components/LegalLayout";
 import ContentRenderer from "@/components/ContentRenderer";
 import { usePageMeta } from "@/lib/usePageMeta";
 import { getSiteContent } from "@/lib/siteContent";
 
-const TITLE = "Legal Notice";
+const TITLE = "Disclaimer";
 const DESCRIPTION =
-  "Operator and contact details for My Life My Time, plus disclaimers regarding accuracy and external links.";
+  "General disclaimer for the information and services provided by My Life My Time.";
 
-const LegalNotice = () => {
+const Disclaimer = () => {
   const [content, setContent] = useState(null);
 
   usePageMeta({
@@ -33,14 +33,13 @@ const LegalNotice = () => {
 
   return (
     <LegalLayout
-      icon={Scale}
+      icon={AlertTriangle}
       title={TITLE}
-      subtitle="Operator information and disclaimers in accordance with applicable law."
-      testid="page-legal-notice"
-      lastUpdated={false}
+      subtitle="Please read these important notes about the information we provide."
+      testid="page-disclaimer"
     >
       {content ? (
-        <ContentRenderer text={content.legal_notice} />
+        <ContentRenderer text={content.disclaimer} />
       ) : (
         <p className="text-[#7A7571]">Loading…</p>
       )}
@@ -48,4 +47,4 @@ const LegalNotice = () => {
   );
 };
 
-export default LegalNotice;
+export default Disclaimer;

@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle } from "lucide-react";
+import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -248,6 +248,16 @@ const Admin = () => {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => navigate("/admin/content")}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full hover:bg-[#F3F0EA] text-[#2D2A26]"
+              data-testid="admin-open-content"
+              title="Legal & Content Management"
+            >
+              <FileText className="w-3.5 h-3.5" strokeWidth={2} />
+              <span className="hidden sm:inline">Content</span>
+            </button>
             <button
               type="button"
               onClick={refresh}

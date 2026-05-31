@@ -46,6 +46,7 @@ from auth_module import (
     seed_admin as auth_seed_admin,
     seed_default_family as auth_seed_default_family,
     require_member_token,
+    require_admin,
 )
 
 # Auth/admin routers need cross-tenant access → raw_db, not the scoped wrapper.
@@ -2813,6 +2814,197 @@ async def budget_contracts_expiring():
             })
     expiring.sort(key=lambda x: x["days_left"])
     return {"expiring": expiring}
+
+
+# ============= Site Content (admin-managed legal & brand text) =============
+# Single global document keyed by SITE_CONTENT_KEY. Stores the editable
+# brand metadata + the four legal long-text fields. The PUT endpoint is
+# admin-only (require_admin). The GET endpoint is intentionally PUBLIC so
+# the legal pages render with or without auth.
+SITE_CONTENT_KEY = "global"
+
+# Defaults — used when the doc doesn't exist yet OR when a field is empty.
+# Keeping these here means the live legal pages still have content even on
+# a brand-new install before the admin has saved anything.
+DEFAULT_SITE_CONTENT = {
+    "app_name": "My Life My Time",
+    "app_version": "0.9.0-beta",
+    "company_name": "My Life My Time",
+    "contact_email": "info@mylife-mytime.com",
+    "address": "Kaiserstraße 101\n76133 Karlsruhe\nGermany",
+    "phone_number": "",
+    "privacy_policy": (
+        "My Life My Time respects your privacy and is committed to protecting "
+        "your personal information.\n\n"
+        "Information We Collect\n"
+        "- Account information such as name, email address and login credentials\n"
+        "- Profile information voluntarily provided by users\n"
+        "- Family-related information entered by users\n"
+        "- Uploaded images and documents\n"
+        "- Device and technical information required for service operation\n"
+        "- Usage information necessary to improve functionality and security\n\n"
+        "How We Use Information\n"
+        "- To provide and maintain the service\n"
+        "- To authenticate users\n"
+        "- To synchronize family data\n"
+        "- To improve user experience\n"
+        "- To provide customer support\n"
+        "- To ensure platform security\n"
+        "- To prevent abuse and unauthorized access\n\n"
+        "Data Sharing\n"
+        "Personal information is never sold to third parties. Information may "
+        "only be disclosed when required by law, to protect legal rights, or "
+        "to provide essential technical services required for operation.\n\n"
+        "Data Retention\n"
+        "Personal data is retained only as long as necessary to operate the "
+        "service, maintain user accounts, fulfill legal obligations, and "
+        "ensure platform security.\n\n"
+        "User Rights\n"
+        "Users may request access, correction, export, or deletion of their "
+        "personal data by contacting info@mylife-mytime.com.\n\n"
+        "Security\n"
+        "Reasonable technical and organizational measures are implemented to "
+        "protect personal information against unauthorized access, "
+        "alteration, disclosure, or destruction.\n\n"
+        "Contact\n"
+        "For privacy-related inquiries: info@mylife-mytime.com."
+    ),
+    "terms_of_service": (
+        "By accessing or using My Life My Time, you agree to these Terms of Service.\n\n"
+        "Eligibility\n"
+        "Users must comply with applicable laws and regulations when using the platform.\n\n"
+        "Acceptable Use\n"
+        "Users agree not to:\n"
+        "- Use the platform for unlawful purposes\n"
+        "- Attempt unauthorized access\n"
+        "- Interfere with system operation\n"
+        "- Upload malicious software\n"
+        "- Abuse or exploit platform features\n\n"
+        "Accounts\n"
+        "Users are responsible for maintaining the confidentiality of their "
+        "accounts and passwords.\n\n"
+        "Service Availability\n"
+        "The service is provided on an \"AS IS\" and \"AS AVAILABLE\" basis. "
+        "The operator may modify, update, suspend, or discontinue any feature "
+        "at any time without prior notice.\n\n"
+        "Limitation of Liability\n"
+        "The operator shall not be liable for indirect, incidental, special, "
+        "consequential, or punitive damages arising from the use of the platform.\n\n"
+        "Termination\n"
+        "Accounts may be suspended or terminated in cases of abuse, fraud, "
+        "illegal activity, or violation of these terms.\n\n"
+        "Changes to Terms\n"
+        "These terms may be updated periodically. Continued use of the "
+        "platform constitutes acceptance of any modifications.\n\n"
+        "Contact\n"
+        "info@mylife-mytime.com"
+    ),
+    "legal_notice": (
+        "Operator\n"
+        "My Life My Time\n\n"
+        "Owner\n"
+        "Bahaa Nasser\n\n"
+        "Address\n"
+        "Kaiserstraße 101\n"
+        "76133 Karlsruhe\n"
+        "Germany\n\n"
+        "Email\n"
+        "info@mylife-mytime.com\n\n"
+        "Disclaimer\n"
+        "The information provided on this website and application is for "
+        "general informational purposes only. While every effort is made to "
+        "keep the information accurate and up to date, no warranties are made "
+        "regarding completeness, accuracy, reliability, suitability, or "
+        "availability.\n\n"
+        "External Links\n"
+        "External links are provided solely for convenience. The operator is "
+        "not responsible for the content of third-party websites."
+    ),
+    "disclaimer": (
+        "The content provided in this application is for general informational "
+        "purposes only and does not constitute professional advice. While we "
+        "strive to keep the information accurate and current, we make no "
+        "representations or warranties of any kind, express or implied, about "
+        "the completeness, accuracy, reliability, or suitability of the "
+        "information for any purpose. Any reliance you place on such "
+        "information is therefore strictly at your own risk."
+    ),
+}
+
+
+class SiteContent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    # Short brand fields
+    app_name: str = ""
+    app_version: str = ""
+    company_name: str = ""
+    contact_email: str = ""
+    address: str = ""
+    phone_number: str = ""
+    # Long legal texts
+    privacy_policy: str = ""
+    terms_of_service: str = ""
+    legal_notice: str = ""
+    disclaimer: str = ""
+    updated_at: Optional[str] = None
+    updated_by: Optional[str] = None  # admin account_id
+
+
+class SiteContentUpdate(BaseModel):
+    """Partial update payload — only fields explicitly sent are applied,
+    so the admin can save one field without wiping the others."""
+    model_config = ConfigDict(extra="ignore")
+    app_name: Optional[str] = None
+    app_version: Optional[str] = None
+    company_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    address: Optional[str] = None
+    phone_number: Optional[str] = None
+    privacy_policy: Optional[str] = None
+    terms_of_service: Optional[str] = None
+    legal_notice: Optional[str] = None
+    disclaimer: Optional[str] = None
+
+
+async def _read_site_content() -> dict:
+    """Load the global site_content doc, merge any missing fields with the
+    defaults so every consumer sees a complete object."""
+    doc = await raw_db.site_content.find_one(
+        {"_key": SITE_CONTENT_KEY}, {"_id": 0}
+    ) or {}
+    merged = {**DEFAULT_SITE_CONTENT, **{k: v for k, v in doc.items() if k != "_key"}}
+    # An explicit "" from the admin means "use default" — gives them a way
+    # to wipe a field without sending null.
+    for k, default_v in DEFAULT_SITE_CONTENT.items():
+        if not merged.get(k):
+            merged[k] = default_v
+    return merged
+
+
+@api_router.get("/site-content")
+async def get_site_content():
+    """PUBLIC — read by the Privacy / ToS / Legal Notice / Disclaimer pages,
+    so anonymous visitors can see the current text. No auth, no PII."""
+    return await _read_site_content()
+
+
+@api_router.put("/site-content")
+async def update_site_content(
+    payload: SiteContentUpdate,
+    admin: dict = Depends(require_admin),
+):
+    """Admin-only. Partial PATCH semantics — only sent fields are written."""
+    patch = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if not patch:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    patch["updated_at"] = datetime.now(timezone.utc).isoformat()
+    patch["updated_by"] = admin.get("sub")
+    await raw_db.site_content.update_one(
+        {"_key": SITE_CONTENT_KEY},
+        {"$set": patch, "$setOnInsert": {"_key": SITE_CONTENT_KEY}},
+        upsert=True,
+    )
+    return await _read_site_content()
 
 
 # Include the router in the main app

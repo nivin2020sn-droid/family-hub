@@ -11,6 +11,7 @@ export const LEGAL_LINKS = [
   { to: "/privacy", label: "Privacy Policy", testid: "footer-link-privacy" },
   { to: "/terms-of-service", label: "Terms of Service", testid: "footer-link-tos" },
   { to: "/legal-notice", label: "Legal Notice", testid: "footer-link-legal" },
+  { to: "/disclaimer", label: "Disclaimer", testid: "footer-link-disclaimer" },
 ];
 
 const APP_NAME = "My Life My Time";
