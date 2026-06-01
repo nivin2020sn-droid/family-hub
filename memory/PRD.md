@@ -888,3 +888,45 @@ The Family Budget no longer treats salary as a date-bound one-time row that disa
 
 **Outstanding** (low priority, deferred per testing-agent comment): `HomeBudget.jsx` is now 1798 lines — worth splitting `ScopePicker`, editors and Row helpers into separate files for maintainability.
 
+
+## Implemented (Feb 2026 — Family Locator feature flag)
+The Family Locator (Where is my family?) section is now hidden by default and gated behind an admin-only global toggle. Disabled = no map, no GPS calls, no location-permission prompts anywhere.
+
+**Backend** (`server.py`):
+- New singleton `app_settings._key="global"` MongoDB doc. Helper `_get_feature_flags()` returns `{locator_enabled: bool}` with hard-coded defaults (locator_enabled=False).
+- New public endpoint `GET /api/feature-flags` (no auth — every client reads it on app boot).
+- Guard helper `_require_locator_enabled()` raises **HTTP 403** with `"Family Locator is disabled by the administrator."` when the flag is off. Wired into ALL four location routes: `POST /api/location/update`, `GET /api/location/latest`, `GET /api/location/history`, `DELETE /api/location/member/{member_id}`. The gate runs BEFORE the auth check so even forged tokens cannot probe the GPS endpoints.
+
+**Backend** (`auth_module.py` admin router):
+- `GET /api/admin/feature-flags` (require_admin) → returns the sanitized flags doc + `updated_at` / `updated_by`.
+- `PUT /api/admin/feature-flags` (require_admin) → accepts `{locator_enabled: bool}`, validates field whitelist, upserts the singleton.
+
+**Frontend**:
+- New module `/app/frontend/src/lib/featureFlags.js` — exports `useFeatureFlags()` hook + `getFeatureFlags()` async helper. Single-flight cache with 60 s TTL + `invalidateFeatureFlags()` for the admin toggle. Defaults to `locator_enabled=false` if the network is unreachable, so the locator section stays hidden during slow connections.
+- `/app/frontend/src/pages/WallBoard.jsx` — `<FamilyMapCard />` now only renders when `!isSingleAccount() && featureFlags.locator_enabled`. Disabled flag = the component never mounts, so its `useEffect`-driven GPS fetch never fires.
+- `/app/frontend/src/pages/Admin.jsx` — new `FeatureFlagsCard` rendered at the very top of the Admin Console. Custom Tailwind switch (no extra Radix dep), optimistic update with rollback on error, refreshes the public-flags cache via `invalidateFeatureFlags()`. Test-ids: `admin-feature-flags-card` / `admin-flag-locator` / `admin-flag-locator-toggle`.
+- `/app/frontend/src/lib/auth.js` — new helpers `adminGetFeatureFlags()` + `adminUpdateFeatureFlags(body)`.
+- 8 new `admin.flags.*` translation keys × EN / AR / DE.
+
+**Tests** (`/app/backend/tests/test_feature_flags.py`):
+1. Public `/api/feature-flags` is reachable without auth, returns boolean shape.
+2. While disabled, `/api/location/latest` AND `/api/location/update` both return 403 with `"disabled"` in the detail — regardless of auth state.
+3. After admin flips to True, the public endpoint reflects the change and `/api/location/latest` no longer 403s.
+4. Non-admin tokens are blocked from BOTH GET and PUT admin flag endpoints (401/403).
+5. Round-trip: admin flips, public sees the new value immediately. **5/5 PASS**.
+
+Combined with the 11 recurring-income tests: **16/16 PASS** on the new test suites.
+
+**Verified live** (Playwright on https://family-timeplan.preview.emergentagent.com/admin):
+- Feature Flags card visible at the top of /admin with the MapPin icon, "Family Locator feature" title, full description text, "DISABLED" status indicator, working toggle (aria-checked flips on click), success toast "Feature disabled for all users." Curl audit confirms: default = disabled → `/location/latest` returns 403 → admin enables → returns 401 (family-context, expected) → admin disables → returns 403 again.
+
+**Affected files**:
+- `/app/backend/server.py` (new helpers + public endpoint + 4 location guards).
+- `/app/backend/auth_module.py` (admin GET/PUT feature-flags).
+- `/app/backend/tests/test_feature_flags.py` (new — 5 tests).
+- `/app/frontend/src/lib/featureFlags.js` (new — public-flags client).
+- `/app/frontend/src/lib/auth.js` (admin helpers).
+- `/app/frontend/src/pages/WallBoard.jsx` (gate FamilyMapCard).
+- `/app/frontend/src/pages/Admin.jsx` (FeatureFlagsCard + FeatureFlagRow).
+- `/app/frontend/src/lib/translations.js` (24 keys total — 8 × 3 langs).
+

@@ -55,6 +55,7 @@ import { LEGAL_LINKS } from "@/components/LegalLayout";
 import RecentActivityStrip from "@/components/RecentActivityStrip";
 import { useAppInfo } from "@/lib/useAppInfo";
 import FamilyMapCard from "@/components/FamilyMapCard";
+import { useFeatureFlags } from "@/lib/featureFlags";
 import WallBoardRoutines from "@/components/WallBoardRoutines";
 import {
   wallSettings,
@@ -1749,6 +1750,10 @@ const WallBoard = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useI18n();
+  // Global Family Locator toggle (admin-controlled). When disabled, the
+  // map card is not rendered AND no GPS network calls are made — see
+  // /api/feature-flags + backend `_require_locator_enabled`.
+  const { flags: featureFlags } = useFeatureFlags();
   // Permissions: children get a private "My Money" tile instead of the full
   // Family Budget. Family admins always see the full budget and can also
   // supervise kids' money via /my-money.
@@ -2105,8 +2110,11 @@ const WallBoard = () => {
 
         <div className="mt-5 grid grid-cols-1 gap-3.5">
           {/* Where is my family? (live map) — placed right under the hero.
-              Family-only feature: GPS sharing only makes sense across members. */}
-          {!isSingleAccount() && <FamilyMapCard />}
+              Family-only feature: GPS sharing only makes sense across members.
+              Globally gated by the `locator_enabled` feature flag, so the
+              entire FamilyMapCard component (and every network call it would
+              make) is short-circuited when the admin keeps the feature off. */}
+          {!isSingleAccount() && featureFlags.locator_enabled && <FamilyMapCard />}
 
           {/* My Routines — embedded section, no navigation */}
           <WallBoardRoutines />

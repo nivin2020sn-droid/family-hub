@@ -876,6 +876,14 @@ export const TRANSLATIONS = {
     "admin.email.logo.sourceDefault": "Default app logo",
     "admin.nav.email": "Email Settings",
     "admin.nav.emailCenter": "Email Center",
+    // ===== Feature Flags =====
+    "admin.flags.title": "Feature flags",
+    "admin.flags.enabled": "Enabled",
+    "admin.flags.disabled": "Disabled",
+    "admin.flags.enabledToast": "Feature enabled for all users.",
+    "admin.flags.disabledToast": "Feature disabled for all users.",
+    "admin.flags.locator.title": "Family Locator feature",
+    "admin.flags.locator.desc": "Enable or disable the Family Locator section for all users. When disabled, the map card, GPS endpoints and location-permission prompts are all hidden.",
     // ===== Email Center (admin broadcast) =====
     "ec.title": "Email Center",
     "ec.subtitle": "Send branded announcements, updates and alerts to your users.",
@@ -1989,6 +1997,14 @@ export const TRANSLATIONS = {
     "admin.email.logo.sourceDefault": "شعار التطبيق الافتراضي",
     "admin.nav.email": "إعدادات البريد",
     "admin.nav.emailCenter": "مركز البريد",
+    // ===== Feature Flags =====
+    "admin.flags.title": "ميزات التطبيق",
+    "admin.flags.enabled": "مفعّل",
+    "admin.flags.disabled": "معطّل",
+    "admin.flags.enabledToast": "تم تفعيل الميزة لجميع المستخدمين.",
+    "admin.flags.disabledToast": "تم تعطيل الميزة لجميع المستخدمين.",
+    "admin.flags.locator.title": "ميزة «أين عائلتي»",
+    "admin.flags.locator.desc": "تفعيل أو تعطيل قسم «أين عائلتي» لجميع المستخدمين. عند التعطيل تختفي بطاقة الخريطة، ولا تُستدعى نقاط GPS، ولا تظهر أي طلبات صلاحية موقع.",
     // ===== Email Center (admin broadcast) =====
     "ec.title": "مركز البريد",
     "ec.subtitle": "أرسل الإعلانات والتحديثات والتنبيهات إلى المستخدمين بقالب احترافي.",
@@ -3102,6 +3118,14 @@ export const TRANSLATIONS = {
     "admin.email.logo.sourceDefault": "Standard-App-Logo",
     "admin.nav.email": "E-Mail-Einstellungen",
     "admin.nav.emailCenter": "E-Mail-Zentrale",
+    // ===== Feature Flags =====
+    "admin.flags.title": "Funktionsschalter",
+    "admin.flags.enabled": "Aktiviert",
+    "admin.flags.disabled": "Deaktiviert",
+    "admin.flags.enabledToast": "Funktion für alle Nutzer aktiviert.",
+    "admin.flags.disabledToast": "Funktion für alle Nutzer deaktiviert.",
+    "admin.flags.locator.title": "Family-Locator-Funktion",
+    "admin.flags.locator.desc": "Bereich „Wo ist meine Familie?“ für alle Nutzer aktivieren oder deaktivieren. Bei Deaktivierung sind die Kartenkachel, GPS-Endpunkte und Standortabfragen ausgeblendet.",
     // ===== Email Center (admin broadcast) =====
     "ec.title": "E-Mail-Zentrale",
     "ec.subtitle": "Sende Ankündigungen, Updates und Hinweise an deine Nutzer im gebrandeten Design.",

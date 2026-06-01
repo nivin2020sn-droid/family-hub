@@ -908,6 +908,55 @@ async def delete_wall_family_event(ev_id: str):
     return {"ok": True}
 
 
+# ============= Feature Flags (global toggles) =============
+# A single MongoDB document holds the boolean toggles that gate optional
+# features at the app level. Admins flip them from /admin; clients read
+# them via the public /api/feature-flags endpoint on every page boot so
+# disabled features never even hit the network.
+
+FEATURE_FLAGS_KEY = "global"
+FEATURE_FLAGS_DEFAULTS = {
+    # Family Locator (live GPS map + history). Disabled by default per
+    # user policy — admins enable it from /admin when the feature is ready.
+    "locator_enabled": False,
+}
+
+
+async def _get_feature_flags() -> dict:
+    """Load the feature-flags doc, filling in defaults for keys never seen
+    before. Always safe to call; never raises on missing doc."""
+    doc = await raw_db.app_settings.find_one(
+        {"_key": FEATURE_FLAGS_KEY}, {"_id": 0}
+    )
+    out = dict(FEATURE_FLAGS_DEFAULTS)
+    if doc:
+        for k in FEATURE_FLAGS_DEFAULTS:
+            if k in doc:
+                out[k] = bool(doc[k])
+    return out
+
+
+async def _require_locator_enabled():
+    """Guard helper used by every /api/location/* route. Raises 403 when
+    the admin has disabled the Family Locator feature, so the frontend
+    can't accidentally light up the map by forgetting to check the flag."""
+    flags = await _get_feature_flags()
+    if not flags.get("locator_enabled"):
+        raise HTTPException(
+            status_code=403,
+            detail="Family Locator is disabled by the administrator.",
+        )
+
+
+@api_router.get("/feature-flags")
+async def public_feature_flags():
+    """Public read-only feature flags — every client reads this on boot
+    to know which optional sections to render. No auth required so
+    pre-login pages can call it too. Cache for 60 s to keep load light."""
+    flags = await _get_feature_flags()
+    return flags
+
+
 # ============= Family Location Routes =============
 
 @api_router.post("/location/update")
@@ -919,6 +968,7 @@ async def location_update(payload: LocationUpdate):
     - Upserts a `gps_devices` document keyed by `memberId` + `family_id`.
     - Appends an immutable point to `location_points` for the history view.
     """
+    await _require_locator_enabled()
     family = await resolve_family_by_code(raw_db, (payload.familyCode or "").strip())
     if not family:
         raise HTTPException(status_code=401, detail="Invalid family code")
@@ -978,6 +1028,7 @@ async def location_update(payload: LocationUpdate):
 @api_router.get("/location/latest", response_model=List[FamilyMemberOut])
 async def location_latest():
     """Return the latest known position for every tracked family member."""
+    await _require_locator_enabled()
     items = await db.gps_devices.find({}, {"_id": 0}).sort("name", 1).to_list(200)
     return items
 
@@ -990,6 +1041,7 @@ async def location_history(
     end: Optional[str] = None,
 ):
     """Return the movement history for a single member."""
+    await _require_locator_enabled()
     if date:
         try:
             start_dt = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -1021,6 +1073,7 @@ async def delete_location_member(member_id: str):
     The tenant scope comes from the bearer token, so no familyCode query
     parameter is required (or accepted) anymore.
     """
+    await _require_locator_enabled()
     member_res = await db.gps_devices.delete_one({"id": member_id})
     points_res = await db.location_points.delete_many({"memberId": member_id})
     if member_res.deleted_count == 0 and points_res.deleted_count == 0:

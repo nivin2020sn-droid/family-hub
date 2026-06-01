@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle, FileText, Send } from "lucide-react";
+import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle, FileText, Send, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,10 @@ import {
   isAdmin, getAccount, getAccountToken,
   adminListFamilies, adminSetFamilyStatus, adminIssueRecovery, adminSetFamilyAccount, adminAddFamilyMember,
   adminFamilyDiagnostic, adminDeleteFamily,
+  adminGetFeatureFlags, adminUpdateFeatureFlags,
   logout as apiLogout,
 } from "@/lib/auth";
+import { invalidateFeatureFlags } from "@/lib/featureFlags";
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -302,6 +304,10 @@ const Admin = () => {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pt-4 space-y-3">
+        {/* Global feature flags — admin can flip optional sections on/off
+            for every user from this card. Persisted in MongoDB. */}
+        <FeatureFlagsCard />
+
         <div className="rounded-3xl bg-white border border-[#E5E2DC] p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2 mb-2">
             <h2 className="font-heading text-sm font-semibold text-[#2D2A26]">
@@ -836,3 +842,114 @@ const Admin = () => {
 };
 
 export default Admin;
+
+// ─── Feature Flags card ────────────────────────────────────────────────
+// Lives at the top of the admin console. Currently exposes the
+// "Family Locator" toggle; new flags get one row each. Reads + writes the
+// single MongoDB `app_settings` document via /api/admin/feature-flags.
+const FeatureFlagsCard = () => {
+  const { t } = useI18n();
+  const [flags, setFlags] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null); // name of the flag being saved
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const f = await adminGetFeatureFlags();
+        setFlags(f);
+      } catch {
+        setFlags({ locator_enabled: false });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const toggle = async (key, next) => {
+    setSaving(key);
+    const prev = flags?.[key];
+    setFlags((f) => ({ ...(f || {}), [key]: next })); // optimistic
+    try {
+      const fresh = await adminUpdateFeatureFlags({ [key]: next });
+      setFlags(fresh);
+      invalidateFeatureFlags(); // refresh public-flags cache for this tab
+      toast.success(t(next ? "admin.flags.enabledToast" : "admin.flags.disabledToast"));
+    } catch (err) {
+      setFlags((f) => ({ ...(f || {}), [key]: prev })); // rollback
+      toast.error(err?.response?.data?.detail || t("auth.error.generic"));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <div className="rounded-3xl bg-white border border-[#E5E2DC] p-4 sm:p-5" data-testid="admin-feature-flags-card">
+      <div className="flex items-center gap-2 mb-3">
+        <Shield className="w-4 h-4 text-[#7A7571]" strokeWidth={2} />
+        <h2 className="font-heading text-sm font-semibold text-[#2D2A26]">
+          {t("admin.flags.title")}
+        </h2>
+      </div>
+
+      {loading || !flags ? (
+        <div className="py-6 text-center">
+          <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#7A7571]" />
+        </div>
+      ) : (
+        <FeatureFlagRow
+          icon={<MapPin className="w-4 h-4 text-[#7A7571]" strokeWidth={2} />}
+          title={t("admin.flags.locator.title")}
+          desc={t("admin.flags.locator.desc")}
+          enabled={!!flags.locator_enabled}
+          saving={saving === "locator_enabled"}
+          onChange={(v) => toggle("locator_enabled", v)}
+          testid="admin-flag-locator"
+          tOn={t("admin.flags.enabled")}
+          tOff={t("admin.flags.disabled")}
+        />
+      )}
+    </div>
+  );
+};
+
+const FeatureFlagRow = ({ icon, title, desc, enabled, saving, onChange, testid, tOn, tOff }) => (
+  <div className="flex items-start gap-3 rounded-2xl border border-[#EFEBE4] p-3" data-testid={testid}>
+    <div className="w-9 h-9 rounded-xl bg-[#F3F0EA] flex items-center justify-center shrink-0">
+      {icon}
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-[#2D2A26]">{title}</div>
+        {/* Custom switch — pure Tailwind so we don't pull in another Radix
+            dependency just for one toggle. Pill knob slides with `transform`. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          disabled={saving}
+          onClick={() => onChange(!enabled)}
+          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+            enabled ? "bg-[#2D2A26]" : "bg-[#D6D2CC]"
+          } ${saving ? "opacity-60" : ""}`}
+          data-testid={`${testid}-toggle`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+              enabled ? "translate-x-5" : "translate-x-0.5"
+            }`}
+          />
+          {saving && (
+            <Loader2 className="absolute inset-0 m-auto w-3 h-3 animate-spin text-white" />
+          )}
+        </button>
+      </div>
+      <p className="text-[11px] text-[#7A7571] leading-relaxed mt-1">{desc}</p>
+      <p className="text-[10px] uppercase tracking-wider mt-1 font-mono">
+        <span className={enabled ? "text-[#15803D]" : "text-[#9B9591]"}>
+          {enabled ? tOn : tOff}
+        </span>
+      </p>
+    </div>
+  </div>
+);

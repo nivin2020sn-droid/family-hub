@@ -1407,6 +1407,47 @@ def build_admin_router(db) -> APIRouter:
     EMAIL_SETTINGS_KEY = "global"
     PASSWORD_MASK = "********"
 
+    # ------- FEATURE FLAGS (admin only) -------
+    # Single MongoDB document `app_settings._key="global"` holds all the
+    # global on/off toggles. Public read endpoint is `/api/feature-flags`
+    # (no auth). Admin endpoints below set the values.
+    FEATURE_FLAGS_KEY = "global"
+    FEATURE_FLAGS_FIELDS = {"locator_enabled"}
+    FEATURE_FLAGS_DEFAULTS = {"locator_enabled": False}
+
+    def _sanitize_feature_flags(doc: Optional[dict]) -> dict:
+        out = dict(FEATURE_FLAGS_DEFAULTS)
+        if doc:
+            for k in FEATURE_FLAGS_FIELDS:
+                if k in doc:
+                    out[k] = bool(doc[k])
+            out["updated_at"] = doc.get("updated_at")
+            out["updated_by"] = doc.get("updated_by")
+        return out
+
+    @router.get("/feature-flags")
+    async def admin_get_feature_flags(_: dict = Depends(require_admin)):
+        doc = await db.app_settings.find_one({"_key": FEATURE_FLAGS_KEY}, {"_id": 0})
+        return _sanitize_feature_flags(doc)
+
+    @router.put("/feature-flags")
+    async def admin_update_feature_flags(body: dict, admin: dict = Depends(require_admin)):
+        update = {}
+        for key in FEATURE_FLAGS_FIELDS:
+            if key in body:
+                update[key] = bool(body.get(key))
+        if not update:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        update["updated_by"] = admin.get("sub")
+        await db.app_settings.update_one(
+            {"_key": FEATURE_FLAGS_KEY},
+            {"$set": update, "$setOnInsert": {"_key": FEATURE_FLAGS_KEY}},
+            upsert=True,
+        )
+        doc = await db.app_settings.find_one({"_key": FEATURE_FLAGS_KEY}, {"_id": 0})
+        return _sanitize_feature_flags(doc)
+
     def _sanitize_settings(doc: Optional[dict]) -> dict:
         """Strip the SMTP password before returning to the client. The frontend
         renders a masked field — when the admin sends back the mask we

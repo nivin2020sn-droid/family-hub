@@ -416,6 +416,28 @@ export async function adminResetEmailLogo() {
   return data;
 }
 
+// ---------- Admin Feature Flags (global toggles) ----------
+
+/** Read the global feature-flags doc (admin only). */
+export async function adminGetFeatureFlags() {
+  const token = getAccountToken();
+  const { data } = await api.get("/api/admin/feature-flags", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+/** Update one or more feature flags. Only the keys present in `body` are
+ *  touched on the server — useful for one-toggle updates. */
+export async function adminUpdateFeatureFlags(body) {
+  const token = getAccountToken();
+  const { data } = await api.put("/api/admin/feature-flags", body, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+
 // ---------- Admin Email Center (broadcast) ----------
 
 export async function adminListEmailRecipients() {
