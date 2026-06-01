@@ -13,6 +13,7 @@ HTML body are produced for every supported locale (EN / AR / DE).
 from __future__ import annotations
 
 import logging
+import os
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -23,12 +24,21 @@ logger = logging.getLogger("mfml.email")
 
 # -------- Localized templates --------
 
-BRAND_NAME = "My Life My Time"
+BRAND_NAME = "My Family My Life"
 BRAND_URL = "https://mylife-mytime.com"
-# Two-letter wordmark used for the circular badge at the top of every email.
-# Three letters keep it readable even at 64px on mobile and degrade
-# gracefully in clients that drop border-radius (Outlook 2016).
-BRAND_MONOGRAM = "MLT"
+# Public absolute URL to the brand logo (family illustration). Reads from
+# the optional BRAND_LOGO_URL env var, otherwise falls back to the static
+# logo512.png served by the frontend at PUBLIC_APP_URL. Email clients need
+# an absolute https URL — they will NOT render local paths or data URLs
+# reliably (Gmail strips data URIs > 100 KB).
+BRAND_LOGO_URL = (
+    os.environ.get("BRAND_LOGO_URL")
+    or f"{(os.environ.get('PUBLIC_APP_URL') or BRAND_URL).rstrip('/')}/logo512.png"
+)
+# Plain-text wordmark used as the `alt` text on the logo image. Email
+# clients that block remote images (Outlook default, Apple Mail "Load
+# remote content" off) will show this text instead.
+BRAND_MONOGRAM = BRAND_NAME
 
 VERIFY_TEMPLATES = {
     "en": {
@@ -175,20 +185,17 @@ def _render_html(tpl: dict, link: str, lang: str) -> str:
     <tr>
       <td align="center" style="padding:40px 16px 32px 16px;">
 
-        <!-- ─── Brand header (circular badge + name + subtitle) ─────────── -->
+        <!-- ─── Brand header (family logo + name + subtitle) ─────────── -->
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px auto;">
           <tr>
             <td align="center" style="padding-bottom:14px;">
-              <!-- Circular monogram badge. Falls back to a square in clients
-                   that drop border-radius — still readable. -->
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-                <tr>
-                  <td align="center" valign="middle" width="72" height="72" bgcolor="#2D2A26"
-                      style="background:#2D2A26;border-radius:36px;color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;letter-spacing:0.08em;line-height:72px;width:72px;height:72px;">
-                    {BRAND_MONOGRAM}
-                  </td>
-                </tr>
-              </table>
+              <!-- Family illustration logo. Loaded over HTTPS from the
+                   public site so every email client can render it. When
+                   the client blocks remote images the alt text falls
+                   back to the brand name. -->
+              <img src="{BRAND_LOGO_URL}" alt="{BRAND_NAME}"
+                   width="96" height="96"
+                   style="display:block;width:96px;height:96px;border:0;outline:none;text-decoration:none;border-radius:20px;background:#F3F0EA;" />
             </td>
           </tr>
           <tr>
@@ -366,14 +373,9 @@ def render_broadcast_html(subject: str, body: str, lang: str = "en") -> str:
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px auto;">
           <tr>
             <td align="center" style="padding-bottom:14px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-                <tr>
-                  <td align="center" valign="middle" width="72" height="72" bgcolor="#2D2A26"
-                      style="background:#2D2A26;border-radius:36px;color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;letter-spacing:0.08em;line-height:72px;width:72px;height:72px;">
-                    {BRAND_MONOGRAM}
-                  </td>
-                </tr>
-              </table>
+              <img src="{BRAND_LOGO_URL}" alt="{BRAND_NAME}"
+                   width="96" height="96"
+                   style="display:block;width:96px;height:96px;border:0;outline:none;text-decoration:none;border-radius:20px;background:#F3F0EA;" />
             </td>
           </tr>
           <tr>
