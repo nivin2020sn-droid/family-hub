@@ -759,3 +759,27 @@ This confirms the original "Browser timed out" toast was purely the 30 s axios t
 **Affected files**:
 - Updated: `/app/backend/email_service.py` (per-step timing + connectivity probe + DNS as separate step + 60s timeout knob), `/app/backend/auth_module.py` (new `POST /api/admin/email-settings/connectivity` route), `/app/frontend/src/pages/AdminEmailSettings.jsx` (Test connectivity button + ConnectivityPanel + reusable FailurePanel + StepTimings list), `/app/frontend/src/lib/auth.js` (90 s timeout + adminTestSmtpConnectivity), `/app/frontend/src/lib/translations.js` (15 new keys × 3 languages).
 
+
+## Implemented (Feb 2026 — Admin Email Center)
+Admin can now compose & broadcast branded emails to a single user, an entire family, multiple users, or every user — all from a dedicated `/admin/email-center` page. Every message is auto-wrapped in the My Life My Time HTML template (MLT monogram + brand line + footer with team, tagline, `https://mylife-mytime.com`, copyright). Multi-language: EN / AR (RTL) / DE.
+
+**Backend** (already in place from prior fork): `/api/admin/email-center/recipients`, `/preview`, `/send`, `/logs`, `/logs/{id}` (all `require_admin`). Audience resolver supports `user` (account id OR free email), `family` (multi-family-id), `multiple` (explicit user ids), `all` (every non-admin account). Hard cap of 500 unless `confirm_large_send=true`. Persists each broadcast to `email_logs` with full per-recipient delivery report + status (`sent` / `partial` / `failed`). HTML rendering via `email_service.render_broadcast_html` (matches verify/reset templates). Reuses existing SMTP layer (`send_broadcast_email` → `_smtp_send`).
+
+**Frontend** (new wiring on top of the existing `AdminEmailCenter.jsx`):
+- New route `/admin/email-center` registered in `App.js`.
+- New `admin-open-email-center` button in the Admin top bar (next to `Email Settings`).
+- 48 new `ec.*` + `admin.nav.emailCenter` translation keys × EN / AR / DE.
+
+**UX**: Compose card (recipient-type picker, lang selector, subject, body, preview & send buttons, hint about auto-wrapping) on the left; live `<iframe srcdoc>` Preview + Email Logs panel on the right. Logs row shows status dot, subject, sender email, audience type, delivered count, status badge. Large-audience confirm dialog before `> 500` sends.
+
+**Tested** (Playwright on https://family-timeplan.preview.emergentagent.com/):
+- Login as admin → /admin shows the new "Email Center" button → click navigates to `/admin/email-center` → page renders with header `Email Center` + subtitle, all 4 recipient pills, picker, lang selector, subject + message fields.
+- Fill `user@example.com` + subject `Welcome to My Life My Time` + 3-paragraph body → tap Preview → iframe renders the branded template (MLT monogram, "YOUR FAMILY'S DIGITAL HUB", subject heading, paragraphs, footer team/tagline/site/copyright). Recipient count chip reads `1 recipients`.
+- Existing Email Logs panel lists the prior `Test broadcast` row with status dot, sender, audience, status `Failed` (because the Render Free Tier still blocks SMTP — this is the pre-existing infra issue, not a code bug).
+
+**Affected files**:
+- Updated: `/app/frontend/src/App.js` (route), `/app/frontend/src/pages/Admin.jsx` (top-bar button), `/app/frontend/src/lib/translations.js` (3 × 48 new `ec.*` + `admin.nav.emailCenter`).
+- Already existed (no changes needed): `/app/backend/auth_module.py` (email-center routes), `/app/backend/email_service.py` (`render_broadcast_html`, `send_broadcast_email`), `/app/frontend/src/pages/AdminEmailCenter.jsx`, `/app/frontend/src/lib/auth.js` (`adminListEmailRecipients`, `adminPreviewBroadcast`, `adminSendBroadcast`, `adminListEmailLogs`).
+
+**Outstanding**: Real-world send still depends on the Render SMTP port-block issue (P1, awaiting user decision: upgrade Render Starter OR integrate Resend / SendGrid HTTPS).
+

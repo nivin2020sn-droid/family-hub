@@ -26,6 +26,7 @@ import VerifyEmail from "@/pages/VerifyEmail";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import AdminEmailSettings from "@/pages/AdminEmailSettings";
+import AdminEmailCenter from "@/pages/AdminEmailCenter";
 import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
@@ -123,6 +124,7 @@ function App() {
               <Route path="/admin" element={<Admin />} />
               <Route path="/admin/content" element={<AdminContent />} />
               <Route path="/admin/email-settings" element={<AdminEmailSettings />} />
+              <Route path="/admin/email-center" element={<AdminEmailCenter />} />
               {/* Legacy paths -> redirect to home */}
               <Route path="/wall-board" element={<Navigate to="/" replace />} />
               <Route path="/dashboard" element={<Navigate to="/" replace />} />

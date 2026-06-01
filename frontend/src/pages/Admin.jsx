@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle, FileText } from "lucide-react";
+import { Shield, RefreshCw, Lock, Unlock, KeyRound, Loader2, LogOut, Copy, Check, UserCog, Mail, UserPlus, Stethoscope, Trash2, AlertTriangle, FileText, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -267,6 +267,16 @@ const Admin = () => {
             >
               <Mail className="w-3.5 h-3.5" strokeWidth={2} />
               <span className="hidden sm:inline">{t("admin.nav.email")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/admin/email-center")}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full hover:bg-[#F3F0EA] text-[#2D2A26]"
+              data-testid="admin-open-email-center"
+              title={t("admin.nav.emailCenter")}
+            >
+              <Send className="w-3.5 h-3.5" strokeWidth={2} />
+              <span className="hidden sm:inline">{t("admin.nav.emailCenter")}</span>
             </button>
             <button
               type="button"
