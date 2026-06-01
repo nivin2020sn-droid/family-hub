@@ -25,14 +25,20 @@ logger = logging.getLogger("mfml.email")
 
 BRAND_NAME = "My Life My Time"
 BRAND_URL = "https://mylife-mytime.com"
+# Two-letter wordmark used for the circular badge at the top of every email.
+# Three letters keep it readable even at 64px on mobile and degrade
+# gracefully in clients that drop border-radius (Outlook 2016).
+BRAND_MONOGRAM = "MLT"
 
 VERIFY_TEMPLATES = {
     "en": {
         "subject": f"Verify your {BRAND_NAME} email",
+        "subtitle": "Your family's digital hub",
         "greeting": "Hello {name},",
         "intro": (
-            f"Welcome to {BRAND_NAME}! Please confirm your email address by "
-            "clicking the button below. The link is valid for 24 hours."
+            "Thank you for creating your family account. Please verify your "
+            "email address to activate all features. The link is valid for "
+            "24 hours."
         ),
         "cta": "Verify my email",
         "fallback": "If the button does not work, copy and paste this link into your browser:",
@@ -41,13 +47,15 @@ VERIFY_TEMPLATES = {
             "If this was not you, simply ignore this message."
         ),
         "regards": f"— The {BRAND_NAME} team",
+        "footer_legal": f"© {BRAND_NAME}. All rights reserved.",
     },
     "ar": {
         "subject": f"تأكيد بريدك الإلكتروني في {BRAND_NAME}",
+        "subtitle": "المركز الرقمي لعائلتك",
         "greeting": "مرحباً {name}،",
         "intro": (
-            f"أهلاً بك في {BRAND_NAME}! يُرجى تأكيد بريدك الإلكتروني بالضغط على "
-            "الزر أدناه. الرابط صالح لمدة 24 ساعة."
+            "شكراً لإنشائك حساب عائلتك. يُرجى تأكيد بريدك الإلكتروني لتفعيل "
+            "جميع الميزات. الرابط صالح لمدة 24 ساعة."
         ),
         "cta": "تأكيد بريدي",
         "fallback": "إذا لم يعمل الزر، انسخ هذا الرابط في متصفحك:",
@@ -56,13 +64,16 @@ VERIFY_TEMPLATES = {
             "تجاهل هذه الرسالة."
         ),
         "regards": f"— فريق {BRAND_NAME}",
+        "footer_legal": f"© {BRAND_NAME}. جميع الحقوق محفوظة.",
     },
     "de": {
         "subject": f"Bestätige deine {BRAND_NAME}-E-Mail",
+        "subtitle": "Die digitale Zentrale deiner Familie",
         "greeting": "Hallo {name},",
         "intro": (
-            f"Willkommen bei {BRAND_NAME}! Bitte bestätige deine E-Mail-Adresse "
-            "über den unten stehenden Button. Der Link ist 24 Stunden gültig."
+            "Vielen Dank, dass du dein Familienkonto erstellt hast. Bitte "
+            "bestätige deine E-Mail-Adresse, um alle Funktionen zu aktivieren. "
+            "Der Link ist 24 Stunden gültig."
         ),
         "cta": "E-Mail bestätigen",
         "fallback": "Wenn der Button nicht funktioniert, kopiere diesen Link in den Browser:",
@@ -71,15 +82,17 @@ VERIFY_TEMPLATES = {
             "hast. Falls nicht: einfach ignorieren."
         ),
         "regards": f"— Das {BRAND_NAME} Team",
+        "footer_legal": f"© {BRAND_NAME}. Alle Rechte vorbehalten.",
     },
 }
 
 RESET_TEMPLATES = {
     "en": {
         "subject": f"Reset your {BRAND_NAME} password",
+        "subtitle": "Your family's digital hub",
         "greeting": "Hello {name},",
         "intro": (
-            "We received a request to reset your password. Click the button "
+            "We received a request to reset your password. Tap the button "
             "below to choose a new one. The link is valid for 30 minutes."
         ),
         "cta": "Reset my password",
@@ -89,9 +102,11 @@ RESET_TEMPLATES = {
             "this email — your password will not change."
         ),
         "regards": f"— The {BRAND_NAME} team",
+        "footer_legal": f"© {BRAND_NAME}. All rights reserved.",
     },
     "ar": {
         "subject": f"إعادة تعيين كلمة المرور في {BRAND_NAME}",
+        "subtitle": "المركز الرقمي لعائلتك",
         "greeting": "مرحباً {name}،",
         "intro": (
             "وصلنا طلب لإعادة تعيين كلمة المرور. اضغط الزر أدناه لاختيار كلمة "
@@ -104,13 +119,15 @@ RESET_TEMPLATES = {
             "تتغير كلمة المرور."
         ),
         "regards": f"— فريق {BRAND_NAME}",
+        "footer_legal": f"© {BRAND_NAME}. جميع الحقوق محفوظة.",
     },
     "de": {
         "subject": f"Passwort für {BRAND_NAME} zurücksetzen",
+        "subtitle": "Die digitale Zentrale deiner Familie",
         "greeting": "Hallo {name},",
         "intro": (
             "Wir haben eine Anfrage zum Zurücksetzen deines Passworts erhalten. "
-            "Klicke auf den Button, um ein neues Passwort zu wählen. Der Link "
+            "Tippe auf den Button, um ein neues Passwort zu wählen. Der Link "
             "ist 30 Minuten gültig."
         ),
         "cta": "Passwort zurücksetzen",
@@ -120,6 +137,7 @@ RESET_TEMPLATES = {
             "ignorieren — dein Passwort bleibt unverändert."
         ),
         "regards": f"— Das {BRAND_NAME} Team",
+        "footer_legal": f"© {BRAND_NAME}. Alle Rechte vorbehalten.",
     },
 }
 
@@ -130,37 +148,140 @@ def _normalize_lang(lang: Optional[str]) -> str:
 
 
 def _render_html(tpl: dict, link: str, lang: str) -> str:
-    """Render a minimal-but-presentable HTML email. Inline CSS only — many
-    clients drop <style> blocks. RTL set on the body for Arabic."""
+    """Render a brand-aligned HTML email — circular logo badge, soft warm
+    palette, white card with rounded corners, prominent CTA, fallback link
+    box, and a legal footer. Built with table-based layout + inline CSS
+    only so Outlook 2016 / Gmail / Apple Mail all render it consistently.
+
+    `tpl` must define: subject, subtitle, greeting, intro, cta, fallback,
+    footer, regards, footer_legal."""
     dir_attr = "rtl" if lang == "ar" else "ltr"
     align = "right" if lang == "ar" else "left"
-    return f"""<!DOCTYPE html>
-<html lang="{lang}" dir="{dir_attr}">
-<body style="margin:0;padding:0;background:#F3F0EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#2D2A26;">
-  <div style="max-width:520px;margin:24px auto;background:#FFFFFF;border-radius:20px;border:1px solid #E5E2DC;padding:32px 28px;text-align:{align};">
-    <h1 style="font-size:22px;font-weight:600;margin:0 0 8px 0;color:#2D2A26;letter-spacing:-0.01em;">{BRAND_NAME}</h1>
-    <p style="font-size:15px;margin:18px 0 8px 0;color:#2D2A26;">{tpl['greeting']}</p>
-    <p style="font-size:14px;line-height:1.6;margin:0 0 22px 0;color:#4A4742;">{tpl['intro']}</p>
-    <p style="margin:0 0 22px 0;">
-      <a href="{link}" style="display:inline-block;background:#2D2A26;color:#FFFFFF;text-decoration:none;padding:12px 22px;border-radius:999px;font-size:14px;font-weight:500;">{tpl['cta']}</a>
-    </p>
-    <p style="font-size:12px;color:#7A7571;margin:0 0 6px 0;">{tpl['fallback']}</p>
-    <p style="font-size:12px;color:#7A7571;word-break:break-all;margin:0 0 24px 0;"><a href="{link}" style="color:#7A7571;">{link}</a></p>
-    <hr style="border:0;border-top:1px solid #EFEBE4;margin:24px 0;">
-    <p style="font-size:11px;color:#A09B95;line-height:1.5;margin:0 0 6px 0;">{tpl['footer']}</p>
-    <p style="font-size:11px;color:#A09B95;margin:0;">{tpl['regards']}</p>
-  </div>
+    # Slightly heavier font weight on Latin scripts; AR/DE use the same
+    # system stack so the email looks native in every locale.
+    return f"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="{lang}" dir="{dir_attr}" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="x-apple-disable-message-reformatting" />
+  <title>{tpl['subject']}</title>
+</head>
+<body style="margin:0;padding:0;background:#F3F0EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#2D2A26;">
+  <!-- Preheader (hidden, sets the inbox preview snippet) -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;visibility:hidden;opacity:0;color:transparent;height:0;width:0;">{tpl['subtitle']}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F3F0EA;">
+    <tr>
+      <td align="center" style="padding:40px 16px 32px 16px;">
+
+        <!-- ─── Brand header (circular badge + name + subtitle) ─────────── -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px auto;">
+          <tr>
+            <td align="center" style="padding-bottom:14px;">
+              <!-- Circular monogram badge. Falls back to a square in clients
+                   that drop border-radius — still readable. -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                <tr>
+                  <td align="center" valign="middle" width="72" height="72" bgcolor="#2D2A26"
+                      style="background:#2D2A26;border-radius:36px;color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;letter-spacing:0.08em;line-height:72px;width:72px;height:72px;">
+                    {BRAND_MONOGRAM}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:20px;font-weight:600;color:#2D2A26;letter-spacing:-0.01em;line-height:1.2;">
+              {BRAND_NAME}
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-top:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;color:#7A7571;letter-spacing:0.08em;text-transform:uppercase;">
+              {tpl['subtitle']}
+            </td>
+          </tr>
+        </table>
+
+        <!-- ─── White card ──────────────────────────────────────────────── -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:24px;border:1px solid #E5E2DC;">
+          <tr>
+            <td style="padding:36px 36px 28px 36px;text-align:{align};">
+              <p style="margin:0 0 12px 0;font-size:16px;font-weight:500;color:#2D2A26;line-height:1.4;">
+                {tpl['greeting']}
+              </p>
+              <p style="margin:0 0 28px 0;font-size:14px;line-height:1.7;color:#4A4742;">
+                {tpl['intro']}
+              </p>
+
+              <!-- ─── CTA button ─────────────────────────────────────── -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
+                <tr>
+                  <td align="center" bgcolor="#2D2A26" style="background:#2D2A26;border-radius:999px;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+                                 href="{link}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="100%" stroke="f" fillcolor="#2D2A26">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;font-weight:600;letter-spacing:0.02em;">{tpl['cta']}</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-- -->
+                    <a href="{link}" target="_blank"
+                       style="display:inline-block;padding:14px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.02em;border-radius:999px;line-height:1;">
+                      {tpl['cta']}
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+
+              <!-- ─── Fallback link box ──────────────────────────────── -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:32px;">
+                <tr>
+                  <td style="padding:16px 18px;background:#FAF9F6;border-radius:14px;border:1px solid #EFEBE4;text-align:{align};">
+                    <p style="margin:0 0 8px 0;font-size:11px;color:#7A7571;line-height:1.5;">
+                      {tpl['fallback']}
+                    </p>
+                    <a href="{link}" target="_blank" style="font-size:11px;color:#2D2A26;text-decoration:underline;word-break:break-all;line-height:1.6;">{link}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <!-- ─── Footer (security note + sign-off + © legal) ─────────────── -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+          <tr>
+            <td align="center" style="padding:24px 24px 8px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:11px;color:#A09B95;line-height:1.6;">
+              <p style="margin:0 0 8px 0;">{tpl['footer']}</p>
+              <p style="margin:0 0 14px 0;">{tpl['regards']}</p>
+              <p style="margin:0;padding-top:14px;border-top:1px solid #E5E2DC;font-size:10px;color:#A09B95;letter-spacing:0.02em;">
+                {tpl['footer_legal']}
+              </p>
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
 </body>
 </html>"""
 
 
 def _render_text(tpl: dict, link: str) -> str:
+    """Plain-text fallback shown by clients that don't render HTML. Kept
+    deliberately short so it doesn't trip spam scoring."""
     return (
+        f"{BRAND_NAME}\n"
+        f"{tpl['subtitle']}\n\n"
         f"{tpl['greeting']}\n\n"
         f"{tpl['intro']}\n\n"
         f"{tpl['cta']}: {link}\n\n"
         f"{tpl['fallback']}\n{link}\n\n"
-        f"{tpl['footer']}\n{tpl['regards']}\n"
+        f"{tpl['footer']}\n{tpl['regards']}\n\n"
+        f"{tpl['footer_legal']}\n"
     )
 
 
