@@ -2297,7 +2297,14 @@ const WallBoard = () => {
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                        <PrivacyControl kind="wall_goals" item={g} onChanged={() => goalsCrud.list()} size="xs" />
+                        <PrivacyControl
+                          kind="wall_goals"
+                          item={g}
+                          onChanged={(fresh) => {
+                            if (fresh) setGoals((prev) => prev.map((x) => x.id === fresh.id ? { ...x, ...fresh } : x));
+                          }}
+                          size="xs"
+                        />
                       </div>
                     </li>
                   ))}
@@ -2362,7 +2369,14 @@ const WallBoard = () => {
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                    <PrivacyControl kind="wall_countdown" item={c} onChanged={() => cdCrud.list()} size="xs" />
+                    <PrivacyControl
+                      kind="wall_countdown"
+                      item={c}
+                      onChanged={(fresh) => {
+                        if (fresh) setCountdown((prev) => prev.map((x) => x.id === fresh.id ? { ...x, ...fresh } : x));
+                      }}
+                      size="xs"
+                    />
                   </li>
                 ))}
               </ul>
@@ -2478,7 +2492,14 @@ const WallBoard = () => {
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
-                    <PrivacyControl kind="wall_notes" item={n} onChanged={() => notesCrud.list()} size="xs" />
+                    <PrivacyControl
+                      kind="wall_notes"
+                      item={n}
+                      onChanged={(fresh) => {
+                        if (fresh) setNotes((prev) => prev.map((x) => x.id === fresh.id ? { ...x, ...fresh } : x));
+                      }}
+                      size="xs"
+                    />
                   </li>
                 ))}
               </ul>

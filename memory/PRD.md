@@ -1027,3 +1027,17 @@ Every newly created shareable item (Note, Goal, Countdown, Family Event, Shoppin
 - Optional: Undo should optimistically remove the row from the parent list state so the WallBoard doesn't need a server refresh.
 - Optional a11y: add `aria-describedby` to the PrivacyPicker DialogContent.
 
+
+## Bug Fix (Feb 2026 latest) — PrivacyControl false-error toast
+**Root cause**: PrivacyControl wrapped the success path AND the parent `onChanged` callback in the same try/catch. WallBoard passed `() => goalsCrud.list()` / `notesCrud.list()` / `cdCrud.list()` as the callback, but `makeCrud` never exposed a `.list` method — so calling it threw `TypeError: ... .list is not a function`, which the catch interpreted as a save failure. Result: the PATCH succeeded server-side, but the user saw "Something went wrong — please try again."
+
+**Fix** (`/app/frontend/src/components/PrivacyControl.jsx` — rewritten):
+- The icon now reads from a LOCAL state mirror updated only from the PATCH response — no optimistic flips.
+- Save call is awaited first; on failure the dialog stays open with the real backend error.
+- Buttons are disabled and the clicked option shows a `Loader2` spinner while the save is in flight; the dialog can't be closed mid-save.
+- `onChanged(fresh)` is now invoked OUTSIDE the try/catch via `Promise.resolve().then(...)` so a buggy parent callback can never turn a success into an error toast.
+
+**WallBoard.jsx** — replaced the three broken `onChanged={() => xxxCrud.list()}` callers with proper `setGoals/setNotes/setCountdown` updates from the server response. Family Events `<PrivacyControl/>` now relies on the component's own internal state (no callback needed).
+
+**Verification**: 13/13 backend privacy tests pass; manual E2E (login → pick member → switch goal between "Only me" / "Whole family") shows the success toast every time, no false error.
+
