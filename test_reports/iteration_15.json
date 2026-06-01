@@ -1,0 +1,33 @@
+{
+  "summary": "Recurring Monthly Income — backend pytest suite (10/10 PASS) and frontend E2E flow all green on a fresh family. Verified: income type select (default Recurring monthly), Monthly badge on recurring rows, ScopePicker dialogs on edit AND delete with all 3 testids, this_month override correctly updates only the chosen month (3500 -> 4000 for 2026-06), Family Dashboard + Forecast immediately reflect recurring income.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/budget/income", "issue": "When category=='primary' is POSTed WITHOUT an explicit `type` field, server defaults to type='one_time' instead of 'recurring'. The startup migration only normalises pre-existing legacy rows; new programmatic POSTs from any client that doesn't send `type` will land as one-time. UI explicitly defaults to recurring so user-facing flow is unaffected, but API contract is inconsistent with the migration policy."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recurring_income.py",
+    "/app/test_reports/pytest/recurring_income.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Make POST /api/budget/income treat missing `type` + category=='primary' as recurring to match the migration policy. Current default is one_time, which only matters for non-UI clients."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/pages/HomeBudget.jsx is 1798 lines — past the 700-line threshold. Worth splitting ScopePicker, editors and Row helpers into separate files.",
+    "Default-`type` discrepancy: server normalises legacy primary rows on startup but doesn't normalise on insert. Either backfill on insert too, or document that all callers must send `type` explicitly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Tests bootstrap fresh families via /api/auth/register + verify_account_email helper; no shared credentials used.",
+  "seed_data_creation": "Each test creates an isolated family (email pattern qa-rec-* / qa-fe-*). Old test families remain in DB but are inert.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest: cd /app/backend && REACT_APP_BACKEND_URL=https://family-timeplan.preview.emergentagent.com python -m pytest tests/test_recurring_income.py -v (10/10 PASS, 24s). Frontend flow uses REST bootstrap (register -> verify via /var/log/supervisor/backend.*.log token grep -> login -> add member -> select PIN 1234) then injects mfml_account_token + mfml_member_token into localStorage and navigates to /home-budget. ScopePicker testids: budget-scope-this-month / budget-scope-forward / budget-scope-all / budget-scope-cancel. Recurring badge: budget-income-recurring-<id>. Add-income button: budget-add-income-btn.",
+  "rca_of_the_issue": "No outstanding bug. Only a low-severity API-contract inconsistency (default `type` is one_time on POST while migration promotes legacy primary to recurring)."
+}

@@ -1400,6 +1400,12 @@ class BudgetEntryCreate(BaseModel):
     owner: Optional[str] = "shared"
     date: Optional[str] = None
     notes: str = ""
+    # Recurring-monthly income fields (ignored for expenses).
+    type: Optional[str] = None  # "one_time" | "recurring" — default one_time
+    start_year: Optional[int] = None
+    start_month: Optional[int] = None
+    end_year: Optional[int] = None
+    end_month: Optional[int] = None
 
 
 class BudgetEntryUpdate(BaseModel):
@@ -1409,6 +1415,22 @@ class BudgetEntryUpdate(BaseModel):
     owner: Optional[str] = None
     date: Optional[str] = None
     notes: Optional[str] = None
+    # Recurring controls. `edit_mode` is required when mutating a recurring
+    # template — it tells the server how to apply the change:
+    #   - "this_month": add/update an override for (year, month) only
+    #   - "forward":    end the current template at (year, month - 1) and
+    #                   create a NEW template starting at (year, month)
+    #   - "all":        update the template fields directly
+    # `year` / `month` carry the user's current view context so the server
+    # knows what "this month" means.
+    edit_mode: Optional[str] = None
+    year: Optional[int] = None
+    month: Optional[int] = None
+    type: Optional[str] = None
+    start_year: Optional[int] = None
+    start_month: Optional[int] = None
+    end_year: Optional[int] = None
+    end_month: Optional[int] = None
 
 
 class Bill(BaseModel):
@@ -1584,45 +1606,261 @@ def _next_n_days_bills(bills: list, days: int, now: datetime):
 
 # ----- CRUD generators (income / expenses) -----
 
+
+def _parse_ym_from_date(s: str):
+    """Return (year, month) from an ISO date string, or (None, None)."""
+    try:
+        return int(s[0:4]), int(s[5:7])
+    except (ValueError, TypeError, IndexError):
+        return None, None
+
+
+def _income_in_month(row: dict, year: int, month: int) -> float:
+    """Decide how much income `row` contributes to (year, month).
+
+    - For `one_time` rows: the row's `date` is parsed and the amount is
+      returned ONLY when the (year, month) matches exactly.
+    - For `recurring` rows: the row contributes `amount` for every month
+      between `start_year/start_month` and `end_year/end_month` (inclusive
+      on both ends; missing end = forever). Per-month overrides in the
+      `overrides` array take precedence and can also be `0.0` to skip a
+      specific month entirely.
+    """
+    typ = (row.get("type") or "one_time").lower()
+    if typ != "recurring":
+        d_y, d_m = _parse_ym_from_date(row.get("date") or "")
+        if d_y is None:
+            return 0.0
+        return float(row.get("amount") or 0) if (d_y, d_m) == (year, month) else 0.0
+    sy, sm = row.get("start_year"), row.get("start_month")
+    if not sy or not sm:
+        return 0.0
+    if (year, month) < (int(sy), int(sm)):
+        return 0.0
+    ey, em = row.get("end_year"), row.get("end_month")
+    if ey and em and (year, month) > (int(ey), int(em)):
+        return 0.0
+    for ov in (row.get("overrides") or []):
+        try:
+            if int(ov.get("year")) == year and int(ov.get("month")) == month:
+                return float(ov.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+    return float(row.get("amount") or 0)
+
+
+def _income_synthesize_month(rows: list, year: int, month: int) -> list:
+    """Expand the raw income rows into a per-month synthesized list.
+    Recurring templates are rendered as a row anchored on the 1st of the
+    target month with `source_id` pointing back at the template."""
+    result = []
+    for row in rows:
+        amt = _income_in_month(row, year, month)
+        if amt <= 0:
+            continue
+        if (row.get("type") or "one_time") == "recurring":
+            anchor = f"{year}-{month:02d}-01"
+            result.append({
+                **row,
+                "amount": round(amt, 2),
+                "source_id": row.get("id"),
+                "date": anchor,
+                "_synthesized": True,
+            })
+        else:
+            result.append(row)
+    # Sort by amount desc — large recurring incomes (salaries) float to the
+    # top of the list, matching most personal-finance UIs.
+    result.sort(key=lambda r: -float(r.get("amount") or 0))
+    return result
+
+
 def _income_routes():
     coll = db.budget_income
 
-    @api_router.get("/budget/income", response_model=List[BudgetEntry])
-    async def list_income():
-        return await coll.find({}, {"_id": 0}).sort("date", -1).to_list(2000)
+    @api_router.get("/budget/income")
+    async def list_income(year: Optional[int] = None, month: Optional[int] = None):
+        """List income entries.
 
-    @api_router.post("/budget/income", response_model=BudgetEntry)
+        - When called WITHOUT `year`/`month`: returns the raw template rows
+          (one row per stored doc). Used by admin/management views and tests.
+        - When called WITH `year`/`month`: returns the per-month synthesized
+          list — every recurring template active in that window is expanded
+          into one virtual row anchored on the 1st of the requested month.
+        """
+        rows = await coll.find({}, {"_id": 0}).sort("date", -1).to_list(2000)
+        if year is None or month is None:
+            return rows
+        return _income_synthesize_month(rows, int(year), int(month))
+
+    @api_router.post("/budget/income")
     async def create_income(payload: BudgetEntryCreate):
         if payload.category not in INCOME_TYPES:
             raise HTTPException(400, f"category must be one of {sorted(INCOME_TYPES)}")
-        obj = BudgetEntry(
-            description=payload.description,
-            amount=payload.amount,
-            category=payload.category,
-            owner=_norm_owner(payload.owner),
-            date=payload.date or datetime.now(timezone.utc).isoformat(),
-            notes=payload.notes,
-        )
-        await coll.insert_one(obj.model_dump())
-        return obj
+        now_iso = datetime.now(timezone.utc).isoformat()
+        date = payload.date or now_iso
+        typ = (payload.type or "one_time").lower()
+        if typ not in {"one_time", "recurring"}:
+            raise HTTPException(400, "type must be one_time or recurring")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "description": payload.description or "",
+            "amount": float(payload.amount or 0),
+            "category": payload.category,
+            "owner": _norm_owner(payload.owner),
+            "date": date,
+            "notes": payload.notes or "",
+            "type": typ,
+            "overrides": [],
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        if typ == "recurring":
+            # Derive start from the supplied `date` when start_year/month
+            # weren't given explicitly. Salaries created today → starts today.
+            if payload.start_year and payload.start_month:
+                doc["start_year"] = int(payload.start_year)
+                doc["start_month"] = int(payload.start_month)
+            else:
+                sy, sm = _parse_ym_from_date(date)
+                if sy is None:
+                    now = datetime.now(timezone.utc)
+                    sy, sm = now.year, now.month
+                doc["start_year"], doc["start_month"] = sy, sm
+            doc["end_year"] = int(payload.end_year) if payload.end_year else None
+            doc["end_month"] = int(payload.end_month) if payload.end_month else None
+        await coll.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
 
-    @api_router.put("/budget/income/{item_id}", response_model=BudgetEntry)
+    @api_router.put("/budget/income/{item_id}")
     async def update_income(item_id: str, payload: BudgetEntryUpdate):
-        update = payload.model_dump(exclude_unset=True)
-        if "category" in update and update["category"] not in INCOME_TYPES:
-            raise HTTPException(400, "invalid category")
-        update["updated_at"] = datetime.now(timezone.utc).isoformat()
-        res = await coll.update_one({"id": item_id}, {"$set": update})
-        if res.matched_count == 0:
+        row = await coll.find_one({"id": item_id}, {"_id": 0})
+        if not row:
             raise HTTPException(404, "Not found")
-        return await coll.find_one({"id": item_id}, {"_id": 0})
+        now_iso = datetime.now(timezone.utc).isoformat()
+        edit_mode = (payload.edit_mode or "").lower() if payload.edit_mode else ""
+        is_recurring = (row.get("type") or "one_time") == "recurring"
+
+        # Build the "field updates" patch (exclude control fields).
+        raw = payload.model_dump(exclude_unset=True)
+        for ctl in ("edit_mode", "year", "month"):
+            raw.pop(ctl, None)
+        if "category" in raw and raw["category"] not in INCOME_TYPES:
+            raise HTTPException(400, "invalid category")
+        if "type" in raw and raw["type"] not in {"one_time", "recurring"}:
+            raise HTTPException(400, "type must be one_time or recurring")
+        if "owner" in raw:
+            raw["owner"] = _norm_owner(raw.get("owner"))
+
+        # Non-recurring rows OR explicit "all" mode → straight update.
+        if not is_recurring or not edit_mode or edit_mode == "all":
+            raw["updated_at"] = now_iso
+            await coll.update_one({"id": item_id}, {"$set": raw})
+            doc = await coll.find_one({"id": item_id}, {"_id": 0})
+            return doc
+
+        year, month = payload.year, payload.month
+        if not year or not month:
+            raise HTTPException(400, "year and month are required for this edit_mode")
+
+        if edit_mode == "this_month":
+            # Single-month override. We accept the new `amount` from the
+            # patch; everything else (description, owner, …) stays untouched
+            # because changing them mid-stream would create surprising
+            # behaviour ("why is last month's row suddenly attributed to
+            # someone else?"). Admin can always do "forward" for that.
+            new_amt = float(raw.get("amount") if raw.get("amount") is not None else row.get("amount") or 0)
+            overrides = [
+                o for o in (row.get("overrides") or [])
+                if not (int(o.get("year") or 0) == int(year) and int(o.get("month") or 0) == int(month))
+            ]
+            overrides.append({"year": int(year), "month": int(month), "amount": new_amt})
+            await coll.update_one(
+                {"id": item_id},
+                {"$set": {"overrides": overrides, "updated_at": now_iso}},
+            )
+            doc = await coll.find_one({"id": item_id}, {"_id": 0})
+            return doc
+
+        if edit_mode == "forward":
+            # End the existing template the month BEFORE the cutover, and
+            # create a brand-new template starting at (year, month) carrying
+            # the patched fields. We deliberately leave the old overrides
+            # behind on the old template (they're historical anyway).
+            prev_y, prev_m = (int(year) - 1, 12) if int(month) == 1 else (int(year), int(month) - 1)
+            await coll.update_one(
+                {"id": item_id},
+                {"$set": {"end_year": prev_y, "end_month": prev_m, "updated_at": now_iso}},
+            )
+            new_doc = {
+                **row,
+                **raw,
+                "id": str(uuid.uuid4()),
+                "type": "recurring",
+                "start_year": int(year),
+                "start_month": int(month),
+                "end_year": None,
+                "end_month": None,
+                "overrides": [],
+                "created_at": now_iso,
+                "updated_at": now_iso,
+                "date": f"{int(year)}-{int(month):02d}-01",
+            }
+            new_doc.pop("_id", None)
+            new_doc.pop("source_id", None)
+            new_doc.pop("_synthesized", None)
+            await coll.insert_one(new_doc)
+            new_doc.pop("_id", None)
+            return new_doc
+
+        raise HTTPException(400, "edit_mode must be this_month, forward or all")
 
     @api_router.delete("/budget/income/{item_id}")
-    async def delete_income(item_id: str):
-        res = await coll.delete_one({"id": item_id})
-        if res.deleted_count == 0:
+    async def delete_income(
+        item_id: str,
+        delete_mode: Optional[str] = None,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+    ):
+        """Delete an income entry.
+
+        For recurring templates the optional `delete_mode` controls scope:
+          - `this_month`: insert a zero-amount override for (year, month)
+          - `forward`:    set end_year/month to the month BEFORE (year, month)
+          - `all` / unset: hard-delete the template
+        For one-time rows: always hard-delete.
+        """
+        row = await coll.find_one({"id": item_id}, {"_id": 0})
+        if not row:
             raise HTTPException(404, "Not found")
-        return {"ok": True}
+        is_recurring = (row.get("type") or "one_time") == "recurring"
+        mode = (delete_mode or "all").lower()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if not is_recurring or mode == "all":
+            await coll.delete_one({"id": item_id})
+            return {"ok": True}
+        if not year or not month:
+            raise HTTPException(400, "year and month are required for this delete_mode")
+        if mode == "this_month":
+            overrides = [
+                o for o in (row.get("overrides") or [])
+                if not (int(o.get("year") or 0) == int(year) and int(o.get("month") or 0) == int(month))
+            ]
+            overrides.append({"year": int(year), "month": int(month), "amount": 0.0})
+            await coll.update_one(
+                {"id": item_id},
+                {"$set": {"overrides": overrides, "updated_at": now_iso}},
+            )
+            return {"ok": True}
+        if mode == "forward":
+            prev_y, prev_m = (int(year) - 1, 12) if int(month) == 1 else (int(year), int(month) - 1)
+            await coll.update_one(
+                {"id": item_id},
+                {"$set": {"end_year": prev_y, "end_month": prev_m, "updated_at": now_iso}},
+            )
+            return {"ok": True}
+        raise HTTPException(400, "delete_mode must be this_month, forward or all")
 
 
 def _expense_routes():
@@ -1850,19 +2088,24 @@ async def budget_summary(year: Optional[int] = None, month: Optional[int] = None
 
     by_owner_income = _zero_dict()
     by_owner_expense = _zero_dict()
-    async for doc in db.budget_income.find(
-        {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1, "owner": 1}
-    ):
-        amt = float(doc.get("amount") or 0)
-        income_total += amt
-        _bump(by_owner_income, _norm_owner(doc.get("owner")), amt)
+    # ─── INCOME ─── recurring monthly templates now expand automatically
+    # into every active month; one-time entries still match by date. The
+    # `_income_in_month` helper handles both shapes (and per-month overrides).
+    async for doc in db.budget_income.find({}, {"_id": 0}):
+        amt = _income_in_month(doc, year, month)
+        if amt > 0:
+            income_total += amt
+            _bump(by_owner_income, _norm_owner(doc.get("owner")), amt)
     async for doc in db.budget_expenses.find(
         {"date": {"$gte": start, "$lt": end}}, {"_id": 0, "amount": 1, "owner": 1}
     ):
         amt = float(doc.get("amount") or 0)
         expense_total += amt
         _bump(by_owner_expense, _norm_owner(doc.get("owner")), amt)
-    prev_income = await _sum_entries(db.budget_income, pstart, pend)
+    # Previous-month income — same recurring-aware logic so comparisons match.
+    prev_income = 0.0
+    async for doc in db.budget_income.find({}, {"_id": 0}):
+        prev_income += _income_in_month(doc, prev_year, prev_month)
     prev_expense = await _sum_entries(db.budget_expenses, pstart, pend)
 
     # Per-category expense breakdown for this month
@@ -2701,6 +2944,24 @@ async def _recurring_income_estimate(target_year: int, target_month: int) -> flo
     full available history). If no history exists, fall back to whatever was
     recorded for the current calendar month.
     """
+    # ─── Recurring templates first ───────────────────────────────────────
+    # Any income flagged `type=recurring` and active in the target month
+    # is a deterministic prediction — we trust it 100% and skip the
+    # heuristic. Only when NO recurring templates cover the target month
+    # do we fall back to the historical 3-month average (legacy behaviour).
+    recurring_total = 0.0
+    async for doc in db.budget_income.find({"type": "recurring"}, {"_id": 0}):
+        recurring_total += _income_in_month(doc, target_year, target_month)
+    if recurring_total > 0:
+        # Also fold in any one-time entries that happen to be dated in the
+        # target month (e.g. a confirmed bonus the admin already booked).
+        one_time = 0.0
+        async for doc in db.budget_income.find(
+            {"type": {"$ne": "recurring"}}, {"_id": 0}
+        ):
+            one_time += _income_in_month(doc, target_year, target_month)
+        return recurring_total + one_time
+
     now = datetime.now(timezone.utc)
     # End anchor — the latest completed month that's not the target itself.
     anchor_y, anchor_m = now.year, now.month
@@ -3536,3 +3797,57 @@ async def migrate_legacy_to_nasser(rdb):
                 "[MIGRATE] wall_settings.%s (v2): cleared %d rows",
                 field, res.modified_count,
             )
+
+    # 9) ─── Recurring monthly income migration ──────────────────────────
+    # Pre-existing income rows have no `type` field. The user explicitly
+    # requested that every `category="primary"` row be treated as a real
+    # recurring monthly salary so it no longer "disappears" the moment the
+    # calendar flips. Non-primary rows (extra / external — bonuses, gifts,
+    # refunds) keep their one-time semantics.
+    #
+    # We derive `start_year/start_month` from the row's existing `date` so
+    # the recurring window picks up exactly where the legacy entry left
+    # off. `migrated_to_recurring_at` is stamped on the row so we can
+    # always trace which records were touched by this migration.
+    converted = 0
+    cursor = rdb.budget_income.find(
+        {"type": {"$exists": False}, "category": "primary"},
+        {"_id": 0, "id": 1, "date": 1},
+    )
+    async for row in cursor:
+        d = row.get("date") or ""
+        try:
+            sy, sm = int(d[0:4]), int(d[5:7])
+        except (ValueError, TypeError, IndexError):
+            now = datetime.now(timezone.utc)
+            sy, sm = now.year, now.month
+        await rdb.budget_income.update_one(
+            {"id": row["id"]},
+            {"$set": {
+                "type": "recurring",
+                "start_year": sy,
+                "start_month": sm,
+                "end_year": None,
+                "end_month": None,
+                "overrides": [],
+                "migrated_to_recurring_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        converted += 1
+    if converted:
+        logger.warning(
+            "[MIGRATE] budget_income: promoted %d primary rows to type=recurring",
+            converted,
+        )
+    # Tag any remaining legacy rows (extra / external) explicitly so the
+    # type field is always populated post-migration. Cheaper than touching
+    # every read path with a default.
+    res = await rdb.budget_income.update_many(
+        {"type": {"$exists": False}},
+        {"$set": {"type": "one_time", "overrides": []}},
+    )
+    if res.modified_count:
+        logger.warning(
+            "[MIGRATE] budget_income: tagged %d non-primary rows as type=one_time",
+            res.modified_count,
+        )

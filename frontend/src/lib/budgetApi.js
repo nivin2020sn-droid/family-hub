@@ -10,9 +10,9 @@ const BACKEND_URL =
 const api = attachAuth(axios.create({ baseURL: BACKEND_URL, timeout: 15000 }));
 
 const CRUD = (path) => ({
-  async list() {
+  async list(params) {
     try {
-      const r = await api.get(`/api/budget/${path}`);
+      const r = await api.get(`/api/budget/${path}`, params ? { params } : undefined);
       return Array.isArray(r.data) ? r.data : [];
     } catch {
       return [];
@@ -26,8 +26,8 @@ const CRUD = (path) => ({
     const r = await api.put(`/api/budget/${path}/${id}`, body);
     return r.data;
   },
-  async remove(id) {
-    await api.delete(`/api/budget/${path}/${id}`);
+  async remove(id, params) {
+    await api.delete(`/api/budget/${path}/${id}`, params ? { params } : undefined);
     return true;
   },
 });
@@ -38,9 +38,9 @@ export const budgetBills = CRUD("bills");
 export const budgetDebts = CRUD("debts");
 export const budgetLoans = CRUD("loans");
 
-export async function fetchBudgetSummary() {
+export async function fetchBudgetSummary(params) {
   try {
-    const r = await api.get("/api/budget/summary");
+    const r = await api.get("/api/budget/summary", params ? { params } : undefined);
     return r.data;
   } catch {
     return null;

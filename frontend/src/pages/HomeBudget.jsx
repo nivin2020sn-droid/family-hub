@@ -31,6 +31,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Bell,
+  Repeat,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -182,18 +183,23 @@ const EntryDialog = ({ open, onOpenChange, title, fields, initial, onSave }) => 
           {fields.filter((f) => !f.hidden).map((f) => (
             <FieldRow key={f.name} label={f.label}>
               {f.type === "select" ? (
-                <select
-                  value={values[f.name] ?? ""}
-                  onChange={(e) => setField(f.name, e.target.value)}
-                  className="w-full h-10 rounded-xl border border-[#E5E2DC] bg-white text-sm px-2"
-                  data-testid={`budget-field-${f.name}`}
-                >
-                  {f.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    value={values[f.name] ?? ""}
+                    onChange={(e) => setField(f.name, e.target.value)}
+                    className="w-full h-10 rounded-xl border border-[#E5E2DC] bg-white text-sm px-2"
+                    data-testid={`budget-field-${f.name}`}
+                  >
+                    {f.options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  {f.help && (
+                    <p className="mt-1 text-[10px] text-[#7A7571] leading-relaxed">{f.help}</p>
+                  )}
+                </>
               ) : f.type === "textarea" ? (
                 <Textarea
                   value={values[f.name] ?? ""}
@@ -353,6 +359,17 @@ const ownerField = (t, walletOwners, isSingle) => {
 const incomeFields = (t, walletOwners, isSingle) => [
   { name: "description", label: t("budget.field.description"), type: "text", placeholder: "" },
   { name: "amount", label: t("budget.field.amount"), type: "number", default: 0 },
+  {
+    name: "type",
+    label: t("budget.field.incomeType"),
+    type: "select",
+    default: "recurring",
+    options: [
+      { value: "recurring", label: t("budget.incomeType.recurring") },
+      { value: "one_time", label: t("budget.incomeType.oneTime") },
+    ],
+    help: t("budget.incomeType.help"),
+  },
   {
     name: "category",
     label: t("budget.field.category"),
@@ -943,6 +960,67 @@ const ExpiringContractsAlert = ({ items, t, locale, onOpenForecast }) => {
   );
 };
 
+// ---------- Scope picker for recurring-income edit/delete ----------
+// When the user clicks Edit or Delete on a recurring salary, we don't apply
+// the action immediately — we first ask what scope they mean: "this month
+// only" (insert an override), "from this month onwards" (split or end the
+// template), or "all months" (mutate the template directly). Mirrors the
+// language used by Calendar apps when editing repeating events, so it's
+// instantly familiar.
+const ScopePicker = ({ open, mode, onPick, onOpenChange }) => {
+  const { t } = useI18n();
+  const labels = mode === "delete"
+    ? {
+        title: t("budget.recurring.deleteTitle"),
+        desc: t("budget.recurring.deleteDesc"),
+        thisMonth: t("budget.recurring.deleteThisMonth"),
+        forward: t("budget.recurring.deleteForward"),
+        all: t("budget.recurring.deleteAll"),
+      }
+    : {
+        title: t("budget.recurring.editTitle"),
+        desc: t("budget.recurring.editDesc"),
+        thisMonth: t("budget.recurring.editThisMonth"),
+        forward: t("budget.recurring.editForward"),
+        all: t("budget.recurring.editAll"),
+      };
+  const opt = (key, label, testid) => (
+    <button
+      type="button"
+      onClick={() => onPick(key)}
+      className="w-full text-start px-4 py-3 rounded-2xl border border-[#E5E2DC] hover:border-[#2D2A26] hover:bg-[#FAF9F6] transition-colors"
+      data-testid={testid}
+    >
+      <div className="text-sm font-semibold text-[#2D2A26]">{label}</div>
+    </button>
+  );
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm rounded-3xl border border-[#E5E2DC] bg-white">
+        <DialogHeader>
+          <DialogTitle className="font-heading text-xl text-[#2D2A26]">{labels.title}</DialogTitle>
+          <DialogDescription className="text-xs text-[#7A7571]">{labels.desc}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 mt-2">
+          {opt("this_month", labels.thisMonth, "budget-scope-this-month")}
+          {opt("forward",    labels.forward,    "budget-scope-forward")}
+          {opt("all",        labels.all,        "budget-scope-all")}
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            className="rounded-full"
+            onClick={() => onOpenChange(false)}
+            data-testid="budget-scope-cancel"
+          >
+            {t("btn.cancel")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ---------- Main page ----------
 const HomeBudget = () => {
   const navigate = useNavigate();
@@ -974,6 +1052,11 @@ const HomeBudget = () => {
   const [walletFilter, setWalletFilter] = useState("all"); // all | <member_id> | shared
   const [forecastOpen, setForecastOpen] = useState(false);
   const [expiring, setExpiring] = useState([]);
+  // Scope picker state — used when Edit/Delete is invoked on a recurring
+  // income row. `scopeRow` is the source row, `scopeMode` is "edit" | "delete".
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [scopeMode, setScopeMode] = useState("edit");
+  const [scopeRow, setScopeRow] = useState(null);
 
   const apis = useMemo(
     () => ({
@@ -989,9 +1072,15 @@ const HomeBudget = () => {
   const refresh = async () => {
     setLoading(true);
     try {
+      // The income list and the summary are scoped to the current calendar
+      // month so recurring-monthly templates expand correctly. (Backend
+      // helper `_income_in_month` decides per-row whether it applies.)
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
       const [s, inc, exp, bills, debts, loans, exp_contracts] = await Promise.all([
-        fetchBudgetSummary(),
-        budgetIncome.list(),
+        fetchBudgetSummary({ year, month }),
+        budgetIncome.list({ year, month }),
         budgetExpenses.list(),
         budgetBills.list(),
         budgetDebts.list(),
@@ -1036,12 +1125,67 @@ const HomeBudget = () => {
     const kind = editorKind;
     const api = apis[kind];
     if (editorInitial) {
-      await api.update(editorInitial.id, data);
+      // Recurring-income edits carry the chosen scope (this_month | forward |
+      // all) plus the current calendar (year, month) so the server knows how
+      // to apply the change. These three control fields ride alongside the
+      // regular form payload — see `BudgetEntryUpdate` on the backend.
+      const meta = editorInitial._edit_meta;
+      const payload = meta ? { ...data, ...meta } : data;
+      // `id` always points at the TEMPLATE, even for synthesized rows.
+      const targetId = editorInitial.source_id || editorInitial.id;
+      await api.update(targetId, payload);
     } else {
       await api.create(data);
     }
     toast.success(t("budget.toast.saved"));
     await refresh();
+  };
+
+  // Launch the income editor, routing recurring rows through the scope
+  // picker first so the admin can pick "this month / forward / all".
+  const openIncomeEditor = (row) => {
+    if ((row?.type || "one_time") === "recurring") {
+      setScopeRow(row);
+      setScopeMode("edit");
+      setScopeOpen(true);
+    } else {
+      openEditor("income", row);
+    }
+  };
+
+  const onScopePicked = async (scope) => {
+    setScopeOpen(false);
+    if (!scopeRow) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    if (scopeMode === "delete") {
+      try {
+        await budgetIncome.remove(
+          scopeRow.source_id || scopeRow.id,
+          { delete_mode: scope, year, month },
+        );
+        toast.success(t("budget.toast.deleted"));
+        await refresh();
+      } catch {
+        toast.error(t("budget.toast.saveError"));
+      }
+    } else {
+      // Open the standard editor pre-loaded with the row, but stash the
+      // chosen scope so `saveEntry` forwards it to the server.
+      openEditor("income", { ...scopeRow, _edit_meta: { edit_mode: scope, year, month } });
+    }
+    setScopeRow(null);
+  };
+
+  const deleteIncomeEntry = (row) => {
+    if ((row?.type || "one_time") === "recurring") {
+      setScopeRow(row);
+      setScopeMode("delete");
+      setScopeOpen(true);
+      return;
+    }
+    deleteEntry("income", row.id);
   };
 
   const deleteEntry = async (kind, id) => {
@@ -1124,14 +1268,24 @@ const HomeBudget = () => {
             <span className="inline-flex items-center gap-2 flex-wrap">
               {it.description || t(`budget.income.${it.category}`)}
               <OwnerBadge owner={it.owner} />
+              {(it.type === "recurring") && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EDE8F5] text-[#5B4B8A]"
+                  data-testid={`budget-income-recurring-${it.source_id || it.id}`}
+                  title={t("budget.recurring.badge")}
+                >
+                  <Repeat className="w-3 h-3" strokeWidth={2.5} />
+                  {t("budget.recurring.badge")}
+                </span>
+              )}
             </span>
           }
           sub={`${t(`budget.income.${it.category}`)} · ${formatDate(it.date, locale)}`}
           right={`+${fmtMoney(it.amount, locale)}`}
           accent={accentFor(it)}
-          onEdit={() => openEditor("income", it)}
-          onDelete={() => deleteEntry("income", it.id)}
-          testid={`budget-income-${it.id}`}
+          onEdit={() => openIncomeEditor(it)}
+          onDelete={() => deleteIncomeEntry(it)}
+          testid={`budget-income-${it.source_id || it.id}`}
         />
       ));
     }
@@ -1622,6 +1776,14 @@ const HomeBudget = () => {
 
       {/* Financial Forecast dialog */}
       <ForecastDialog open={forecastOpen} onOpenChange={setForecastOpen} />
+
+      {/* Scope picker for recurring-income edit/delete */}
+      <ScopePicker
+        open={scopeOpen}
+        mode={scopeMode}
+        onPick={onScopePicked}
+        onOpenChange={(v) => { setScopeOpen(v); if (!v) setScopeRow(null); }}
+      />
     </div>
   );
 };
