@@ -40,6 +40,42 @@ BRAND_LOGO_URL = (
 # remote content" off) will show this text instead.
 BRAND_MONOGRAM = BRAND_NAME
 
+# ─── Pink × Blue elegant background ─────────────────────────────────────
+# Soft pastel pink → soft pastel blue diagonal blend. Solid lavender
+# `bgcolor` is used as the fallback for Outlook / clients that drop
+# CSS gradients.
+BG_GRADIENT_START = "#FDE4EE"   # soft rose-pink
+BG_GRADIENT_END = "#E1F0FA"     # soft sky-blue
+BG_SOLID_FALLBACK = "#F0E9F2"   # mid-point lavender (Outlook fallback)
+BG_BODY_STYLE = (
+    f"background:{BG_SOLID_FALLBACK};"
+    f"background-color:{BG_SOLID_FALLBACK};"
+    f"background-image:linear-gradient(135deg,{BG_GRADIENT_START} 0%,{BG_GRADIENT_END} 100%);"
+)
+
+
+def resolve_logo_url(settings: Optional[dict] = None) -> str:
+    """Return the absolute https URL to embed in every email's <img> tag.
+
+    Resolution order:
+      1. `settings.brand_logo_url` — admin-pasted CDN URL (highest priority,
+         lets the admin point at any external host for free hosting).
+      2. `{PUBLIC_APP_URL}/api/branding/email-logo?v=<updated_at>` — when
+         the admin uploaded a custom image; the cache-buster ensures Gmail's
+         image proxy refetches after every upload.
+      3. `BRAND_LOGO_URL` default (the static family illustration shipped
+         with the frontend).
+    """
+    settings = settings or {}
+    custom_url = (settings.get("brand_logo_url") or "").strip()
+    if custom_url:
+        return custom_url
+    if settings.get("brand_logo_data"):
+        base = (os.environ.get("PUBLIC_APP_URL") or BRAND_URL).rstrip("/")
+        ver = settings.get("brand_logo_updated_at") or ""
+        return f"{base}/api/branding/email-logo?v={ver}"
+    return BRAND_LOGO_URL
+
 VERIFY_TEMPLATES = {
     "en": {
         "subject": f"Verify your {BRAND_NAME} email",
@@ -157,16 +193,18 @@ def _normalize_lang(lang: Optional[str]) -> str:
     return code if code in {"en", "ar", "de"} else "en"
 
 
-def _render_html(tpl: dict, link: str, lang: str) -> str:
-    """Render a brand-aligned HTML email — circular logo badge, soft warm
-    palette, white card with rounded corners, prominent CTA, fallback link
-    box, and a legal footer. Built with table-based layout + inline CSS
-    only so Outlook 2016 / Gmail / Apple Mail all render it consistently.
+def _render_html(tpl: dict, link: str, lang: str, logo_url: Optional[str] = None) -> str:
+    """Render a brand-aligned HTML email — family logo + name + subtitle,
+    soft pink × blue pastel gradient background, white card with rounded
+    corners, prominent CTA, fallback link box, and a legal footer. Built
+    with table-based layout + inline CSS only so Outlook 2016 / Gmail /
+    Apple Mail all render it consistently.
 
     `tpl` must define: subject, subtitle, greeting, intro, cta, fallback,
     footer, regards, footer_legal."""
     dir_attr = "rtl" if lang == "ar" else "ltr"
     align = "right" if lang == "ar" else "left"
+    logo = logo_url or BRAND_LOGO_URL
     # Slightly heavier font weight on Latin scripts; AR/DE use the same
     # system stack so the email looks native in every locale.
     return f"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -177,11 +215,11 @@ def _render_html(tpl: dict, link: str, lang: str) -> str:
   <meta name="x-apple-disable-message-reformatting" />
   <title>{tpl['subject']}</title>
 </head>
-<body style="margin:0;padding:0;background:#F3F0EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#2D2A26;">
+<body bgcolor="{BG_SOLID_FALLBACK}" style="margin:0;padding:0;{BG_BODY_STYLE}font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#2D2A26;">
   <!-- Preheader (hidden, sets the inbox preview snippet) -->
   <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;visibility:hidden;opacity:0;color:transparent;height:0;width:0;">{tpl['subtitle']}</div>
 
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F3F0EA;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{BG_SOLID_FALLBACK}" style="{BG_BODY_STYLE}">
     <tr>
       <td align="center" style="padding:40px 16px 32px 16px;">
 
@@ -193,9 +231,9 @@ def _render_html(tpl: dict, link: str, lang: str) -> str:
                    public site so every email client can render it. When
                    the client blocks remote images the alt text falls
                    back to the brand name. -->
-              <img src="{BRAND_LOGO_URL}" alt="{BRAND_NAME}"
+              <img src="{logo}" alt="{BRAND_NAME}"
                    width="96" height="96"
-                   style="display:block;width:96px;height:96px;border:0;outline:none;text-decoration:none;border-radius:20px;background:#F3F0EA;" />
+                   style="display:block;width:96px;height:96px;border:0;outline:none;text-decoration:none;border-radius:20px;background:#ffffff;" />
             </td>
           </tr>
           <tr>
@@ -331,7 +369,7 @@ def _escape_html(text: str) -> str:
     )
 
 
-def render_broadcast_html(subject: str, body: str, lang: str = "en") -> str:
+def render_broadcast_html(subject: str, body: str, lang: str = "en", logo_url: Optional[str] = None) -> str:
     """Render a branded broadcast email — same visual language as the
     verify/reset templates, but without the CTA button. The body is the
     admin's free-text message, displayed as a series of paragraphs."""
@@ -355,6 +393,7 @@ def render_broadcast_html(subject: str, body: str, lang: str = "en") -> str:
     )
     safe_subject = _escape_html(subject or BRAND_NAME)
     site_url = "https://mylife-mytime.com"
+    logo = logo_url or BRAND_LOGO_URL
     return f"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html lang="{lang}" dir="{dir_attr}" xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -363,9 +402,9 @@ def render_broadcast_html(subject: str, body: str, lang: str = "en") -> str:
   <meta name="x-apple-disable-message-reformatting" />
   <title>{safe_subject}</title>
 </head>
-<body style="margin:0;padding:0;background:#F3F0EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#2D2A26;">
+<body bgcolor="{BG_SOLID_FALLBACK}" style="margin:0;padding:0;{BG_BODY_STYLE}font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#2D2A26;">
   <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;visibility:hidden;opacity:0;color:transparent;height:0;width:0;">{safe_subject}</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F3F0EA;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{BG_SOLID_FALLBACK}" style="{BG_BODY_STYLE}">
     <tr>
       <td align="center" style="padding:40px 16px 32px 16px;">
 
@@ -373,9 +412,9 @@ def render_broadcast_html(subject: str, body: str, lang: str = "en") -> str:
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px auto;">
           <tr>
             <td align="center" style="padding-bottom:14px;">
-              <img src="{BRAND_LOGO_URL}" alt="{BRAND_NAME}"
+              <img src="{logo}" alt="{BRAND_NAME}"
                    width="96" height="96"
-                   style="display:block;width:96px;height:96px;border:0;outline:none;text-decoration:none;border-radius:20px;background:#F3F0EA;" />
+                   style="display:block;width:96px;height:96px;border:0;outline:none;text-decoration:none;border-radius:20px;background:#ffffff;" />
             </td>
           </tr>
           <tr>
@@ -451,7 +490,8 @@ async def send_broadcast_email(
     import asyncio
 
     settings = await db.email_settings.find_one({"_key": "global"}, {"_id": 0}) or {}
-    html_body = render_broadcast_html(subject, body, lang)
+    logo_url = resolve_logo_url(settings)
+    html_body = render_broadcast_html(subject, body, lang, logo_url=logo_url)
     text_body = render_broadcast_text(subject, body, lang)
 
     if not settings.get("smtp_host") or not settings.get("sender_email"):
@@ -869,10 +909,12 @@ async def send_localized_email(
 
     tpl = {k: v.format(name=name or "") if isinstance(v, str) else v for k, v in tpl_raw.items()}
     subject = tpl["subject"]
-    text_body = _render_text(tpl, link)
-    html_body = _render_html(tpl, link, lang)
 
     settings = await db.email_settings.find_one({"_key": "global"}, {"_id": 0}) or {}
+    logo_url = resolve_logo_url(settings)
+    text_body = _render_text(tpl, link)
+    html_body = _render_html(tpl, link, lang, logo_url=logo_url)
+
     if not settings.get("smtp_host") or not settings.get("sender_email"):
         # Dev / pre-configuration fallback. Always logged with the link so
         # the user can still complete the flow manually.

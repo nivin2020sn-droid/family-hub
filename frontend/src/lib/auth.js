@@ -394,6 +394,28 @@ export async function adminDiagnoseNetwork(targets) {
   return data;
 }
 
+/** Upload a custom email-template logo (max 500 KB). The data must be a
+ *  full base64 data: URL. Returns the refreshed sanitized settings. */
+export async function adminUploadEmailLogo(dataUrl, mime) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    "/api/admin/email-settings/logo",
+    { data: dataUrl, mime },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+/** Clear the custom logo + the custom CDN URL — emails fall back to the
+ *  default static `/logo512.png`. */
+export async function adminResetEmailLogo() {
+  const token = getAccountToken();
+  const { data } = await api.delete("/api/admin/email-settings/logo", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
 // ---------- Admin Email Center (broadcast) ----------
 
 export async function adminListEmailRecipients() {

@@ -1416,6 +1416,10 @@ def build_admin_router(db) -> APIRouter:
                 "smtp_host": "", "smtp_port": 587, "smtp_username": "",
                 "smtp_password_set": False, "use_tls": True,
                 "sender_email": "", "sender_name": "My Life My Time",
+                "brand_logo_url": "",
+                "brand_logo_uploaded": False,
+                "brand_logo_mime": "",
+                "brand_logo_updated_at": "",
             }
         return {
             "smtp_host": doc.get("smtp_host", "") or "",
@@ -1425,6 +1429,10 @@ def build_admin_router(db) -> APIRouter:
             "use_tls": bool(doc.get("use_tls", True)),
             "sender_email": doc.get("sender_email", "") or "",
             "sender_name": doc.get("sender_name") or "My Life My Time",
+            "brand_logo_url": doc.get("brand_logo_url", "") or "",
+            "brand_logo_uploaded": bool(doc.get("brand_logo_data")),
+            "brand_logo_mime": doc.get("brand_logo_mime", "") or "",
+            "brand_logo_updated_at": doc.get("brand_logo_updated_at", "") or "",
             "updated_at": doc.get("updated_at"),
             "updated_by": doc.get("updated_by"),
         }
@@ -1460,6 +1468,13 @@ def build_admin_router(db) -> APIRouter:
             update["sender_email"] = (body.get("sender_email") or "").strip()
         if "sender_name" in body:
             update["sender_name"] = (body.get("sender_name") or "").strip() or "My Life My Time"
+        if "brand_logo_url" in body:
+            # Custom CDN URL (admin-pasted). Empty string clears it back to
+            # the default static logo or the uploaded image.
+            url = (body.get("brand_logo_url") or "").strip()
+            if url and not url.startswith(("http://", "https://")):
+                raise HTTPException(status_code=400, detail="brand_logo_url must start with http:// or https://")
+            update["brand_logo_url"] = url
         if not update:
             raise HTTPException(status_code=400, detail="No fields to update")
         update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -1467,6 +1482,72 @@ def build_admin_router(db) -> APIRouter:
         await db.email_settings.update_one(
             {"_key": EMAIL_SETTINGS_KEY},
             {"$set": update, "$setOnInsert": {"_key": EMAIL_SETTINGS_KEY}},
+            upsert=True,
+        )
+        doc = await db.email_settings.find_one({"_key": EMAIL_SETTINGS_KEY}, {"_id": 0})
+        return _sanitize_settings(doc)
+
+    @router.post("/email-settings/logo")
+    async def upload_email_logo(body: dict, admin: dict = Depends(require_admin)):
+        """Upload a custom email-template logo as base64. The image is
+        stored on the settings doc so the public serving endpoint can
+        return it without re-reading every request. Limited to 500 KB so
+        SMTP attachments stay small and Mongo docs don't bloat."""
+        import base64
+        import re as _re
+        data_url = (body.get("data") or "").strip()
+        mime = (body.get("mime") or "").strip().lower()
+        if not data_url:
+            raise HTTPException(status_code=400, detail="data is required")
+        # Accept either a raw base64 string or a full data: URL.
+        m = _re.match(r"^data:([\w./+\-]+);base64,(.+)$", data_url, _re.S)
+        if m:
+            mime = mime or m.group(1).lower()
+            raw_b64 = m.group(2)
+        else:
+            raw_b64 = data_url
+        if mime not in {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}:
+            raise HTTPException(status_code=400, detail="Unsupported image mime — use png, jpeg, webp or gif")
+        try:
+            blob = base64.b64decode(raw_b64, validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid base64 payload")
+        if len(blob) > 500 * 1024:
+            raise HTTPException(status_code=413, detail="Logo too large (max 500 KB)")
+        if len(blob) < 200:
+            raise HTTPException(status_code=400, detail="Logo too small / invalid image")
+        # Re-encode to a clean base64 string (without the data: prefix) so
+        # we don't have to parse it again at serve-time.
+        clean_b64 = base64.b64encode(blob).decode("ascii")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        await db.email_settings.update_one(
+            {"_key": EMAIL_SETTINGS_KEY},
+            {"$set": {
+                "brand_logo_data": clean_b64,
+                "brand_logo_mime": "image/jpeg" if mime == "image/jpg" else mime,
+                "brand_logo_size": len(blob),
+                "brand_logo_updated_at": ts,
+                "brand_logo_updated_by": admin.get("sub"),
+            }, "$setOnInsert": {"_key": EMAIL_SETTINGS_KEY}},
+            upsert=True,
+        )
+        doc = await db.email_settings.find_one({"_key": EMAIL_SETTINGS_KEY}, {"_id": 0})
+        return _sanitize_settings(doc)
+
+    @router.delete("/email-settings/logo")
+    async def reset_email_logo(_: dict = Depends(require_admin)):
+        """Clear the custom uploaded logo + the optional CDN URL — emails
+        will fall back to the default `/logo512.png` shipped with the app."""
+        await db.email_settings.update_one(
+            {"_key": EMAIL_SETTINGS_KEY},
+            {"$unset": {
+                "brand_logo_data": "",
+                "brand_logo_mime": "",
+                "brand_logo_size": "",
+                "brand_logo_url": "",
+            },
+             "$set": {"brand_logo_updated_at": datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")},
+             "$setOnInsert": {"_key": EMAIL_SETTINGS_KEY}},
             upsert=True,
         )
         doc = await db.email_settings.find_one({"_key": EMAIL_SETTINGS_KEY}, {"_id": 0})

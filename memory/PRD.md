@@ -783,3 +783,55 @@ Admin can now compose & broadcast branded emails to a single user, an entire fam
 
 **Outstanding**: Real-world send still depends on the Render SMTP port-block issue (P1, awaiting user decision: upgrade Render Starter OR integrate Resend / SendGrid HTTPS).
 
+
+
+## Implemented (Feb 2026 — Custom Email Logo + Pink × Blue gradient background)
+Admin can now upload a custom logo for outgoing emails (saved in MongoDB + served via a public endpoint that email clients fetch from) OR paste a CDN URL — no code change required. The email background is now a soft pastel pink-to-blue diagonal gradient with a solid lavender fallback so Outlook still looks polished.
+
+**Backend** (`email_service.py`):
+- `BRAND_NAME` flipped from "My Life My Time" → **"My Family My Life"** for ALL outgoing emails (rest of the app keeps "My Life My Time" — user explicit request).
+- Static fallback logo URL: `{PUBLIC_APP_URL}/logo512.png` (the existing family illustration shipped with the frontend).
+- New helper `resolve_logo_url(settings)` with precedence: `brand_logo_url` (custom CDN paste) > `{PUBLIC_APP_URL}/api/branding/email-logo?v=<updated_at>` (uploaded blob) > static `logo512.png`.
+- `_render_html`, `render_broadcast_html` accept a `logo_url` kwarg; `send_localized_email` + `send_broadcast_email` resolve the URL from `email_settings` before rendering.
+- Pink × blue background applied to both verify/reset + broadcast templates:
+  - `BG_GRADIENT_START = #FDE4EE` (soft rose-pink)
+  - `BG_GRADIENT_END = #E1F0FA` (soft sky-blue)
+  - `BG_SOLID_FALLBACK = #F0E9F2` (mid-point lavender — Outlook fallback)
+  - Both `<body>` and the outer `<table>` set `bgcolor` + inline `background-image: linear-gradient(135deg,...)` for modern clients, with the solid `bgcolor` attribute as the Outlook fallback.
+
+**Backend** (`auth_module.py` admin router):
+- `_sanitize_settings` extended to expose `brand_logo_url`, `brand_logo_uploaded`, `brand_logo_mime`, `brand_logo_updated_at` (never the raw base64 blob).
+- `PUT /api/admin/email-settings` now also accepts `brand_logo_url` (https-only validation).
+- `POST /api/admin/email-settings/logo` — admin uploads base64 image (PNG/JPEG/WebP/GIF, max 500 KB, min 200 B). Stores `brand_logo_data`, `brand_logo_mime`, `brand_logo_size`, `brand_logo_updated_at`.
+- `DELETE /api/admin/email-settings/logo` — clears uploaded blob + CDN URL, resets to the default static `/logo512.png`.
+
+**Backend** (`server.py`):
+- New **PUBLIC** route `GET /api/branding/email-logo` (no auth, 1-hour cache headers, ETag from `brand_logo_updated_at`):
+  - Custom upload → returns the binary blob with the saved mime.
+  - No upload → 302-redirects to `{PUBLIC_APP_URL}/logo512.png`.
+  - This is the URL embedded in every outgoing email's `<img src>`; cache-buster (`?v=<ts>`) ensures Gmail's image proxy refetches after every update.
+
+**Frontend** (`AdminEmailSettings.jsx`):
+- New `EmailLogoCard` component rendered as a second card below the SMTP settings card.
+- Live preview on a pink-blue gradient swatch (same colors as the actual email background) so the admin instantly sees what recipients will see.
+- "Upload new logo" button (file input, max 500 KB, accepts PNG/JPEG/WebP/GIF).
+- "Reset to default" button — only visible when a custom logo or CDN URL is set.
+- "Or paste a public image URL (CDN)" input with a separate "Save URL" button (CDN takes priority over the uploaded blob).
+- Per-state source label below the preview: `Custom upload` / `CDN URL` / `Default app logo`.
+- New helpers in `auth.js`: `adminUploadEmailLogo(dataUrl, mime)`, `adminResetEmailLogo()`.
+
+**i18n**: 16 new `admin.email.logo.*` keys × EN / AR / DE.
+
+**Tested**:
+- ✅ `curl` end-to-end: GET settings → POST logo (real 76 KB PNG) → settings returns `brand_logo_uploaded:true` + `mime:image/png` → GET `/api/branding/email-logo` returns 200 + 75811 bytes + `Content-Type: image/png` → DELETE → settings cleared → GET returns 302 redirect to `logo512.png`.
+- ✅ Playwright: Admin → Email Settings → Email Logo card renders with the gradient preview swatch + the actual family logo + "DEFAULT APP LOGO" label + upload/reset/url controls.
+- ✅ Email Center preview iframe: body `style` now contains `background-image:linear-gradient(135deg,#FDE4EE 0%,#E1F0FA 100%)` over a `#F0E9F2` fallback. The actual rendered email shows the soft pink → blue gradient backdrop, the family logo + "My Family My Life" name + footer.
+- ✅ Backend pytest: **29/29 PASS** (test_email_verification + test_email_diagnostics — no regressions).
+
+**Affected files**:
+- `/app/backend/email_service.py` (BRAND_NAME flip, BG_* gradient constants, `resolve_logo_url`, `logo_url` kwarg threaded through render helpers, gradient applied to both `<body>` and outer wrapper `<table>`).
+- `/app/backend/auth_module.py` (`_sanitize_settings` exposes logo fields, `PUT /email-settings` accepts `brand_logo_url`, new `POST /email-settings/logo` upload, new `DELETE /email-settings/logo` reset).
+- `/app/backend/server.py` (new public `GET /api/branding/email-logo` route).
+- `/app/frontend/src/pages/AdminEmailSettings.jsx` (new `EmailLogoCard` component + state).
+- `/app/frontend/src/lib/auth.js` (`adminUploadEmailLogo`, `adminResetEmailLogo` helpers).
+- `/app/frontend/src/lib/translations.js` (3 × 16 new `admin.email.logo.*` keys + `ec.bodyHint` updated).

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Mail, Send, Save, Loader2, AlertTriangle, CheckCircle2, Wifi, Globe } from "lucide-react";
+import { ArrowLeft, Mail, Send, Save, Loader2, AlertTriangle, CheckCircle2, Wifi, Globe, Image as ImageIcon, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,8 @@ import {
   adminTestEmail,
   adminTestSmtpConnectivity,
   adminDiagnoseNetwork,
+  adminUploadEmailLogo,
+  adminResetEmailLogo,
   isAdmin,
 } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
@@ -34,6 +36,9 @@ const AdminEmailSettings = () => {
     use_tls: true,
     sender_email: "",
     sender_name: "My Life My Time",
+    brand_logo_url: "",
+    brand_logo_uploaded: false,
+    brand_logo_updated_at: "",
   });
   const [testTo, setTestTo] = useState("");
   // Persistent inline diagnostic for the last test send. Kept on the page
@@ -396,6 +401,12 @@ const AdminEmailSettings = () => {
             </div>
           </div>
         </div>
+
+        {/* ─── Email Logo card ──────────────────────────────────────── */}
+        <EmailLogoCard
+          settings={settings}
+          onChange={setSettings}
+        />
       </div>
     </div>
   );
@@ -660,6 +671,204 @@ const TestResultPanel = ({ result }) => {
     );
   }
   return <FailurePanel result={result} title={t("admin.email.diag.title")} testid="email-test-result-error" />;
+};
+
+// ─── Email Logo card ───────────────────────────────────────────────────
+// Lets the admin upload a custom logo (saved in MongoDB + served via the
+// public `/api/branding/email-logo` endpoint that emails fetch from), or
+// paste a CDN URL, or reset back to the default static `/logo512.png`.
+const MAX_LOGO_BYTES = 500 * 1024;
+const ACCEPTED_MIME = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+const EmailLogoCard = ({ settings, onChange }) => {
+  const { t } = useI18n();
+  const [uploading, setUploading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [savingUrl, setSavingUrl] = useState(false);
+  const [customUrl, setCustomUrl] = useState(settings.brand_logo_url || "");
+
+  // Resolve the current preview URL — uploaded > custom URL > default static.
+  const apiBase = process.env.REACT_APP_BACKEND_URL || "";
+  let previewUrl;
+  if (settings.brand_logo_uploaded) {
+    const v = settings.brand_logo_updated_at || Date.now();
+    previewUrl = `${apiBase}/api/branding/email-logo?v=${encodeURIComponent(v)}`;
+  } else if (settings.brand_logo_url) {
+    previewUrl = settings.brand_logo_url;
+  } else {
+    previewUrl = `${apiBase}/logo512.png`;
+  }
+
+  const onPick = async (file) => {
+    if (!file) return;
+    if (!ACCEPTED_MIME.includes(file.type)) {
+      toast.error(t("admin.email.logo.badType"));
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      toast.error(t("admin.email.logo.tooLarge"));
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const fresh = await adminUploadEmailLogo(dataUrl, file.type);
+      onChange((s) => ({ ...s, ...fresh, smtp_password: s.smtp_password }));
+      setCustomUrl(fresh.brand_logo_url || "");
+      toast.success(t("admin.email.logo.uploaded"));
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("auth.error.generic"));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onReset = async () => {
+    if (!window.confirm(t("admin.email.logo.resetConfirm"))) return;
+    setResetting(true);
+    try {
+      const fresh = await adminResetEmailLogo();
+      onChange((s) => ({ ...s, ...fresh, smtp_password: s.smtp_password }));
+      setCustomUrl("");
+      toast.success(t("admin.email.logo.reset"));
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("auth.error.generic"));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const onSaveUrl = async () => {
+    setSavingUrl(true);
+    try {
+      const fresh = await adminUpdateEmailSettings({ brand_logo_url: customUrl.trim() });
+      onChange((s) => ({ ...s, ...fresh, smtp_password: s.smtp_password }));
+      toast.success(t("admin.email.logo.urlSaved"));
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("auth.error.generic"));
+    } finally {
+      setSavingUrl(false);
+    }
+  };
+
+  return (
+    <div className="mt-5 bg-white rounded-3xl border border-[#E5E2DC] p-6 sm:p-8 shadow-sm" data-testid="email-logo-card">
+      <div className="flex items-start gap-3 mb-5">
+        <div className="w-11 h-11 rounded-2xl bg-[#F3F0EA] flex items-center justify-center shrink-0">
+          <ImageIcon className="w-6 h-6 text-[#2D2A26]" strokeWidth={2} />
+        </div>
+        <div>
+          <h2 className="font-heading text-xl text-[#2D2A26]">{t("admin.email.logo.title")}</h2>
+          <p className="text-sm text-[#7A7571] mt-1">{t("admin.email.logo.desc")}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+        {/* Live preview — same size emails will receive */}
+        <div className="shrink-0">
+          <div
+            className="w-28 h-28 rounded-3xl border border-[#E5E2DC] flex items-center justify-center overflow-hidden"
+            style={{ background: "linear-gradient(135deg, #FDE4EE 0%, #E1F0FA 100%)" }}
+            data-testid="email-logo-preview-wrap"
+          >
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt={t("admin.email.logo.title")}
+                width={96}
+                height={96}
+                className="w-24 h-24 rounded-2xl bg-white object-cover"
+                data-testid="email-logo-preview"
+              />
+            ) : (
+              <ImageIcon className="w-8 h-8 text-[#A09B95]" strokeWidth={2} />
+            )}
+          </div>
+          <p className="mt-2 text-[10px] text-[#A09B95] text-center font-mono uppercase tracking-wider">
+            {settings.brand_logo_uploaded
+              ? t("admin.email.logo.sourceUpload")
+              : settings.brand_logo_url
+                ? t("admin.email.logo.sourceUrl")
+                : t("admin.email.logo.sourceDefault")}
+          </p>
+        </div>
+
+        {/* Upload + reset controls */}
+        <div className="flex-1 min-w-0 space-y-3">
+          <div>
+            <input
+              id="email-logo-input"
+              type="file"
+              accept={ACCEPTED_MIME.join(",")}
+              className="hidden"
+              onChange={(e) => onPick(e.target.files?.[0])}
+              data-testid="email-logo-input"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => document.getElementById("email-logo-input")?.click()}
+                disabled={uploading}
+                className="rounded-full bg-[#2D2A26] hover:bg-[#1f1d1a] text-white gap-2"
+                data-testid="email-logo-upload-btn"
+              >
+                <Upload className="w-4 h-4" strokeWidth={2} />
+                {uploading ? t("forgot.sending") : t("admin.email.logo.upload")}
+              </Button>
+              {(settings.brand_logo_uploaded || settings.brand_logo_url) && (
+                <Button
+                  type="button"
+                  onClick={onReset}
+                  disabled={resetting}
+                  variant="outline"
+                  className="rounded-full gap-2 border-[#FCDCD7] text-[#7F1D1D] hover:bg-[#FEF3F2]"
+                  data-testid="email-logo-reset-btn"
+                >
+                  <Trash2 className="w-4 h-4" strokeWidth={2} />
+                  {resetting ? t("forgot.sending") : t("admin.email.logo.reset")}
+                </Button>
+              )}
+            </div>
+            <p className="text-[10px] text-[#A09B95] mt-2 leading-relaxed">
+              {t("admin.email.logo.hint")}
+            </p>
+          </div>
+
+          {/* Optional CDN URL */}
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-[#7A7571]">
+              {t("admin.email.logo.urlLabel")}
+            </Label>
+            <div className="flex gap-2 mt-1">
+              <Input
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
+                placeholder="https://cdn.example.com/logo.png"
+                className="rounded-xl border-[#E5E2DC] h-10"
+                data-testid="email-logo-url-input"
+              />
+              <Button
+                type="button"
+                onClick={onSaveUrl}
+                disabled={savingUrl}
+                variant="outline"
+                className="rounded-full whitespace-nowrap"
+                data-testid="email-logo-url-save"
+              >
+                {savingUrl ? t("forgot.sending") : t("admin.email.logo.urlSave")}
+              </Button>
+            </div>
+            <p className="text-[10px] text-[#A09B95] mt-1">{t("admin.email.logo.urlHint")}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default AdminEmailSettings;

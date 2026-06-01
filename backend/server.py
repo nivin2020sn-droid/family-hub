@@ -345,6 +345,41 @@ async def root():
     return {"message": "My Life My Time API"}
 
 
+# ============= Public branding (email logo) =============
+# Email clients fetch this URL on behalf of the recipient — it must be
+# reachable without any auth header.
+
+@api_router.get("/branding/email-logo")
+async def public_email_logo():
+    """Return the admin-uploaded email logo, or 302-redirect to the static
+    fallback shipped with the frontend (`/logo512.png`). Cache for an
+    hour so Gmail's image proxy doesn't refetch on every open."""
+    import base64
+    from fastapi.responses import Response, RedirectResponse
+    doc = await raw_db.email_settings.find_one(
+        {"_key": "global"},
+        {"_id": 0, "brand_logo_data": 1, "brand_logo_mime": 1, "brand_logo_updated_at": 1},
+    )
+    if doc and doc.get("brand_logo_data"):
+        try:
+            blob = base64.b64decode(doc["brand_logo_data"])
+        except Exception:  # pragma: no cover — settings invariants protect us
+            blob = None
+        if blob:
+            return Response(
+                content=blob,
+                media_type=doc.get("brand_logo_mime") or "image/png",
+                headers={
+                    "Cache-Control": "public, max-age=3600",
+                    "ETag": f'"{doc.get("brand_logo_updated_at") or "0"}"',
+                },
+            )
+    # No custom upload → redirect to the static frontend logo. Email clients
+    # follow 302s; modern browsers cache them too.
+    public_base = (os.environ.get("PUBLIC_APP_URL") or "https://mylife-mytime.com").rstrip("/")
+    return RedirectResponse(url=f"{public_base}/logo512.png", status_code=302)
+
+
 # ============= Legacy users / family-code endpoints (REMOVED in Feb 2026) =====
 # The single-shared-family-code login flow and the legacy `users` collection
 # (wife / husband) have been retired. Every page now reads from
