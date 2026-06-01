@@ -978,3 +978,52 @@ The Family Locator is now gated by TWO independent switches: the global master t
 - `/app/frontend/src/pages/WallBoard.jsx` (gate now AND of both flags).
 - `/app/frontend/src/lib/translations.js` (18 new keys total — 6 × 3 langs).
 
+
+## Implemented (Feb 2026 — Privacy / Pending-Publish grace period)
+Every newly created shareable item (Note, Goal, Countdown, Family Event, Shopping item, Routine) now stays visible only to its creator for 7 seconds before publishing to the rest of the family. During that window, the creator sees a sticky bottom toast with a live countdown ring + 3 actions: **Change Privacy**, **Publish Now**, **Undo**. Auto-publish on timeout; immediate publish/cancel on any user action. Three privacy modes shipped: 👁️ Whole family / 🔒 Only me / 👥 Specific members.
+
+**Backend** (`privacy.py` — new module):
+- `build_visibility_fields(payload)` — injected into every POST doc; reads optional `visibility`, `visible_to`, `grace_seconds` (default 7, capped at 60); always stamps `created_by` from `current_member_id` (never trusted from client).
+- `visibility_filter(member_id)` — Mongo `$or` clause merged into every list query. Three paths: legacy rows (no `visibility` field) → visible to all; creator → always sees own; published row → visibility rule allows (family / members-with-viewer-on-list).
+- `parse_patch_visibility(body)` — turns `{visibility, visible_to, publish_now}` into a `$set` payload; any visibility change implicitly publishes (clears `pending_publish_at`).
+- `can_view(doc, member_id)` — in-process mirror for after-the-fact checks.
+
+**Backend** (`tenant.py`):
+- New `current_member_id` ContextVar populated from member-token JWT `mid` claim by the existing scope middleware.
+- New `require_current_member_id()` helper.
+
+**Backend** (`server.py`):
+- All 6 list endpoints now AND the existing query with `visibility_filter(current_member_id.get())`.
+- All 6 create endpoints inject `build_visibility_fields(payload)` and return the merged doc (response_model dropped on those 12 routes so the new visibility fields flow through).
+- New `PATCH /api/items/{kind}/{item_id}/visibility` — generic endpoint routed per-collection (wall_notes / wall_goals / wall_countdown / wall_family_events / shopping_items / routines). Body: `{visibility?, visible_to?, publish_now?}`. Returns 403 if caller isn't the creator (legacy rows without `created_by` are permissive so users can lock down old items).
+
+**Frontend**:
+- `/app/frontend/src/lib/privacyQueue.jsx` — `PrivacyProvider` context + `queuePendingPublish({kind, item, label})` module-level dispatcher (so non-React code can enqueue without prop-threading) + `useCountdown(deadline)` hook driving the live ring.
+- `/app/frontend/src/lib/privacyApi.js` — `patchItemVisibility`, `publishNow`, `makeOwnerOnly`, `shareWithMembers`, `shareWithFamily` helpers.
+- `/app/frontend/src/components/PrivacyPublishToast.jsx` — bottom-centred sticky toast (FIFO queue, max 1 visible). Circular SVG countdown ring with `strokeDashoffset` animation; label truncates with title-on-hover; 3 pill action buttons + close X; auto-dismiss on count-to-zero. Inline `PrivacyPicker` dialog with 3 cards (Family / Only me / Specific members) — members card lazy-loads the roster from `/api/family/members` and shows a checkbox list. All data-testids match spec: `privacy-toast-<kind>-<id>`, `privacy-toast-change`, `privacy-toast-publish-now`, `privacy-toast-undo`, `privacy-toast-close`, `privacy-option-family`, `privacy-option-owner-only`, `privacy-option-members-wrap`, `privacy-option-members-confirm`, `privacy-member-<id>`.
+- `/app/frontend/src/App.js` — `PrivacyProvider` wraps the tree; `<PrivacyPublishToast />` rendered as sibling of `<Toaster />`.
+- `/app/frontend/src/lib/wallApi.js` — `makeCollection.create` dispatches `queuePendingPublish` after every successful POST (mapped via `PRIVACY_KIND_BY_NAME`). Lazy `import()` keeps the wallApi module free of React deps.
+- `/app/frontend/src/lib/shoppingApi.js` + `/app/frontend/src/lib/routinesApi.js` — same dispatch on create.
+- 21 new translation keys (`privacy.toast.*`, `privacy.picker.*`, `privacy.option.*`, `btn.close`) × EN / AR / DE.
+
+**Tests**:
+- `/app/backend/tests/test_privacy_pending_publish.py` — 8 deep tests on `wall_notes`: defaults / creator-sees-own / sibling-blocked / publish_now / owner_only / members-with-visible_to / 403-on-foreign-patch / legacy-row-backward-compat.
+- `/app/backend/tests/test_privacy_all_kinds.py` (added by testing agent) — 5 smoke tests covering the other 5 kinds.
+- **13/13 PASS**. All pre-existing targeted regression suites (recurring income, feature flags, tenant isolation, budget owner, email verification) still pass: **57/57 combined**.
+
+**E2E verified** by `testing_agent_v3_fork` iteration_16 (Backend 100% + Frontend 100%):
+- Toast appears with 7s countdown ring after every create.
+- Publish Now → PATCH visibility → toast dismisses → sibling now sees the item.
+- Undo → DELETE → toast dismisses → row gone.
+- Change Privacy → picker opens → 3 cards rendered → choose Only me → PATCH visibility → toast dismisses → sibling doesn't see the row.
+- Auto-dismiss at 0s without any action; row remains in list (already published server-side).
+- Testing agent's fix: removed redundant `/api` prefix from privacy helpers (api.js has baseURL `/api`).
+
+**Affected files**:
+- New: `/app/backend/privacy.py`, `/app/backend/tests/test_privacy_pending_publish.py`, `/app/backend/tests/test_privacy_all_kinds.py`, `/app/frontend/src/lib/privacyQueue.jsx`, `/app/frontend/src/lib/privacyApi.js`, `/app/frontend/src/components/PrivacyPublishToast.jsx`.
+- Modified: `/app/backend/server.py` (imports + 6 list/create endpoint pairs + PATCH /items/{kind}/{id}/visibility), `/app/backend/tenant.py` (current_member_id + middleware), `/app/frontend/src/App.js` (PrivacyProvider + PrivacyPublishToast mount), `/app/frontend/src/lib/wallApi.js` (queuePendingPublish dispatch on create), `/app/frontend/src/lib/shoppingApi.js`, `/app/frontend/src/lib/routinesApi.js`, `/app/frontend/src/lib/translations.js` (21 new keys × 3 langs).
+
+**Outstanding (low priority deferrals from testing agent)**:
+- Optional: Undo should optimistically remove the row from the parent list state so the WallBoard doesn't need a server refresh.
+- Optional a11y: add `aria-describedby` to the PrivacyPicker DialogContent.
+
