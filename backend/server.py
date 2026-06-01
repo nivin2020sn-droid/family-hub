@@ -1699,7 +1699,16 @@ def _income_routes():
             raise HTTPException(400, f"category must be one of {sorted(INCOME_TYPES)}")
         now_iso = datetime.now(timezone.utc).isoformat()
         date = payload.date or now_iso
-        typ = (payload.type or "one_time").lower()
+        # Default behaviour mirrors the startup migration: a "primary"
+        # entry (= salary) is treated as recurring unless the caller asks
+        # otherwise. Non-primary categories (extra / external) keep the
+        # one_time default — they're typically bonuses, refunds, gifts.
+        if payload.type:
+            typ = payload.type.lower()
+        elif payload.category == "primary":
+            typ = "recurring"
+        else:
+            typ = "one_time"
         if typ not in {"one_time", "recurring"}:
             raise HTTPException(400, "type must be one_time or recurring")
         doc = {

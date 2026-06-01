@@ -835,3 +835,56 @@ Admin can now upload a custom logo for outgoing emails (saved in MongoDB + serve
 - `/app/frontend/src/pages/AdminEmailSettings.jsx` (new `EmailLogoCard` component + state).
 - `/app/frontend/src/lib/auth.js` (`adminUploadEmailLogo`, `adminResetEmailLogo` helpers).
 - `/app/frontend/src/lib/translations.js` (3 × 16 new `admin.email.logo.*` keys + `ec.bodyHint` updated).
+
+## Implemented (Feb 2026 — Recurring Monthly Income engine)
+The Family Budget no longer treats salary as a date-bound one-time row that disappears the moment the calendar flips. A full recurring-income engine now drives the dashboard, wallets, monthly summary and forecast.
+
+**Two income types** (per the user's explicit spec):
+- `one_time` — appears only in the month matching its `date`.
+- `recurring` — auto-expanded into every active month from `start_year/start_month` until the optional `end_year/end_month` (inclusive on both ends; no end = forever). Per-month tweaks live in an `overrides` array.
+
+**3 edit scopes** (mirrors Google Calendar's "edit repeating event"):
+- `edit_mode=this_month` → adds/replaces a single override (other months untouched).
+- `edit_mode=forward` → ends the current template at month-1, creates a fresh template starting at (year, month). No double-counting at the switchover.
+- `edit_mode=all` → mutates the template directly (every month updates).
+
+**3 delete scopes**:
+- `delete_mode=this_month` → inserts a zero-amount override.
+- `delete_mode=forward` → sets end_year/end_month to month-1.
+- `delete_mode=all` (default) → hard-deletes the template.
+
+**Migration** (`migrate_legacy_to_nasser` step 9 — idempotent, runs on every startup):
+- Every existing `budget_income` row with `category=='primary'` and no `type` field is promoted to `type=recurring`, with `start_year/start_month` derived from its existing `date` and a `migrated_to_recurring_at` stamp for traceability.
+- Non-primary rows (`extra` / `external` — bonuses, gifts, refunds) are tagged `type=one_time` explicitly so the field is always populated post-migration.
+- Result of the live run: **60 salary rows** were promoted to recurring → `bsn.1988@hotmail.com`'s family's salaries now appear automatically in every future month.
+
+**Aggregation refactor**:
+- New helper `_income_in_month(row, year, month)` is the single source of truth — handles one-time + recurring + overrides + end dates uniformly.
+- `/api/budget/summary` recomputes `income_total` and `by_owner.income` via `_income_in_month` for both the current and previous month (so deltas and wallet totals stay correct).
+- `/api/budget/forecast` now prefers ACTIVE recurring templates over the legacy 3-month historical average — when a salary is recurring, the forecast is deterministic instead of guessed.
+- `/api/budget/income?year=Y&month=M` returns the synthesized per-month list (one virtual row per active recurring template, anchored on the 1st, with `source_id` pointing at the template). Calling it without params still returns the raw template rows (used by admin/management tooling).
+
+**API consistency fix**: POST `/api/budget/income` with `category=='primary'` and no explicit `type` now defaults to `recurring` (matching the migration policy). Other categories keep the `one_time` default. Programmatic clients no longer need to remember the type field for salaries.
+
+**Frontend** (`HomeBudget.jsx`):
+- Income editor now shows an "Income type" select with a help line ("auto-appears in every future month — no need to re-enter it"). Default = "Recurring monthly".
+- Income list rows display a "🔁 Monthly" pill ([data-testid=`budget-income-recurring-<id>`]) right next to the description for every recurring template active in the current month.
+- Clicking Edit on a recurring row opens a `ScopePicker` dialog FIRST (test-ids `budget-scope-this-month` / `budget-scope-forward` / `budget-scope-all`); the chosen scope rides along the PUT as `edit_mode` + `year` + `month`. One-time rows skip the picker.
+- Clicking Delete on a recurring row also opens the picker; chosen scope rides along the DELETE as `delete_mode` + `year` + `month`. One-time rows go straight to the existing direct-delete flow.
+- `budgetIncome.list({year, month})` is now called on page load so the income list aligns with the recurring-aware summary. `fetchBudgetSummary({year, month})` likewise forwards the scope.
+- 17 new `budget.recurring.*` + `budget.incomeType.*` + `budget.field.incomeType` keys × EN / AR / DE.
+
+**Tests**:
+- `/app/backend/tests/test_recurring_income.py` — 11 tests covering every code path (one-time vs recurring window, start-without-end, start+end-window, per-month override, forward-edit split, all-edit template update, this-month-delete override, forward-delete end-stamping, summary recurring inclusion, forecast deterministic prefer-template, API default-to-recurring contract). **11/11 PASS**.
+- Existing test suite (`test_email_verification`, `test_email_diagnostics`, `test_tenant_isolation`, `test_budget_owner`) — **31/31 PASS** (zero regressions).
+- `testing_agent_v3_fork` iteration_15 — Backend 100%, Frontend 100%. Verified live E2E: fresh family → POST recurring income → Monthly badge appears → ScopePicker opens on Edit AND Delete → this_month override correctly changes only that month (3500 → 4000 for 2026-06) → Family Dashboard + Forecast reflect recurring income immediately.
+
+**Affected files**:
+- `/app/backend/server.py` — new helpers `_parse_ym_from_date`, `_income_in_month`, `_income_synthesize_month`; full rewrite of `_income_routes` (list/create/update/delete now type-aware); `/budget/summary` + `_recurring_income_estimate` use the helper; migration step 9.
+- `/app/backend/tests/test_recurring_income.py` — new file, 11 tests.
+- `/app/frontend/src/pages/HomeBudget.jsx` — incomeFields with Type select, ScopePicker component, openIncomeEditor/onScopePicked/deleteIncomeEntry handlers, Repeat-icon Monthly badge, refresh() passes {year, month}.
+- `/app/frontend/src/lib/budgetApi.js` — CRUD.list/remove accept params; fetchBudgetSummary accepts params.
+- `/app/frontend/src/lib/translations.js` — 17 new keys × 3 languages.
+
+**Outstanding** (low priority, deferred per testing-agent comment): `HomeBudget.jsx` is now 1798 lines — worth splitting `ScopePicker`, editors and Row helpers into separate files for maintainability.
+

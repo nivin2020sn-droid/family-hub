@@ -125,6 +125,33 @@ def test_one_time_appears_only_in_matching_month():
     assert _income_total(tok, 2026, 2) == 0
 
 
+def test_primary_without_explicit_type_defaults_to_recurring():
+    """API contract: posting a `primary` income without `type` field must
+    default to recurring, matching the migration policy. Bonuses (extra /
+    external) keep the one_time default — they're typically not monthly.
+    """
+    tok, _ = _bootstrap("def")
+    r = requests.post(
+        f"{API}/budget/income",
+        json={"description": "Salary", "amount": 2200, "category": "primary",
+              "date": "2026-06-01"},
+        headers=_h(tok), timeout=TIMEOUT,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["type"] == "recurring", f"primary default should be recurring, got {body}"
+    assert body["start_year"] == 2026 and body["start_month"] == 6
+    # extra/external keep one_time default
+    r = requests.post(
+        f"{API}/budget/income",
+        json={"description": "Refund", "amount": 100, "category": "extra",
+              "date": "2026-06-15"},
+        headers=_h(tok), timeout=TIMEOUT,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["type"] == "one_time", "non-primary should stay one_time"
+
+
 def test_recurring_appears_in_every_future_month():
     tok, _ = _bootstrap("rec")
     r = requests.post(
