@@ -936,24 +936,67 @@ async def _get_feature_flags() -> dict:
     return out
 
 
-async def _require_locator_enabled():
-    """Guard helper used by every /api/location/* route. Raises 403 when
-    the admin has disabled the Family Locator feature, so the frontend
-    can't accidentally light up the map by forgetting to check the flag."""
+async def _require_locator_enabled(family_id: Optional[str] = None):
+    """Guard helper used by every /api/location/* route. Raises 403 when:
+      a) the GLOBAL Family Locator feature flag is off, OR
+      b) the per-family `family_locator_enabled` flag is off.
+
+    Both gates must be open for any GPS endpoint to respond. The frontend
+    obeys the same logic via /api/feature-flags (which now returns BOTH
+    the global flag and the caller's family-level flag), but server-side
+    is the source of truth — direct URL access cannot bypass either gate.
+
+    `family_id` is optional: when omitted (legacy callers like the
+    Android sender that authenticate via `familyCode`), the family-level
+    gate is evaluated by the calling route itself once the family is
+    resolved. The global gate is always checked here.
+    """
     flags = await _get_feature_flags()
     if not flags.get("locator_enabled"):
         raise HTTPException(
             status_code=403,
             detail="Family Locator is disabled by the administrator.",
         )
+    if family_id is None:
+        family_id = current_family_id.get()
+    if family_id:
+        family = await raw_db.families.find_one(
+            {"id": family_id},
+            {"_id": 0, "family_locator_enabled": 1},
+        )
+        # Default is False — admins explicitly opt each family in.
+        if not (family and family.get("family_locator_enabled")):
+            raise HTTPException(
+                status_code=403,
+                detail="Family Locator is not enabled for your family.",
+            )
 
 
 @api_router.get("/feature-flags")
 async def public_feature_flags():
     """Public read-only feature flags — every client reads this on boot
     to know which optional sections to render. No auth required so
-    pre-login pages can call it too. Cache for 60 s to keep load light."""
+    pre-login pages can call it too.
+
+    Includes the GLOBAL `locator_enabled` flag AND — when the caller is
+    authenticated with a family-scoped token — the per-family
+    `family_locator_enabled` flag. Frontend should treat the locator
+    section as visible only when BOTH are true.
+    """
     flags = await _get_feature_flags()
+    fid = current_family_id.get()
+    if fid:
+        family = await raw_db.families.find_one(
+            {"id": fid},
+            {"_id": 0, "family_locator_enabled": 1},
+        )
+        flags["family_locator_enabled"] = bool(
+            family and family.get("family_locator_enabled")
+        )
+    else:
+        # Unauthenticated callers see only the global flag — they have no
+        # family context to evaluate the per-family gate against.
+        flags["family_locator_enabled"] = False
     return flags
 
 
@@ -973,6 +1016,14 @@ async def location_update(payload: LocationUpdate):
     if not family:
         raise HTTPException(status_code=401, detail="Invalid family code")
     fid = family["id"]
+    # Per-family gate (the global gate already passed above). The Android
+    # sender app doesn't carry a JWT, so we re-check here using the family
+    # we just resolved from `familyCode`.
+    if not family.get("family_locator_enabled"):
+        raise HTTPException(
+            status_code=403,
+            detail="Family Locator is not enabled for your family.",
+        )
 
     now_iso = datetime.now(timezone.utc).isoformat()
     timestamp = (payload.timestamp or "").strip() or now_iso
@@ -3911,5 +3962,23 @@ async def migrate_legacy_to_nasser(rdb):
     if res.modified_count:
         logger.warning(
             "[MIGRATE] budget_income: tagged %d non-primary rows as type=one_time",
+            res.modified_count,
+        )
+
+
+    # 10) ─── Per-family Family-Locator gate ─────────────────────────────
+    # The Family Locator now has TWO gates: a global toggle (already in
+    # `app_settings`) and a per-family allow-list. Every pre-existing
+    # family doc must explicitly carry `family_locator_enabled` so the
+    # default-False contract is bullet-proof (a missing field would be
+    # falsy too, but explicit beats implicit and lets admins see the
+    # state in mongoexport / diagnostics).
+    res = await rdb.families.update_many(
+        {"family_locator_enabled": {"$exists": False}},
+        {"$set": {"family_locator_enabled": False}},
+    )
+    if res.modified_count:
+        logger.warning(
+            "[MIGRATE] families: defaulted family_locator_enabled=False on %d rows",
             res.modified_count,
         )

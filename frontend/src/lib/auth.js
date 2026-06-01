@@ -10,6 +10,7 @@
 import axios from "axios";
 import { attachAuth } from "./authInterceptor";
 import { purgeAllFamilyCaches } from "./familyCache";
+import { invalidateFeatureFlags } from "./featureFlags";
 
 const KEY_ACCOUNT_TOKEN = "mfml_account_token";
 const KEY_MEMBER_TOKEN = "mfml_member_token";
@@ -170,6 +171,10 @@ export async function login(email, password) {
     write(KEY_MEMBER_TOKEN, data.member_token);
     writeJson(KEY_MEMBER, data.member);
   }
+  // Bust the public-flags cache: now that we have a family-scoped token,
+  // /api/feature-flags will return the per-family `family_locator_enabled`
+  // value instead of the unauthenticated default.
+  invalidateFeatureFlags();
   return data;
 }
 
@@ -234,6 +239,8 @@ export async function selectMember(memberId, pin) {
   );
   write(KEY_MEMBER_TOKEN, data.member_token);
   writeJson(KEY_MEMBER, data.member);
+  // Refresh the family-scoped feature flags after the member token lands.
+  invalidateFeatureFlags();
   return data;
 }
 
@@ -417,6 +424,18 @@ export async function adminResetEmailLogo() {
 }
 
 // ---------- Admin Feature Flags (global toggles) ----------
+
+/** Toggle the per-family Family Locator gate. Combined with the global
+ *  `locator_enabled` flag, this gives admin a two-layer control. */
+export async function adminSetFamilyLocator(familyId, enabled) {
+  const token = getAccountToken();
+  const { data } = await api.post(
+    `/api/admin/families/${familyId}/locator`,
+    { enabled: !!enabled },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
 
 /** Read the global feature-flags doc (admin only). */
 export async function adminGetFeatureFlags() {

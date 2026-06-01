@@ -930,3 +930,51 @@ Combined with the 11 recurring-income tests: **16/16 PASS** on the new test suit
 - `/app/frontend/src/pages/Admin.jsx` (FeatureFlagsCard + FeatureFlagRow).
 - `/app/frontend/src/lib/translations.js` (24 keys total — 8 × 3 langs).
 
+
+## Implemented (Feb 2026 — Per-family Family Locator allow-list)
+The Family Locator is now gated by TWO independent switches: the global master toggle (`app_settings.locator_enabled`) AND a per-family flag (`families.family_locator_enabled`, default False). Both must be ON for any user to see the locator section. Admins can whitelist specific families without touching the global switch.
+
+**Backend** (`server.py`):
+- `_require_locator_enabled(family_id=None)` now checks BOTH gates: global flag first, then the per-family flag (uses `current_family_id.get()` when `family_id` is omitted). 403 is returned with a distinct detail string per failure mode so the frontend can show the right hint.
+- `/api/feature-flags` (public) now also returns `family_locator_enabled` derived from the caller's family token. Unauthenticated callers always receive `False`.
+- `POST /api/location/update` (familyCode-based for the Android sender) re-checks the per-family flag against the family it resolved from `familyCode` — bypassing the JWT-based context.
+
+**Backend** (`auth_module.py` admin router):
+- `GET /api/admin/families` response now includes `family_locator_enabled` on every row.
+- `POST /api/admin/families/{family_id}/locator` (admin only) — body `{enabled: bool}`. Sets the flag + stamps `family_locator_updated_at`. 404 when the family doesn't exist.
+
+**Migration** (step 10 in `migrate_legacy_to_nasser` — idempotent):
+- Every existing family doc without `family_locator_enabled` is initialised to `False`. Live run added the field to **589 families**. New families inherit `False` (the registration code wasn't touched — Mongo's "missing = falsy" + the explicit default in the public/admin endpoints make the contract bullet-proof).
+
+**Frontend**:
+- `/app/frontend/src/lib/featureFlags.js` — `DEFAULTS` now carries `family_locator_enabled: false`; whole module is unchanged otherwise.
+- `/app/frontend/src/lib/auth.js` — new helper `adminSetFamilyLocator(familyId, enabled)`; `login()` + `selectMember()` both call `invalidateFeatureFlags()` after the token lands so the next `/api/feature-flags` call carries the family-scoped value.
+- `/app/frontend/src/pages/WallBoard.jsx` — gate is now `!isSingleAccount() && featureFlags.locator_enabled && featureFlags.family_locator_enabled`.
+- `/app/frontend/src/pages/Admin.jsx` — per-family card now shows:
+  - "LOCATION ON" (emerald) / "LOCATION OFF" (stone-gray) badge with MapPin icon, alongside the existing `ACTIVE` and plan badges (test-id `admin-family-locator-status-<id>`).
+  - "Enable locator" / "Disable locator" button (test-id `admin-family-locator-toggle-<id>`) inside the action stack, themed emerald when ON.
+- Master-switch description rewritten: "Master switch for the Family Locator. When OFF, the section is hidden for everyone. When ON, the per-family toggle below decides which families can use it."
+- 6 new `admin.familyLocator.*` / `admin.btn.locator*` / `admin.toast.locator*` translation keys × EN / AR / DE.
+
+**Tests** (`/app/backend/tests/test_feature_flags.py`):
+- Existing 5 tests updated for the new shape (public endpoint now returns 2 flags).
+- **New**: `test_per_family_locator_flag_defaults_false_and_can_be_toggled` — admin flips a real DB family, list endpoint reflects the change, flips back, no leakage.
+- **New**: `test_authenticated_family_sees_per_family_flag_in_public_endpoint` — full E2E loop: register family → public flags shows `family_locator_enabled=false` → `/location/latest` 403s with the per-family message → admin flips ON → public flags reflects → 403 lifts.
+- **7/7 PASS**.
+- Combined with 11 recurring-income tests: **18/18** on the new suites. All 31 pre-existing tests still pass — zero regressions.
+
+**Verified live** (Playwright on https://family-timeplan.preview.emergentagent.com/admin):
+- Feature-Flags card renders the new master-switch description.
+- Family list shows 619 rows, all with `LOCATION OFF` badge + `Enable locator` button.
+- Clicking the toggle flips `LOCATION OFF` → `LOCATION ON` instantly, toast confirms "Family Locator disabled for this family." / "Family Locator enabled for this family." Bidirectional.
+
+**Affected files**:
+- `/app/backend/server.py` (guard signature, `/feature-flags` shape, location/update extra check, migration step 10).
+- `/app/backend/auth_module.py` (admin list + `POST /admin/families/{id}/locator`).
+- `/app/backend/tests/test_feature_flags.py` (updated + 2 new tests).
+- `/app/frontend/src/lib/featureFlags.js` (default + DEFAULTS shape).
+- `/app/frontend/src/lib/auth.js` (`adminSetFamilyLocator`, invalidateFeatureFlags after login/selectMember).
+- `/app/frontend/src/pages/Admin.jsx` (status badge + toggle button + handler + import).
+- `/app/frontend/src/pages/WallBoard.jsx` (gate now AND of both flags).
+- `/app/frontend/src/lib/translations.js` (18 new keys total — 6 × 3 langs).
+

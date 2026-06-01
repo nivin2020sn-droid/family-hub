@@ -1163,8 +1163,34 @@ def build_admin_router(db) -> APIRouter:
                 "account_email": acct.get("email") if acct else None,
                 "recovery_email": acct.get("recovery_email") if acct else None,
                 "members_count": count,
+                "family_locator_enabled": bool(f.get("family_locator_enabled")),
             })
         return {"families": out}
+
+    @router.post("/families/{family_id}/locator")
+    async def set_family_locator(
+        family_id: str,
+        body: dict,
+        _: dict = Depends(require_admin),
+    ):
+        """Toggle the per-family Family Locator gate. Combined with the
+        global `locator_enabled` flag in `/api/admin/feature-flags`, this
+        gives the admin two layers: the global on/off + per-family
+        whitelist. Both must be ON for any user to see the locator section.
+        """
+        if "enabled" not in body:
+            raise HTTPException(status_code=400, detail="`enabled` is required")
+        enabled = bool(body.get("enabled"))
+        res = await families.update_one(
+            {"id": family_id},
+            {"$set": {
+                "family_locator_enabled": enabled,
+                "family_locator_updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Family not found")
+        return {"ok": True, "family_id": family_id, "family_locator_enabled": enabled}
 
     @router.post("/families/{family_id}/status")
     async def set_status(family_id: str, body: dict, _: dict = Depends(require_admin)):

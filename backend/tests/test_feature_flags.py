@@ -60,6 +60,101 @@ def test_public_endpoint_no_auth():
     body = r.json()
     assert "locator_enabled" in body
     assert isinstance(body["locator_enabled"], bool)
+    # Without auth, the per-family flag is always reported as False.
+    assert body.get("family_locator_enabled") is False
+
+
+def test_per_family_locator_flag_defaults_false_and_can_be_toggled():
+    """Admin can flip the per-family `family_locator_enabled` flag, and the
+    family-list endpoint reflects the change immediately."""
+    tok = _admin_token()
+    _set_flag(tok, True)  # global on
+    try:
+        # Find any existing family to flip
+        r = requests.get(f"{API}/admin/families", headers=_h(tok), timeout=TIMEOUT)
+        fams = r.json()["families"]
+        assert fams, "no families in DB"
+        target = fams[0]
+        fid = target["id"]
+        # Default should be False (migration runs on startup)
+        assert target.get("family_locator_enabled") in (False, None)
+        # Flip ON
+        r = requests.post(
+            f"{API}/admin/families/{fid}/locator",
+            json={"enabled": True},
+            headers=_h(tok), timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["family_locator_enabled"] is True
+        # Verify in list
+        r = requests.get(f"{API}/admin/families", headers=_h(tok), timeout=TIMEOUT)
+        fresh = next(x for x in r.json()["families"] if x["id"] == fid)
+        assert fresh["family_locator_enabled"] is True
+        # Flip OFF
+        r = requests.post(
+            f"{API}/admin/families/{fid}/locator",
+            json={"enabled": False},
+            headers=_h(tok), timeout=TIMEOUT,
+        )
+        assert r.status_code == 200
+        assert r.json()["family_locator_enabled"] is False
+    finally:
+        _set_flag(tok, False)
+
+
+def test_authenticated_family_sees_per_family_flag_in_public_endpoint():
+    """An authenticated family member's call to /api/feature-flags returns
+    BOTH the global flag and that family's `family_locator_enabled`."""
+    admin_tok = _admin_token()
+    _set_flag(admin_tok, True)  # global on
+    try:
+        # Bootstrap fresh family
+        email = f"ff-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}@example.com"
+        r = requests.post(
+            f"{API}/auth/register",
+            json={
+                "email": email, "password": "Pass1234!", "confirm_password": "Pass1234!",
+                "family_name": "FFTestFam",
+                "accepted_beta_terms": True,
+                "accepted_privacy_policy": True,
+                "accepted_disclaimer": True,
+            },
+            timeout=TIMEOUT,
+        )
+        assert r.status_code == 200, r.text
+        from tests.conftest import verify_account_email
+        verify_account_email(email)
+        r = requests.post(
+            f"{API}/auth/login",
+            json={"email": email, "password": "Pass1234!"},
+            timeout=TIMEOUT,
+        )
+        login = r.json()
+        fam_tok = login["access_token"]
+        fid = login["family"]["id"]
+        # Without per-family flag set, public endpoint shows False for this family
+        r = requests.get(f"{API}/feature-flags", headers=_h(fam_tok), timeout=TIMEOUT)
+        body = r.json()
+        assert body["locator_enabled"] is True
+        assert body["family_locator_enabled"] is False
+        # /location/latest should 403 with the per-family message
+        r = requests.get(f"{API}/location/latest", headers=_h(fam_tok), timeout=TIMEOUT)
+        assert r.status_code == 403
+        assert "your family" in r.json()["detail"].lower()
+        # Admin flips per-family flag ON
+        requests.post(
+            f"{API}/admin/families/{fid}/locator",
+            json={"enabled": True},
+            headers=_h(admin_tok), timeout=TIMEOUT,
+        )
+        # Public endpoint now shows True for this family
+        r = requests.get(f"{API}/feature-flags", headers=_h(fam_tok), timeout=TIMEOUT)
+        assert r.json()["family_locator_enabled"] is True
+        # /location/latest no longer 403s
+        r = requests.get(f"{API}/location/latest", headers=_h(fam_tok), timeout=TIMEOUT)
+        assert r.status_code != 403, r.text
+    finally:
+        _set_flag(admin_tok, False)
 
 
 def test_locator_disabled_blocks_routes():

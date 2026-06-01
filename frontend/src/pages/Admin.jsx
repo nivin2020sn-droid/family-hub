@@ -20,7 +20,7 @@ import {
   isAdmin, getAccount, getAccountToken,
   adminListFamilies, adminSetFamilyStatus, adminIssueRecovery, adminSetFamilyAccount, adminAddFamilyMember,
   adminFamilyDiagnostic, adminDeleteFamily,
-  adminGetFeatureFlags, adminUpdateFeatureFlags,
+  adminGetFeatureFlags, adminUpdateFeatureFlags, adminSetFamilyLocator,
   logout as apiLogout,
 } from "@/lib/auth";
 import { invalidateFeatureFlags } from "@/lib/featureFlags";
@@ -88,6 +88,17 @@ const Admin = () => {
     try {
       await adminSetFamilyStatus(fam.id, next);
       toast.success(next === "active" ? t("admin.toast.enabled") : t("admin.toast.disabled"));
+      await refresh();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || t("admin.error.toggle"));
+    }
+  };
+
+  const toggleFamilyLocator = async (fam) => {
+    const next = !fam.family_locator_enabled;
+    try {
+      await adminSetFamilyLocator(fam.id, next);
+      toast.success(next ? t("admin.toast.locatorEnabled") : t("admin.toast.locatorDisabled"));
       await refresh();
     } catch (err) {
       toast.error(err?.response?.data?.detail || t("admin.error.toggle"));
@@ -346,6 +357,20 @@ const Admin = () => {
                         <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
                           {f.plan}
                         </span>
+                        {/* Per-family Family Locator state */}
+                        <span
+                          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 ${
+                            f.family_locator_enabled
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-stone-200 text-stone-600"
+                          }`}
+                          data-testid={`admin-family-locator-status-${f.id}`}
+                        >
+                          <MapPin className="w-2.5 h-2.5" strokeWidth={3} />
+                          {f.family_locator_enabled
+                            ? t("admin.familyLocator.on")
+                            : t("admin.familyLocator.off")}
+                        </span>
                       </p>
                       <ul className="mt-1 text-[11px] text-[#5C5853] space-y-0.5">
                         <li><span className="text-[#7A7571]">{t("admin.fields.email")}:</span> {f.account_email || "—"}</li>
@@ -419,6 +444,23 @@ const Admin = () => {
                       >
                         <Stethoscope className="w-3 h-3" />
                         {t("admin.btn.diag")}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => toggleFamilyLocator(f)}
+                        className={`rounded-full h-8 text-[11px] gap-1 ${
+                          f.family_locator_enabled
+                            ? "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                            : ""
+                        }`}
+                        data-testid={`admin-family-locator-toggle-${f.id}`}
+                      >
+                        <MapPin className="w-3 h-3" />
+                        {f.family_locator_enabled
+                          ? t("admin.btn.locatorDisable")
+                          : t("admin.btn.locatorEnable")}
                       </Button>
                       <Button
                         type="button"

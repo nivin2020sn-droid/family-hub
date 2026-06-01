@@ -11,7 +11,7 @@ const BACKEND_URL =
   (typeof window !== "undefined" ? window.location.origin : "");
 const TTL_MS = 60 * 1000;
 
-const DEFAULTS = { locator_enabled: false };
+const DEFAULTS = { locator_enabled: false, family_locator_enabled: false };
 
 let cached = null;
 let cachedAt = 0;

@@ -2111,10 +2111,12 @@ const WallBoard = () => {
         <div className="mt-5 grid grid-cols-1 gap-3.5">
           {/* Where is my family? (live map) — placed right under the hero.
               Family-only feature: GPS sharing only makes sense across members.
-              Globally gated by the `locator_enabled` feature flag, so the
-              entire FamilyMapCard component (and every network call it would
-              make) is short-circuited when the admin keeps the feature off. */}
-          {!isSingleAccount() && featureFlags.locator_enabled && <FamilyMapCard />}
+              Globally gated by the `locator_enabled` flag AND per-family
+              by `family_locator_enabled`. Both must be ON; otherwise the
+              component never mounts and no GPS call is made. */}
+          {!isSingleAccount() &&
+            featureFlags.locator_enabled &&
+            featureFlags.family_locator_enabled && <FamilyMapCard />}
 
           {/* My Routines — embedded section, no navigation */}
           <WallBoardRoutines />

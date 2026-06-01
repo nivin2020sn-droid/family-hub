@@ -883,7 +883,14 @@ export const TRANSLATIONS = {
     "admin.flags.enabledToast": "Feature enabled for all users.",
     "admin.flags.disabledToast": "Feature disabled for all users.",
     "admin.flags.locator.title": "Family Locator feature",
-    "admin.flags.locator.desc": "Enable or disable the Family Locator section for all users. When disabled, the map card, GPS endpoints and location-permission prompts are all hidden.",
+    "admin.flags.locator.desc": "Master switch for the Family Locator. When OFF, the section is hidden for everyone. When ON, the per-family toggle below decides which families can use it.",
+    // ===== Per-family Family Locator =====
+    "admin.familyLocator.on": "Location on",
+    "admin.familyLocator.off": "Location off",
+    "admin.btn.locatorEnable": "Enable locator",
+    "admin.btn.locatorDisable": "Disable locator",
+    "admin.toast.locatorEnabled": "Family Locator enabled for this family.",
+    "admin.toast.locatorDisabled": "Family Locator disabled for this family.",
     // ===== Email Center (admin broadcast) =====
     "ec.title": "Email Center",
     "ec.subtitle": "Send branded announcements, updates and alerts to your users.",
@@ -2004,7 +2011,14 @@ export const TRANSLATIONS = {
     "admin.flags.enabledToast": "تم تفعيل الميزة لجميع المستخدمين.",
     "admin.flags.disabledToast": "تم تعطيل الميزة لجميع المستخدمين.",
     "admin.flags.locator.title": "ميزة «أين عائلتي»",
-    "admin.flags.locator.desc": "تفعيل أو تعطيل قسم «أين عائلتي» لجميع المستخدمين. عند التعطيل تختفي بطاقة الخريطة، ولا تُستدعى نقاط GPS، ولا تظهر أي طلبات صلاحية موقع.",
+    "admin.flags.locator.desc": "المفتاح الرئيسي لميزة «أين عائلتي». عند الإطفاء يختفي القسم عن الجميع. عند التفعيل يحدد المفتاح الخاص بكل عائلة في الأسفل من يستطيع استخدامه.",
+    // ===== Per-family Family Locator =====
+    "admin.familyLocator.on": "الموقع مفعّل",
+    "admin.familyLocator.off": "الموقع معطّل",
+    "admin.btn.locatorEnable": "تفعيل الموقع",
+    "admin.btn.locatorDisable": "تعطيل الموقع",
+    "admin.toast.locatorEnabled": "تم تفعيل «أين عائلتي» لهذه العائلة.",
+    "admin.toast.locatorDisabled": "تم تعطيل «أين عائلتي» لهذه العائلة.",
     // ===== Email Center (admin broadcast) =====
     "ec.title": "مركز البريد",
     "ec.subtitle": "أرسل الإعلانات والتحديثات والتنبيهات إلى المستخدمين بقالب احترافي.",
@@ -3125,7 +3139,14 @@ export const TRANSLATIONS = {
     "admin.flags.enabledToast": "Funktion für alle Nutzer aktiviert.",
     "admin.flags.disabledToast": "Funktion für alle Nutzer deaktiviert.",
     "admin.flags.locator.title": "Family-Locator-Funktion",
-    "admin.flags.locator.desc": "Bereich „Wo ist meine Familie?“ für alle Nutzer aktivieren oder deaktivieren. Bei Deaktivierung sind die Kartenkachel, GPS-Endpunkte und Standortabfragen ausgeblendet.",
+    "admin.flags.locator.desc": "Hauptschalter für „Wo ist meine Familie?“. Im AUS-Zustand ist der Bereich für alle ausgeblendet. Im EIN-Zustand entscheidet der Pro-Familie-Schalter unten, welche Familien ihn nutzen dürfen.",
+    // ===== Per-family Family Locator =====
+    "admin.familyLocator.on": "Standort an",
+    "admin.familyLocator.off": "Standort aus",
+    "admin.btn.locatorEnable": "Locator aktivieren",
+    "admin.btn.locatorDisable": "Locator deaktivieren",
+    "admin.toast.locatorEnabled": "Family Locator für diese Familie aktiviert.",
+    "admin.toast.locatorDisabled": "Family Locator für diese Familie deaktiviert.",
     // ===== Email Center (admin broadcast) =====
     "ec.title": "E-Mail-Zentrale",
     "ec.subtitle": "Sende Ankündigungen, Updates und Hinweise an deine Nutzer im gebrandeten Design.",
