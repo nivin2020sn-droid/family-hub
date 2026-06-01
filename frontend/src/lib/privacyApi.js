@@ -16,6 +16,13 @@ export async function patchItemVisibility(kind, id, body) {
   return r.data;
 }
 
+/** Shortcut — extend the grace period so the auto-publish doesn't fire
+ *  while a UI picker is open. Backend pushes pending_publish_at 5 min
+ *  into the future; any subsequent visibility patch overrides it. */
+export function extendGrace(kind, id) {
+  return patchItemVisibility(kind, id, { extend_grace: true });
+}
+
 /** Shortcut — publish immediately (clears `pending_publish_at`). */
 export function publishNow(kind, id) {
   return patchItemVisibility(kind, id, { publish_now: true });

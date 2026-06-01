@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import PrivacyControl from "@/components/PrivacyControl";
 import {
   listShoppingItems,
   createShoppingItem,
@@ -240,6 +241,7 @@ const ShoppingList = () => {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                  <PrivacyControl kind="shopping_items" item={it} onChanged={refresh} size="xs" />
                 </li>
               ))}
             </ul>

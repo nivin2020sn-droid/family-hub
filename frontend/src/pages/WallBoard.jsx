@@ -55,6 +55,7 @@ import { LEGAL_LINKS } from "@/components/LegalLayout";
 import RecentActivityStrip from "@/components/RecentActivityStrip";
 import { useAppInfo } from "@/lib/useAppInfo";
 import FamilyMapCard from "@/components/FamilyMapCard";
+import PrivacyControl from "@/components/PrivacyControl";
 import { useFeatureFlags } from "@/lib/featureFlags";
 import WallBoardRoutines from "@/components/WallBoardRoutines";
 import {
@@ -825,6 +826,7 @@ const FamilyEventDetailDialog = ({ open, onOpenChange, item, onEdit, onDelete })
         </ul>
 
         <DialogFooter className="gap-2 sm:gap-2">
+          <PrivacyControl kind="wall_family_events" item={item} />
           <Button
             type="button"
             variant="ghost"
@@ -2295,6 +2297,7 @@ const WallBoard = () => {
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                        <PrivacyControl kind="wall_goals" item={g} onChanged={() => goalsCrud.list()} size="xs" />
                       </div>
                     </li>
                   ))}
@@ -2359,6 +2362,7 @@ const WallBoard = () => {
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                    <PrivacyControl kind="wall_countdown" item={c} onChanged={() => cdCrud.list()} size="xs" />
                   </li>
                 ))}
               </ul>
@@ -2474,6 +2478,7 @@ const WallBoard = () => {
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
+                    <PrivacyControl kind="wall_notes" item={n} onChanged={() => notesCrud.list()} size="xs" />
                   </li>
                 ))}
               </ul>

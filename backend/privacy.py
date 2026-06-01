@@ -40,7 +40,7 @@ from tenant import current_member_id
 
 # Default grace period the UI countdown uses. Server enforces this same
 # value when the client doesn't override it on create.
-DEFAULT_GRACE_SECONDS = 7
+DEFAULT_GRACE_SECONDS = 10
 
 # The three valid `visibility` modes. Anything else is a 400 from the
 # create / patch handlers.
@@ -184,6 +184,11 @@ def parse_patch_visibility(body: dict) -> dict:
     Returns an empty dict when nothing is being updated.
     """
     update: dict = {}
+    # Pause auto-publish while the user picks a privacy mode. Pushes the
+    # publish deadline 5 minutes out — well beyond any normal UI dwell
+    # time, short enough that abandoned dialogs eventually publish.
+    if body.get("extend_grace"):
+        update["pending_publish_at"] = (_now() + timedelta(minutes=5)).isoformat()
     if "visibility" in body:
         v = (body.get("visibility") or "").lower()
         if v not in VISIBILITY_MODES:
