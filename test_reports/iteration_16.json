@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the 7-second 'soft-publish' privacy grace-period system end-to-end (backend + frontend). Backend: 8/8 deep wall_notes tests + 5/5 smoke tests across the other kinds (wall_goals / wall_countdown / wall_family_events / shopping_items / routines) all PASS. Frontend: discovered that the privacy helper code was prefixing URLs with '/api' on an axios instance whose baseURL already contained '/api', producing 404s on Publish-Now, Undo and the Privacy-picker roster fetch. After fixing the double '/api' prefix, all 4 toast scenarios behave correctly: toast appears with countdown ring + 3 actions, Publish Now hits PATCH /api/items/wall_notes/{id}/visibility (200) and dismisses, Undo hits DELETE /api/wall/notes/{id} (200) and dismisses, Change Privacy → Only-me hits PATCH visibility (200) and dismisses, and auto-dismiss fires after 7s without any action. All testids match the spec.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PrivacyPublishToast onUndo", "issue": "After DELETE succeeds, the optimistically-added note stays visible in the WallBoard list until next refresh. The toast handler doesn't notify the parent collection to remove the row from local state (only the server row is deleted). Reproduced: created 'Note undo-me' → clicked Undo → API confirmed id removed from /api/wall/notes list, but the WallBoard's Quick-Notes card still rendered the title until a manual page reload. Likely fix: emit an 'item-removed' event from queuePendingPublish/useCountdown when Undo is invoked, or call the wallApi cache invalidation in onUndo.", "selector": "[data-testid='privacy-toast-undo']", "priority": "MEDIUM"},
+      {"component": "PrivacyPublishToast / PrivacyPicker dialog", "issue": "Console warning: 'Missing Description or aria-describedby for DialogContent'. Cosmetic / a11y only.", "selector": "DialogContent inside privacy picker", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_privacy_pending_publish.py",
+    "/app/backend/tests/test_privacy_all_kinds.py",
+    "/app/test_reports/pytest/privacy_pending_publish.xml",
+    "/app/test_reports/pytest/privacy_all_kinds.xml"
+  ],
+  "action_items": [
+    "Optional: have queuePendingPublish/PrivacyPublishToast remove the optimistically-added item from the parent collection state on Undo, so the WallBoard list updates without a refresh. (Server already deletes the row correctly.)",
+    "Optional a11y: add a Description / aria-describedby to the PrivacyPicker DialogContent."
+  ],
+  "critical_code_review_comments": [
+    "BUG (fixed by testing agent) — /app/frontend/src/lib/privacyApi.js and /app/frontend/src/components/PrivacyPublishToast.jsx were prefixing endpoint paths with '/api/...' while using the shared `api` axios instance whose baseURL is already `${BACKEND}/api`. This produced 404s on every Publish-Now / Undo / Privacy-picker roster call (`/api/api/items/...`). Fixed by dropping the redundant '/api' prefix in 3 places. Recommend a lint rule or unit test to prevent regressions: anything imported from '@/lib/api' must NOT pass paths starting with '/api/'.",
+    "Routine creation requires `recurrence_type` and `recurrence_interval` — the existing CreateRoutine model uses `recurrence_type` (one of minutes/hours/days/weeks/months/monthly_weekday), not a `cadence` field. Worth documenting in the API surface.",
+    "WallGoalCreate uses `label`, WallCountdownCreate uses `label`, but WallFamilyEvent uses `title`. The inconsistency across the 6 'wall' kinds is an API ergonomics issue (not introduced by this feature) that complicates client code and tests."
+  ],
+  "updated_files": [
+    "/app/frontend/src/lib/privacyApi.js",
+    "/app/frontend/src/components/PrivacyPublishToast.jsx",
+    "/app/backend/tests/test_privacy_all_kinds.py"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% on the 4 toast flows after the URL fix"},
+  "test_credentials": "/app/memory/test_credentials.md (admin not used). Fresh family bootstrapped via /app/test_reports/bootstrap_family.py — registers email priv-ui-<ts>@example.com / Pass1234! and saves tokens to /tmp/fam.json.",
+  "seed_data_creation": "Fresh family + Alice member (PIN 1234) per UI test run, tokens injected into localStorage. Several throw-away families per backend test (each `_two_members(...)` call) — none touch real seed data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend privacy/visibility coverage now lives in 2 files: tests/test_privacy_pending_publish.py (deep, wall_notes) and tests/test_privacy_all_kinds.py (smoke across all 6 kinds). Use bootstrap_family.py + localStorage injection to skip the email-verify + member-PIN UI when testing wall flows. The 4 toast flows (publish-now, undo, change-privacy, auto-dismiss) all work after the URL fix; only outstanding UX nit is that Undo doesn't remove the optimistically-rendered note from the WallBoard list until a refresh.",
+  "rca of the issue": "Failed Publish/Undo/Picker calls returned 404. Root cause: `privacyApi.patchItemVisibility` and the Undo / roster fetch inside `PrivacyPublishToast.jsx` used absolute paths starting with `/api/...` while calling them through the shared `api` axios instance (api.js) which already sets baseURL = `${REACT_APP_BACKEND_URL}/api`. Result: requests went to `/api/api/items/...`. Fix: removed the redundant `/api` prefix in 3 places (privacyApi.js:15, PrivacyPublishToast.jsx:208 roster fetch, PrivacyPublishToast.jsx DELETE_PATHS map). Re-tested all 4 toast flows — all green."
+}

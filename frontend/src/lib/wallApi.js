@@ -141,6 +141,17 @@ async function mutate(method, path, body) {
   }
 }
 
+// Map wall-resource names → backend collection names (used by the
+// privacy/pending-publish toast). When a create succeeds, we dispatch
+// a toast entry so the user can change privacy / publish now / undo
+// during the 7-second grace period.
+const PRIVACY_KIND_BY_NAME = {
+  notes: "wall_notes",
+  goals: "wall_goals",
+  countdown: "wall_countdown",
+  "family-events": "wall_family_events",
+};
+
 // ---------- resource definitions ----------
 // Each "collection" resource exposes list / create / update / delete.
 function makeCollection(name) {
@@ -165,6 +176,19 @@ function makeCollection(name) {
           x.id === optimisticItem.id ? r.data : x
         );
         writeCache(`coll:${name}`, fresh);
+        // Surface the privacy / pending-publish toast for the creator.
+        const kind = PRIVACY_KIND_BY_NAME[name];
+        if (kind && r.data.pending_publish_at) {
+          // Imported lazily to keep wallApi free of React deps.
+          import("./privacyQueue").then(({ queuePendingPublish }) => {
+            queuePendingPublish({
+              kind,
+              item: r.data,
+              label:
+                r.data.text || r.data.label || r.data.title || r.data.name,
+            });
+          });
+        }
       }
       return r;
     },

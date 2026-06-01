@@ -31,6 +31,8 @@ import { Toaster } from "@/components/ui/sonner";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RequireAuth from "@/components/RequireAuth";
 import { I18nProvider } from "@/lib/i18n";
+import { PrivacyProvider } from "@/lib/privacyQueue";
+import PrivacyPublishToast from "@/components/PrivacyPublishToast";
 import {
   initGlobalEventDelegation,
   useRouteAnalytics,
@@ -49,9 +51,10 @@ function RouteAnalytics() {
 function App() {
   return (
     <I18nProvider>
-      <div className="App">
-        <ErrorBoundary>
-          <BrowserRouter>
+      <PrivacyProvider>
+        <div className="App">
+          <ErrorBoundary>
+            <BrowserRouter>
             <RouteAnalytics />
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -132,7 +135,10 @@ function App() {
           </BrowserRouter>
         </ErrorBoundary>
         <Toaster richColors position="top-center" />
-      </div>
+        {/* Sticky bottom toast: privacy / publish-now / undo for new items. */}
+        <PrivacyPublishToast />
+        </div>
+      </PrivacyProvider>
     </I18nProvider>
   );
 }

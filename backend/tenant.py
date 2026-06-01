@@ -51,6 +51,11 @@ SCOPED_COLLECTIONS = {
 current_family_id: contextvars.ContextVar = contextvars.ContextVar(
     "current_family_id", default=None
 )
+# Set by the same JWT middleware that resolves the family. `None` for
+# admin tokens, account-level tokens, and any unauthenticated request.
+current_member_id: contextvars.ContextVar = contextvars.ContextVar(
+    "current_member_id", default=None
+)
 
 
 def require_current_family_id() -> str:
@@ -58,6 +63,13 @@ def require_current_family_id() -> str:
     if not fid:
         raise HTTPException(status_code=401, detail="Family context required")
     return fid
+
+
+def require_current_member_id() -> str:
+    mid = current_member_id.get()
+    if not mid:
+        raise HTTPException(status_code=401, detail="Member context required")
+    return mid
 
 
 class ScopedCollection:
@@ -179,6 +191,7 @@ def install_middleware(app, jwt_secret: str, db=None):
     @app.middleware("http")
     async def family_scope_middleware(request: Request, call_next):
         fid = None
+        mid = None
         token_role = None
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
@@ -192,6 +205,10 @@ def install_middleware(app, jwt_secret: str, db=None):
                 # Only family-bound tokens set a scope. Admin tokens stay None.
                 if data.get("type") in {"account", "member"} and token_role != "admin":
                     fid = data.get("fid")
+                # Member tokens carry the active member id under `mid`.
+                # Account tokens (before a member picks a PIN) don't.
+                if data.get("type") == "member":
+                    mid = data.get("mid")
             except jwt.PyJWTError:
                 pass
 
@@ -217,11 +234,13 @@ def install_middleware(app, jwt_secret: str, db=None):
                     )
 
         token = current_family_id.set(fid)
+        mtoken = current_member_id.set(mid)
         try:
             response = await call_next(request)
             return response
         finally:
             current_family_id.reset(token)
+            current_member_id.reset(mtoken)
 
 
 # ---------- helpers used by location ingest ----------

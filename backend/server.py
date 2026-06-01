@@ -24,7 +24,16 @@ raw_db = client[os.environ['DB_NAME']]
 # Tenant isolation layer.
 from tenant import (
     ScopedDB, install_middleware as install_tenant_middleware,
-    resolve_family_by_code, current_family_id,
+    resolve_family_by_code, current_family_id, current_member_id,
+)
+from privacy import (
+    build_visibility_fields,
+    visibility_filter,
+    merge_filter,
+    parse_patch_visibility,
+    can_view,
+    DEFAULT_GRACE_SECONDS,
+    VISIBILITY_MODES,
 )
 db = ScopedDB(raw_db)
 
@@ -692,9 +701,10 @@ async def update_wall_photo(photo_id: str, payload: WallPhotoUpdate):
 
 
 # --- Goals
-@api_router.get("/wall/goals", response_model=List[WallGoal])
+@api_router.get("/wall/goals")
 async def list_wall_goals(include_archived: bool = False):
-    query: dict = {} if include_archived else {"archived_at": None}
+    base: dict = {} if include_archived else {"archived_at": None}
+    query = merge_filter(base, current_member_id.get())
     items = await db.wall_goals.find(query, {"_id": 0}).sort("created_at", 1).to_list(500)
     # Back-fill any older docs created before timestamp fields existed.
     for it in items:
@@ -704,11 +714,15 @@ async def list_wall_goals(include_archived: bool = False):
     return items
 
 
-@api_router.post("/wall/goals", response_model=WallGoal)
-async def create_wall_goal(payload: WallGoalCreate):
-    obj = WallGoal(**payload.model_dump())
-    await db.wall_goals.insert_one(obj.model_dump())
-    return obj
+@api_router.post("/wall/goals")
+async def create_wall_goal(payload: dict):
+    # Pydantic validation pass: only `label` is required, but we accept the
+    # broader create shape so visibility hints can be set on the same POST.
+    obj = WallGoal(**{k: v for k, v in payload.items() if k in WallGoal.model_fields})
+    doc = obj.model_dump()
+    doc.update(build_visibility_fields(payload))
+    await db.wall_goals.insert_one(doc)
+    return doc
 
 
 @api_router.put("/wall/goals/{goal_id}", response_model=WallGoal)
@@ -757,17 +771,20 @@ async def delete_wall_goal(goal_id: str):
 
 
 # --- Countdown
-@api_router.get("/wall/countdown", response_model=List[WallCountdown])
+@api_router.get("/wall/countdown")
 async def list_wall_countdown():
-    items = await db.wall_countdown.find({}, {"_id": 0}).sort("date", 1).to_list(500)
+    query = merge_filter({}, current_member_id.get())
+    items = await db.wall_countdown.find(query, {"_id": 0}).sort("date", 1).to_list(500)
     return items
 
 
-@api_router.post("/wall/countdown", response_model=WallCountdown)
-async def create_wall_countdown(payload: WallCountdownCreate):
-    obj = WallCountdown(**payload.model_dump())
-    await db.wall_countdown.insert_one(obj.model_dump())
-    return obj
+@api_router.post("/wall/countdown")
+async def create_wall_countdown(payload: dict):
+    obj = WallCountdown(**{k: v for k, v in payload.items() if k in WallCountdown.model_fields})
+    doc = obj.model_dump()
+    doc.update(build_visibility_fields(payload))
+    await db.wall_countdown.insert_one(doc)
+    return doc
 
 
 @api_router.put("/wall/countdown/{cd_id}", response_model=WallCountdown)
@@ -833,17 +850,20 @@ async def delete_wall_achievement(ach_id: str):
 
 
 # --- Notes
-@api_router.get("/wall/notes", response_model=List[WallNote])
+@api_router.get("/wall/notes")
 async def list_wall_notes():
-    items = await db.wall_notes.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    query = merge_filter({}, current_member_id.get())
+    items = await db.wall_notes.find(query, {"_id": 0}).sort("created_at", 1).to_list(500)
     return items
 
 
-@api_router.post("/wall/notes", response_model=WallNote)
-async def create_wall_note(payload: WallNoteCreate):
-    obj = WallNote(**payload.model_dump())
-    await db.wall_notes.insert_one(obj.model_dump())
-    return obj
+@api_router.post("/wall/notes")
+async def create_wall_note(payload: dict):
+    obj = WallNote(**{k: v for k, v in payload.items() if k in WallNote.model_fields})
+    doc = obj.model_dump()
+    doc.update(build_visibility_fields(payload))
+    await db.wall_notes.insert_one(doc)
+    return doc
 
 
 @api_router.put("/wall/notes/{note_id}", response_model=WallNote)
@@ -871,17 +891,20 @@ async def delete_wall_note(note_id: str):
 
 
 # --- Family Events
-@api_router.get("/wall/family-events", response_model=List[WallFamilyEvent])
+@api_router.get("/wall/family-events")
 async def list_wall_family_events():
-    items = await db.wall_family_events.find({}, {"_id": 0}).sort("date", 1).to_list(500)
+    query = merge_filter({}, current_member_id.get())
+    items = await db.wall_family_events.find(query, {"_id": 0}).sort("date", 1).to_list(500)
     return items
 
 
-@api_router.post("/wall/family-events", response_model=WallFamilyEvent)
-async def create_wall_family_event(payload: WallFamilyEventCreate):
-    obj = WallFamilyEvent(**payload.model_dump())
-    await db.wall_family_events.insert_one(obj.model_dump())
-    return obj
+@api_router.post("/wall/family-events")
+async def create_wall_family_event(payload: dict):
+    obj = WallFamilyEvent(**{k: v for k, v in payload.items() if k in WallFamilyEvent.model_fields})
+    doc = obj.model_dump()
+    doc.update(build_visibility_fields(payload))
+    await db.wall_family_events.insert_one(doc)
+    return doc
 
 
 @api_router.put("/wall/family-events/{ev_id}", response_model=WallFamilyEvent)
@@ -906,6 +929,55 @@ async def delete_wall_family_event(ev_id: str):
     if res.deleted_count == 0:
         raise HTTPException(404, "Not found")
     return {"ok": True}
+
+
+# ============= Privacy / pending-publish patches =============
+# Generic endpoint that powers the "Change Privacy / Publish Now / Undo"
+# toast across all the supported item types. The kind is in the URL so
+# the endpoint can stay polymorphic without sprawling 6 near-duplicate
+# routes.
+
+_PRIVACY_COLLECTIONS = {
+    "wall_notes": "wall_notes",
+    "wall_goals": "wall_goals",
+    "wall_countdown": "wall_countdown",
+    "wall_family_events": "wall_family_events",
+    "shopping_items": "shopping_items",
+    "routines": "routines",
+}
+
+
+@api_router.patch("/items/{kind}/{item_id}/visibility")
+async def patch_item_visibility(kind: str, item_id: str, body: dict):
+    """Update an item's visibility / publish status mid-grace-period.
+
+    Body shape (all optional, but at least one must be supplied):
+      - `visibility`:  "family" | "owner_only" | "members"
+      - `visible_to`:  list[str] of member ids (only for "members")
+      - `publish_now`: bool — when true, clear `pending_publish_at` so
+                       the row appears for everyone immediately.
+
+    Server-side gate: only the creator can change an item's visibility.
+    Anyone else gets a 403 even if they share the family — privacy
+    decisions belong to the person who made the item."""
+    coll_name = _PRIVACY_COLLECTIONS.get(kind)
+    if not coll_name:
+        raise HTTPException(status_code=400, detail=f"Unknown kind '{kind}'")
+    coll = getattr(db, coll_name)
+    doc = await coll.find_one({"id": item_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    me = current_member_id.get()
+    # Legacy rows (no `created_by`) fall back to permissive behaviour so
+    # the user can finally pin them down to a specific visibility.
+    if doc.get("created_by") and me and doc.get("created_by") != me:
+        raise HTTPException(status_code=403, detail="Only the creator can change privacy")
+    update = parse_patch_visibility(body)
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    await coll.update_one({"id": item_id}, {"$set": update})
+    fresh = await coll.find_one({"id": item_id}, {"_id": 0})
+    return fresh
 
 
 # ============= Feature Flags (global toggles) =============
@@ -1324,25 +1396,26 @@ def _validate_routine(data: dict) -> None:
 
 # ----- Routines Routes -----
 
-@api_router.get("/routines", response_model=List[Routine])
+@api_router.get("/routines")
 async def list_routines(include_archived: bool = False):
-    query: dict = {} if include_archived else {"archived": {"$ne": True}}
+    base: dict = {} if include_archived else {"archived": {"$ne": True}}
+    query = merge_filter(base, current_member_id.get())
     items = await db.routines.find(query, {"_id": 0}).sort("next_due_at", 1).to_list(500)
     return items
 
 
-@api_router.post("/routines", response_model=Routine)
-async def create_routine(payload: RoutineCreate):
-    data = payload.model_dump()
-    _validate_routine(data)
+@api_router.post("/routines")
+async def create_routine(payload: dict):
+    _validate_routine(payload)
     now = datetime.now(timezone.utc)
-    obj = Routine(**data)
-    # Compute next due from "now" so the first deadline starts ticking
+    obj = Routine(**{k: v for k, v in payload.items() if k in Routine.model_fields})
     obj.next_due_at = compute_next_due(obj.model_dump(), now).isoformat()
     obj.created_at = now.isoformat()
     obj.updated_at = now.isoformat()
-    await db.routines.insert_one(obj.model_dump())
-    return obj
+    doc = obj.model_dump()
+    doc.update(build_visibility_fields(payload))
+    await db.routines.insert_one(doc)
+    return doc
 
 
 @api_router.put("/routines/{routine_id}", response_model=Routine)
@@ -2925,20 +2998,23 @@ class ShoppingItemCreate(BaseModel):
     name: str
 
 
-@api_router.get("/shopping", response_model=List[ShoppingItem])
+@api_router.get("/shopping")
 async def list_shopping_items():
-    docs = await db.shopping_items.find({}, {"_id": 0}).sort("created_at", 1).to_list(1000)
-    return [ShoppingItem(**d) for d in docs]
+    query = merge_filter({}, current_member_id.get())
+    docs = await db.shopping_items.find(query, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    return docs
 
 
-@api_router.post("/shopping", response_model=ShoppingItem)
-async def create_shopping_item(payload: ShoppingItemCreate):
-    name = (payload.name or "").strip()
+@api_router.post("/shopping")
+async def create_shopping_item(payload: dict):
+    name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Item name is required")
     item = ShoppingItem(name=name)
-    await db.shopping_items.insert_one(item.model_dump())
-    return item
+    doc = item.model_dump()
+    doc.update(build_visibility_fields(payload))
+    await db.shopping_items.insert_one(doc)
+    return doc
 
 
 @api_router.patch("/shopping/{item_id}/toggle", response_model=ShoppingItem)

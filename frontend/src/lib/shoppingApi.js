@@ -22,6 +22,17 @@ export async function listShoppingItems() {
 
 export async function createShoppingItem(name) {
   const res = await api.post("/api/shopping", { name });
+  // Pending-publish toast — non-blocking lazy import keeps this module
+  // free of React dependencies.
+  if (res.data && res.data.pending_publish_at) {
+    import("./privacyQueue").then(({ queuePendingPublish }) => {
+      queuePendingPublish({
+        kind: "shopping_items",
+        item: res.data,
+        label: res.data.name,
+      });
+    });
+  }
   return res.data;
 }
 

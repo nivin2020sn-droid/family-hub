@@ -22,6 +22,15 @@ export async function listRoutines() {
 
 export async function createRoutine(payload) {
   const res = await api.post("/api/routines", payload);
+  if (res.data && res.data.pending_publish_at) {
+    import("./privacyQueue").then(({ queuePendingPublish }) => {
+      queuePendingPublish({
+        kind: "routines",
+        item: res.data,
+        label: res.data.title,
+      });
+    });
+  }
   return res.data;
 }
 
