@@ -1527,6 +1527,262 @@ def build_admin_router(db) -> APIRouter:
                 targets = normalized
         return await smtp_network_diagnose(targets)
 
+    # ───────── EMAIL CENTER (admin broadcast) ─────────
+    EMAIL_LOGS = db.email_logs
+
+    @router.get("/email-center/recipients")
+    async def list_email_recipients(_: dict = Depends(require_admin)):
+        """Return the data the Email Center picker needs:
+           - all verified-email accounts (for User + Multiple Users modes)
+           - all families with member counts (for Family mode)
+        Excludes admin accounts so a broadcast can't accidentally email the
+        admin themselves into a feedback loop."""
+        users = await db.accounts.find(
+            {"role": {"$ne": "admin"}, "email": {"$exists": True, "$ne": None}},
+            {"_id": 0, "id": 1, "email": 1, "family_id": 1, "email_verified": 1, "created_at": 1},
+        ).sort("created_at", -1).to_list(2000)
+        # Family list with member count so the admin can size their audience.
+        families = await db.families.find(
+            {}, {"_id": 0, "id": 1, "name": 1, "account_type": 1, "status": 1},
+        ).to_list(2000)
+        # Map family_id → human-readable label for the picker.
+        accounts_by_fid = {}
+        for u in users:
+            accounts_by_fid.setdefault(u.get("family_id"), []).append(u.get("email"))
+        family_payload = []
+        for f in families:
+            if f.get("status") not in ("active", None):
+                continue
+            family_payload.append({
+                "id": f["id"],
+                "name": f.get("name") or "Family",
+                "account_type": f.get("account_type") or "family",
+                "member_emails": accounts_by_fid.get(f["id"], []),
+            })
+        return {
+            "users": [
+                {"id": u["id"], "email": u["email"],
+                 "family_id": u.get("family_id"),
+                 "email_verified": bool(u.get("email_verified", True))}
+                for u in users
+            ],
+            "families": family_payload,
+            "total_users": len(users),
+        }
+
+    async def _resolve_recipient_emails(
+        recipient_type: str, recipient_ids: list, body_email: str = ""
+    ) -> List[str]:
+        """Resolve the requested audience into a deduplicated list of
+        verified email addresses. Admin accounts are always filtered out."""
+        rtype = (recipient_type or "").lower().strip()
+        emails: set = set()
+        # `all` → every non-admin account, regardless of family.
+        if rtype == "all":
+            rows = await db.accounts.find(
+                {"role": {"$ne": "admin"}, "email": {"$exists": True, "$ne": None}},
+                {"_id": 0, "email": 1, "email_verified": 1},
+            ).to_list(5000)
+            for r in rows:
+                if r.get("email"):
+                    emails.add(r["email"])
+            return sorted(emails)
+        # `family` → every account in the picked family_id(s).
+        if rtype == "family":
+            ids = [i for i in (recipient_ids or []) if i]
+            if not ids:
+                return []
+            rows = await db.accounts.find(
+                {"family_id": {"$in": ids}, "role": {"$ne": "admin"}},
+                {"_id": 0, "email": 1},
+            ).to_list(5000)
+            for r in rows:
+                if r.get("email"):
+                    emails.add(r["email"])
+            return sorted(emails)
+        # `multiple` → explicit user-id list.
+        if rtype == "multiple":
+            ids = [i for i in (recipient_ids or []) if i]
+            if not ids:
+                return []
+            rows = await db.accounts.find(
+                {"id": {"$in": ids}, "role": {"$ne": "admin"}},
+                {"_id": 0, "email": 1},
+            ).to_list(2000)
+            for r in rows:
+                if r.get("email"):
+                    emails.add(r["email"])
+            return sorted(emails)
+        # `user` → single account-id OR a raw email typed in by the admin.
+        if rtype == "user":
+            if recipient_ids:
+                row = await db.accounts.find_one(
+                    {"id": recipient_ids[0], "role": {"$ne": "admin"}},
+                    {"_id": 0, "email": 1},
+                )
+                if row and row.get("email"):
+                    emails.add(row["email"])
+            elif body_email and "@" in body_email:
+                emails.add(body_email.lower().strip())
+            return sorted(emails)
+        return []
+
+    @router.post("/email-center/preview")
+    async def preview_broadcast(
+        body: dict, _: dict = Depends(require_admin),
+    ):
+        """Return the rendered HTML + the resolved recipient list for the
+        admin's preview pane. Does NOT send anything."""
+        from email_service import render_broadcast_html
+        subject = (body.get("subject") or "").strip()
+        message = (body.get("body") or "").strip()
+        lang = (body.get("lang") or "en").lower().strip()
+        recipients = await _resolve_recipient_emails(
+            body.get("recipient_type") or "user",
+            body.get("recipient_ids") or [],
+            body.get("recipient_email") or "",
+        )
+        html = render_broadcast_html(subject, message, lang)
+        return {
+            "html": html,
+            "recipient_count": len(recipients),
+            "recipient_sample": recipients[:5],
+            "subject": subject,
+            "lang": lang,
+        }
+
+    @router.post("/email-center/send")
+    async def send_broadcast(
+        body: dict, admin: dict = Depends(require_admin),
+    ):
+        """Resolve the audience, fan out the SMTP sends, persist a single
+        `email_logs` row capturing the full delivery report. The handler
+        awaits every send so the admin sees the actual success/failure count
+        instead of a fire-and-forget receipt."""
+        from email_service import send_broadcast_email
+        subject = (body.get("subject") or "").strip()
+        message = (body.get("body") or "").strip()
+        lang = (body.get("lang") or "en").lower().strip()
+        recipient_type = (body.get("recipient_type") or "user").lower().strip()
+        if not subject or not message:
+            raise HTTPException(status_code=400, detail="Subject and body are required")
+
+        recipients = await _resolve_recipient_emails(
+            recipient_type,
+            body.get("recipient_ids") or [],
+            body.get("recipient_email") or "",
+        )
+        if not recipients:
+            raise HTTPException(status_code=400, detail="No recipients matched")
+
+        # Hard cap so an "all users" send can't run away from us — admin
+        # confirms an exception before hitting > 500 in one go.
+        confirm_large = bool(body.get("confirm_large_send"))
+        if len(recipients) > 500 and not confirm_large:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "large_audience",
+                    "recipient_count": len(recipients),
+                    "message": "Audience exceeds 500. Re-submit with confirm_large_send=true to proceed.",
+                },
+            )
+
+        log_id = str(uuid.uuid4())
+        started_at = datetime.now(timezone.utc)
+        deliveries = []
+        success = 0
+        failed = 0
+        # Sequential send so we stay under SMTP per-connection throttling.
+        # Each send re-uses the existing `send_broadcast_email` helper which
+        # already classifies & logs every error.
+        for email in recipients:
+            res = await send_broadcast_email(
+                db,
+                to_email=email,
+                subject=subject,
+                body=message,
+                lang=lang,
+            )
+            deliveries.append({
+                "email": email,
+                "sent": bool(res.get("sent")),
+                "reason": res.get("reason"),
+                "error": res.get("error"),
+                "smtp_code": res.get("smtp_code"),
+                "smtp_message": res.get("smtp_message"),
+            })
+            if res.get("sent"):
+                success += 1
+            else:
+                failed += 1
+
+        ended_at = datetime.now(timezone.utc)
+        send_status = ("sent" if success and not failed
+                       else "partial" if success and failed
+                       else "failed")
+        # Resolve admin email lazily so the audit row shows who actually
+        # triggered the broadcast (the JWT only carries `sub`).
+        admin_row = await accounts.find_one(
+            {"id": admin.get("sub")}, {"_id": 0, "email": 1}
+        )
+        log_doc = {
+            "id": log_id,
+            "sent_at": started_at.isoformat(),
+            "finished_at": ended_at.isoformat(),
+            "sender_account_id": admin.get("sub"),
+            "sender_email": (admin_row or {}).get("email"),
+            "subject": subject,
+            "body_preview": message[:280],
+            "lang": lang,
+            "recipient_type": recipient_type,
+            "recipient_count": len(recipients),
+            "success_count": success,
+            "failed_count": failed,
+            "status": send_status,
+            "deliveries": deliveries,
+        }
+        await EMAIL_LOGS.insert_one(log_doc)
+        logger.warning(
+            "[EMAIL CENTER] admin=%s type=%s subject=%r success=%d/%d status=%s",
+            admin.get("sub"), recipient_type, subject,
+            success, len(recipients), send_status,
+        )
+        return {
+            "ok": True,
+            "log_id": log_id,
+            "status": send_status,
+            "success_count": success,
+            "failed_count": failed,
+            "recipient_count": len(recipients),
+        }
+
+    @router.get("/email-center/logs")
+    async def list_email_logs(
+        limit: int = 50,
+        _: dict = Depends(require_admin),
+    ):
+        """Paginated history of broadcasts, newest first. We strip the
+        per-recipient `deliveries` array from the list response — it's
+        only loaded on demand via /email-center/logs/{id}."""
+        limit = max(1, min(200, int(limit)))
+        rows = await EMAIL_LOGS.find(
+            {},
+            {"_id": 0, "deliveries": 0},
+        ).sort("sent_at", -1).limit(limit).to_list(limit)
+        return {"logs": rows}
+
+    @router.get("/email-center/logs/{log_id}")
+    async def get_email_log(
+        log_id: str, _: dict = Depends(require_admin),
+    ):
+        """Full broadcast record including the per-recipient delivery
+        breakdown. Used by the admin's drill-down view."""
+        row = await EMAIL_LOGS.find_one({"id": log_id}, {"_id": 0})
+        if not row:
+            raise HTTPException(status_code=404, detail="Log entry not found")
+        return row
+
     return router
 
 async def ensure_indexes(db) -> None:

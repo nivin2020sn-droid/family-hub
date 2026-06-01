@@ -394,6 +394,50 @@ export async function adminDiagnoseNetwork(targets) {
   return data;
 }
 
+// ---------- Admin Email Center (broadcast) ----------
+
+export async function adminListEmailRecipients() {
+  const token = getAccountToken();
+  const { data } = await api.get("/api/admin/email-center/recipients", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function adminPreviewBroadcast(payload) {
+  const token = getAccountToken();
+  const { data } = await api.post("/api/admin/email-center/preview", payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function adminSendBroadcast(payload) {
+  const token = getAccountToken();
+  const { data } = await api.post("/api/admin/email-center/send", payload, {
+    headers: { Authorization: `Bearer ${token}` },
+    // Audience × ~5s per SMTP send. 5 min ceiling for very large broadcasts.
+    timeout: 300000,
+  });
+  return data;
+}
+
+export async function adminListEmailLogs() {
+  const token = getAccountToken();
+  const { data } = await api.get("/api/admin/email-center/logs", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function adminGetEmailLog(logId) {
+  const token = getAccountToken();
+  const { data } = await api.get(`/api/admin/email-center/logs/${logId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
 // ---------- GDPR account deletion (soft-delete, 30-day grace window) ----------
 
 /** Request permanent account deletion. Server sets status="deletion_requested"

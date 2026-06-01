@@ -285,6 +285,214 @@ def _render_text(tpl: dict, link: str) -> str:
     )
 
 
+# ----- Broadcast (Admin Email Center) -----
+
+BROADCAST_FOOTER_BY_LANG = {
+    "en": {
+        "tagline": "Connecting Families, Simplifying Life",
+        "team": f"{BRAND_NAME} Team",
+        "legal": f"© {BRAND_NAME}. All rights reserved.",
+        "subtitle": "Your family's digital hub",
+    },
+    "ar": {
+        "tagline": "نربط العائلات ونُبسّط الحياة",
+        "team": f"فريق {BRAND_NAME}",
+        "legal": f"© {BRAND_NAME}. جميع الحقوق محفوظة.",
+        "subtitle": "المركز الرقمي لعائلتك",
+    },
+    "de": {
+        "tagline": "Familien verbinden, das Leben vereinfachen",
+        "team": f"{BRAND_NAME} Team",
+        "legal": f"© {BRAND_NAME}. Alle Rechte vorbehalten.",
+        "subtitle": "Die digitale Zentrale deiner Familie",
+    },
+}
+
+
+def _escape_html(text: str) -> str:
+    """Minimal HTML-escape for admin-provided body text. We intentionally do
+    NOT allow arbitrary HTML from the admin form so a typo can't break the
+    template — newlines are converted to <br>, hyperlinks are kept as
+    plain-text URLs (clients auto-link them)."""
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def render_broadcast_html(subject: str, body: str, lang: str = "en") -> str:
+    """Render a branded broadcast email — same visual language as the
+    verify/reset templates, but without the CTA button. The body is the
+    admin's free-text message, displayed as a series of paragraphs."""
+    lang = _normalize_lang(lang)
+    footer = BROADCAST_FOOTER_BY_LANG[lang]
+    dir_attr = "rtl" if lang == "ar" else "ltr"
+    align = "right" if lang == "ar" else "left"
+    # Split admin text into paragraphs. Two newlines = paragraph break,
+    # single newlines render as <br/> inside the same paragraph so the
+    # admin can compose short signatures naturally.
+    paragraphs = [p.strip() for p in (body or "").split("\n\n") if p.strip()]
+    body_html_parts = []
+    for p in paragraphs:
+        escaped = _escape_html(p).replace("\n", "<br/>")
+        body_html_parts.append(
+            f'<p style="margin:0 0 16px 0;font-size:14px;line-height:1.7;color:#4A4742;">{escaped}</p>'
+        )
+    body_html = "".join(body_html_parts) or (
+        '<p style="margin:0;font-size:14px;color:#A09B95;font-style:italic;">'
+        '(empty message)</p>'
+    )
+    safe_subject = _escape_html(subject or BRAND_NAME)
+    site_url = "https://mylife-mytime.com"
+    return f"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="{lang}" dir="{dir_attr}" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="x-apple-disable-message-reformatting" />
+  <title>{safe_subject}</title>
+</head>
+<body style="margin:0;padding:0;background:#F3F0EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#2D2A26;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;visibility:hidden;opacity:0;color:transparent;height:0;width:0;">{safe_subject}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F3F0EA;">
+    <tr>
+      <td align="center" style="padding:40px 16px 32px 16px;">
+
+        <!-- Brand header -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px auto;">
+          <tr>
+            <td align="center" style="padding-bottom:14px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                <tr>
+                  <td align="center" valign="middle" width="72" height="72" bgcolor="#2D2A26"
+                      style="background:#2D2A26;border-radius:36px;color:#ffffff;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;letter-spacing:0.08em;line-height:72px;width:72px;height:72px;">
+                    {BRAND_MONOGRAM}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="font-size:20px;font-weight:600;color:#2D2A26;letter-spacing:-0.01em;line-height:1.2;">
+              {BRAND_NAME}
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-top:4px;font-size:11px;color:#7A7571;letter-spacing:0.08em;text-transform:uppercase;">
+              {footer['subtitle']}
+            </td>
+          </tr>
+        </table>
+
+        <!-- White card -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:24px;border:1px solid #E5E2DC;">
+          <tr>
+            <td style="padding:36px 36px 28px 36px;text-align:{align};">
+              <h1 style="margin:0 0 18px 0;font-size:20px;font-weight:600;color:#2D2A26;line-height:1.3;">{safe_subject}</h1>
+              {body_html}
+            </td>
+          </tr>
+        </table>
+
+        <!-- Footer block (team + tagline + url + legal) -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+          <tr>
+            <td align="center" style="padding:24px 24px 8px 24px;font-size:11px;color:#A09B95;line-height:1.7;">
+              <p style="margin:0;font-weight:600;color:#2D2A26;">{footer['team']}</p>
+              <p style="margin:2px 0 0 0;font-style:italic;color:#7A7571;">{footer['tagline']}</p>
+              <p style="margin:8px 0 0 0;"><a href="{site_url}" style="color:#7A7571;text-decoration:underline;">{site_url}</a></p>
+              <p style="margin:0;padding-top:14px;margin-top:14px;border-top:1px solid #E5E2DC;font-size:10px;color:#A09B95;letter-spacing:0.02em;">
+                {footer['legal']}
+              </p>
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def render_broadcast_text(subject: str, body: str, lang: str = "en") -> str:
+    """Plain-text fallback for broadcasts."""
+    lang = _normalize_lang(lang)
+    footer = BROADCAST_FOOTER_BY_LANG[lang]
+    return (
+        f"{BRAND_NAME}\n{footer['subtitle']}\n\n"
+        f"{subject or ''}\n"
+        f"{'-' * len(subject or '')}\n\n"
+        f"{body or ''}\n\n"
+        f"{footer['team']}\n"
+        f"{footer['tagline']}\n"
+        f"https://mylife-mytime.com\n\n"
+        f"{footer['legal']}\n"
+    )
+
+
+async def send_broadcast_email(
+    db,
+    *,
+    to_email: str,
+    subject: str,
+    body: str,
+    lang: str = "en",
+) -> dict:
+    """Send a single rendered broadcast email. Used by the Admin Email
+    Center; wraps the existing SMTP layer so error classification + per-step
+    timing logs are reused unchanged."""
+    import asyncio
+
+    settings = await db.email_settings.find_one({"_key": "global"}, {"_id": 0}) or {}
+    html_body = render_broadcast_html(subject, body, lang)
+    text_body = render_broadcast_text(subject, body, lang)
+
+    if not settings.get("smtp_host") or not settings.get("sender_email"):
+        logger.warning(
+            "[BROADCAST DEV-LOG] to=%s | subject=%s | (SMTP not configured)",
+            to_email, subject,
+        )
+        return {"sent": False, "reason": "smtp_not_configured"}
+
+    try:
+        loop = asyncio.get_event_loop()
+        send_info = await loop.run_in_executor(
+            None,
+            _smtp_send,
+            settings, to_email, subject, text_body, html_body,
+        )
+        logger.info("[BROADCAST SENT] to=%s | subject=%s", to_email, subject)
+        return {
+            "sent": True,
+            "to": to_email,
+            "step_durations": (send_info or {}).get("step_durations"),
+        }
+    except SmtpDeliveryError as exc:
+        logger.warning(
+            "[BROADCAST FAILED] to=%s | stage=%s | reason=%s | err=%s",
+            to_email, exc.stage, exc.reason, exc.message,
+        )
+        return {
+            "sent": False,
+            "reason": exc.reason,
+            "stage": exc.stage,
+            "error": exc.message,
+            "smtp_code": exc.smtp_code,
+            "smtp_message": exc.smtp_message,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[BROADCAST FAILED] to=%s | reason=unknown | err=%s",
+            to_email, exc, exc_info=True,
+        )
+        return {"sent": False, "reason": "unknown", "error": str(exc)}
+
+
 # -------- SMTP send --------
 
 class EmailNotConfigured(Exception):
