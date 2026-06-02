@@ -58,6 +58,7 @@ import FamilyMapCard from "@/components/FamilyMapCard";
 import PrivacyControl from "@/components/PrivacyControl";
 import { useFeatureFlags } from "@/lib/featureFlags";
 import WallBoardRoutines from "@/components/WallBoardRoutines";
+import SmartPhoto from "@/components/SmartPhoto";
 import {
   wallSettings,
   wallPhotos,
@@ -1677,7 +1678,7 @@ const PhotoViewerDialog = ({ open, onOpenChange, photos, index, onIndexChange, o
 
         {/* Image */}
         <div className="relative flex-1 flex items-center justify-center">
-          <img
+          <SmartPhoto
             src={current.image}
             alt=""
             className="max-w-full max-h-full object-contain"
@@ -2180,7 +2181,7 @@ const WallBoard = () => {
                 className="block w-full rounded-2xl overflow-hidden bg-white/70 relative group active:scale-[0.997] transition"
                 data-testid="photo-card-cover"
               >
-                <img
+                <SmartPhoto
                   src={photos[photoIndex % photos.length].image}
                   alt=""
                   className="w-full h-48 sm:h-56 object-cover"

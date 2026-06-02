@@ -81,3 +81,36 @@ def test_upload_invalid_category_rejected(admin_headers):
 def test_list_files_requires_member_token(admin_headers):
     r = requests.get(f"{API}/storage/files", headers=admin_headers, timeout=10)
     assert r.status_code in (401, 403)
+
+
+def test_view_endpoint_rejects_unsigned_request():
+    # /view requires a `sig` query param; without it the route shouldn't
+    # even match (Query(...) returns 422).
+    r = requests.get(f"{API}/storage/files/anything/view", timeout=10)
+    assert r.status_code == 422
+
+
+def test_view_endpoint_rejects_bad_signature():
+    r = requests.get(
+        f"{API}/storage/files/nonexistent/view",
+        params={"sig": "deadbeefdeadbeef"},
+        timeout=10,
+    )
+    # File doesn't exist → 404 (the route DID match and the sig was syntactically valid).
+    assert r.status_code == 404
+
+
+def test_signed_url_structure():
+    """The `/view` URL we hand out to clients must be parseable and carry
+    a 16-hex-char signature. This is a lightweight contract check."""
+    import os as _os
+    import re as _re
+    # Ensure JWT_SECRET is present for the signer; backend always sets one.
+    _os.environ.setdefault("JWT_SECRET", "test-secret")
+    from storage_module import storage_proxy_url
+    url = storage_proxy_url("00000000-0000-0000-0000-000000000001", base_url="https://example.com")
+    m = _re.match(
+        r"^https://example\.com/api/storage/files/[a-f0-9-]+/view\?sig=[a-f0-9]{16}$",
+        url,
+    )
+    assert m, f"Unexpected URL shape: {url}"

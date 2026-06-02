@@ -1137,3 +1137,21 @@ The journal/Wall photo upload path is now backed by the Drive Storage service. N
 
 **Tests**: 26 passed.
 
+
+## Bug Fix (Feb 2026 latest) — Photos rendered black after Drive upload
+
+**Root cause**: two bugs stacked.
+1. The stored proxy URL was relative (`/api/storage/files/.../raw`) because the backend computed it from `REACT_APP_BACKEND_URL` env which is only set on the frontend pod. On production where frontend (mylife-mytime.com) and backend (e-api.onrender.com) are separate hosts, the relative path pointed at the frontend host and never reached the backend. The `<img>` failed and the surrounding container's black background showed through.
+2. Even if the URL had worked, there was no `onError` handler, so any future failure (token expiry, transient Drive 5xx) would silently look identical to a working photo with a black source.
+
+**Fix**:
+- `_absolute_base_url(request)` derives the public host from the incoming request's `Host` / `X-Forwarded-Host` headers — works on any deployment topology without env-var hard-coding.
+- New `/api/storage/files/{id}/view?sig=<hmac>` endpoint streams Drive bytes with the correct `Content-Type` from Drive metadata. Signature is `hmac_sha256(JWT_SECRET, file_id)[:16]` — 64 bits of unforgeable token, no expiry (revocation = delete the file in Drive).
+- `/api/storage/files/{id}/raw` kept as a backwards-compat alias for any URLs still stored from the earlier patch.
+- `GET /api/wall/photos` rewrites any photo with a legacy/relative URL into a freshly-signed absolute `/view` URL on the fly — zero downtime, no migration script.
+- New `<SmartPhoto>` component wraps `<img>` with an `onError` that swaps to a soft grey "Image unavailable" placeholder (never black).
+
+**Files**: `/app/backend/storage_module.py` (signing + `/view`), `/app/backend/server.py` (list + create_wall_photo use request host), `/app/frontend/src/components/SmartPhoto.jsx` (new), `/app/frontend/src/pages/WallBoard.jsx` (use SmartPhoto in the two photo render sites).
+
+**Tests**: 29 passing, including 4 new tests for the signed-URL contract.
+

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Query, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -676,17 +676,33 @@ async def update_wall_settings(payload: WallSettingsUpdate):
 
 # --- Photos
 @api_router.get("/wall/photos", response_model=List[WallPhoto])
-async def list_wall_photos():
+async def list_wall_photos(request: Request):
     items = await db.wall_photos.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    # Rewrite any photos that point at the legacy unsigned /raw proxy (or
+    # a relative path) into freshly-signed absolute /view URLs. Doing it
+    # on read keeps the migration zero-downtime and means we never have
+    # to backfill the DB.
+    from storage_module import storage_proxy_url, _absolute_base_url
+    base = _absolute_base_url(request)
+    for it in items:
+        sid = it.get("storage_file_id")
+        img = it.get("image") or ""
+        needs_rewrite = sid and (
+            img.startswith("/api/storage/")
+            or "/api/storage/files/" in img and "/raw" in img
+            or "/api/storage/files/" in img and "sig=" not in img
+        )
+        if needs_rewrite:
+            it["image"] = storage_proxy_url(sid, base_url=base)
     return items
 
 
 @api_router.post("/wall/photos", response_model=WallPhoto)
-async def create_wall_photo(payload: WallPhotoCreate):
+async def create_wall_photo(payload: WallPhotoCreate, request: Request):
     # If Google Drive Storage is connected, push the image bytes to Drive
     # instead of persisting the base64 blob inside MongoDB. The photo doc
-    # then stores the proxy URL (/api/storage/files/{id}/raw) under `image`
-    # plus a `storage_file_id` so deletion can clean Drive up too.
+    # then stores a signed proxy URL under `image` plus a `storage_file_id`
+    # so deletion can clean Drive up too.
     storage_file_id = None
     image_value = payload.image
     if image_value and image_value.startswith("data:"):
@@ -695,7 +711,9 @@ async def create_wall_photo(payload: WallPhotoCreate):
                 {"_key": "global"}, {"_id": 0}
             ) or {}
             if backup_doc.get("drive_connected"):
-                from storage_module import store_data_url, storage_proxy_url
+                from storage_module import (
+                    store_data_url, storage_proxy_url, _absolute_base_url,
+                )
                 from tenant import current_family_id, current_member_id
                 fid = current_family_id.get()
                 if fid:
@@ -708,18 +726,16 @@ async def create_wall_photo(payload: WallPhotoCreate):
                         default_name=f"photo-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
                     )
                     storage_file_id = stored["id"]
+                    # Build the proxy URL using the SAME host the SPA is
+                    # already talking to, so it works regardless of where
+                    # backend + frontend live (preview, Render, custom domain).
                     image_value = storage_proxy_url(
                         storage_file_id,
-                        base_url=os.environ.get("REACT_APP_BACKEND_URL") or None,
+                        base_url=_absolute_base_url(request),
                     )
         except HTTPException:
-            # Re-raise validation errors (e.g. file too large) so the user
-            # sees a real message instead of a silent base64 fallback.
             raise
         except Exception as exc:
-            # Any other Drive hiccup (rate limit, transient outage) falls
-            # back to the legacy base64-in-Mongo path so users never lose
-            # their photo. Logged for admin investigation.
             logger.exception("wall_photos: Drive offload failed, falling back to base64: %s", exc)
 
     doc = {

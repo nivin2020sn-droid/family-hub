@@ -45,15 +45,18 @@ Migration:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import io
 import logging
+import os
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import (
-    APIRouter, Depends, File, Form, HTTPException, Query, UploadFile,
+    APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile,
 )
 from fastapi.responses import StreamingResponse
 from googleapiclient.errors import HttpError
@@ -362,15 +365,54 @@ async def delete_by_id(db, file_id: str) -> bool:
 def storage_proxy_url(file_id: str, *, base_url: str | None = None) -> str:
     """Return the URL the frontend should use to render a stored file.
 
-    When `base_url` is provided we return an absolute URL — the frontend
-    just drops it into an `<img src>` and renders correctly without needing
-    to know about API paths. Without `base_url` we return a relative path
-    (legacy behaviour).
+    The URL is HMAC-signed with `JWT_SECRET` so only files the backend
+    itself blessed are accessible — random UUID guessing won't work even
+    if someone learns a file id. The signature is permanent (no expiry):
+    deleting the file from Drive is the only revocation mechanism, which
+    matches the user's mental model (delete photo → it's gone).
+
+    When `base_url` is provided we return an absolute URL — required when
+    the frontend and backend live on different domains (e.g. mylife-mytime.com
+    + e-api.onrender.com). Without it we return a relative path.
     """
-    path = f"/api/storage/files/{file_id}/raw"
+    sig = _sign_file_id(file_id)
+    path = f"/api/storage/files/{file_id}/view?sig={sig}"
     if base_url:
         return f"{base_url.rstrip('/')}{path}"
     return path
+
+
+def _sign_file_id(file_id: str) -> str:
+    """16-hex-char HMAC of the file id keyed by the app's JWT_SECRET.
+    Short enough for clean URLs, long enough (64 bits) that brute-force
+    forgery is not practical."""
+    secret = os.environ.get("JWT_SECRET", "").encode("utf-8")
+    if not secret:
+        # Hard fail rather than silently produce un-verifiable URLs.
+        raise RuntimeError("JWT_SECRET must be set to sign storage URLs.")
+    mac = hmac.new(secret, file_id.encode("utf-8"), hashlib.sha256)
+    return mac.hexdigest()[:16]
+
+
+def _absolute_base_url(request: Request | None) -> str | None:
+    """Pick the right scheme+host to put in URLs that the browser will
+    load directly. Prefers the incoming request's host (so URLs always
+    point at the same backend the SPA is already talking to), falling
+    back to REACT_APP_BACKEND_URL for background jobs that have no
+    request context."""
+    if request is not None:
+        proto = (
+            request.headers.get("x-forwarded-proto")
+            or request.url.scheme or "https"
+        )
+        host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+        )
+        if host:
+            return f"{proto}://{host}"
+    base = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+    return base or None
 
 
 # ----- HTTP routes -------------------------------------------------------
@@ -487,19 +529,19 @@ def build_storage_router(db) -> APIRouter:
         await db[FILES_COLLECTION].delete_one({"id": file_id})
         return {"ok": True}
 
-    @router.get("/files/{file_id}/raw")
-    async def serve_raw(file_id: str):
-        """Stream a stored Drive file back to the browser.
-
-        This route is intentionally NOT behind an auth dependency: browsers
-        don't send the `Authorization` header on `<img src>` requests, and
-        wiring up signed cookies is overkill for v1. The file id is a v4
-        UUID (128 bits of entropy), so URL guessing is impractical, and
-        every file's contents are deliberately user-uploaded family media.
-        """
+    async def _stream_file(file_id: str, *, sig: Optional[str] = None):
+        """Internal: validate signature (when required) and stream the
+        Drive bytes back to the browser. Shared by /raw (legacy, no sig)
+        and /view (signed)."""
         doc = await db[FILES_COLLECTION].find_one({"id": file_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Not found.")
+        if sig is not None:
+            expected = _sign_file_id(file_id)
+            # Constant-time compare keeps the route safe against timing
+            # side-channels on the signature.
+            if not hmac.compare_digest(sig, expected):
+                raise HTTPException(status_code=403, detail="Bad signature.")
         try:
             service, _ = await _ensure_drive_service(db)
             data, mime = await asyncio.to_thread(
@@ -510,11 +552,30 @@ def build_storage_router(db) -> APIRouter:
         except Exception as e:
             logger.exception("Raw fetch failed for %s", file_id)
             raise HTTPException(status_code=502, detail=f"Drive fetch failed: {e}")
-        # 5-minute browser cache — Drive itself is the source of truth, but
-        # repeatedly streaming the same family photo on every page mount
-        # would be wasteful.
-        headers = {"Cache-Control": "private, max-age=300"}
+        headers = {
+            "Cache-Control": "private, max-age=300",
+            # `<img>` from another origin works without CORS, but enabling
+            # it here lets the SPA also do `fetch()` of the image (e.g.
+            # for a future "Save to disk" feature) without a preflight
+            # failure.
+            "Access-Control-Allow-Origin": "*",
+        }
         return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
+
+    @router.get("/files/{file_id}/view")
+    async def serve_view(file_id: str, sig: str = Query(...)):
+        """HMAC-signed image proxy — preferred over /raw. The browser
+        loads `<img src=".../view?sig=...">` directly, the backend
+        validates the signature, fetches from Drive, and streams the
+        bytes back with the correct Content-Type."""
+        return await _stream_file(file_id, sig=sig)
+
+    @router.get("/files/{file_id}/raw")
+    async def serve_raw(file_id: str):
+        """Legacy unsigned proxy — kept for backwards compatibility with
+        any photo doc that still has a `/raw` URL stored. New uploads use
+        /view + signature."""
+        return await _stream_file(file_id)
 
     return router
 
