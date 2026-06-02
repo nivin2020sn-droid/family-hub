@@ -652,6 +652,16 @@ def build_backup_router(db) -> APIRouter:
         flow = _build_flow(
             settings["client_id"], settings["client_secret"], redirect_uri
         )
+        # Disable PKCE explicitly. Google's "Web application" client type
+        # is a CONFIDENTIAL client (we hold the client_secret), so PKCE is
+        # not required. Disabling it dodges a class of edge cases on
+        # multi-worker hosts (Render) where /oauth/start and /oauth/callback
+        # may not share in-process state — the auto-generated `code_verifier`
+        # would otherwise live on a different worker than the one handling
+        # the callback. Newer versions of google-auth-oauthlib turned PKCE
+        # on by default, so we override here defensively.
+        flow.autogenerate_code_verifier = False
+        flow.code_verifier = None
         state = uuid.uuid4().hex
         auth_url, _state = flow.authorization_url(
             access_type="offline",
@@ -659,11 +669,9 @@ def build_backup_router(db) -> APIRouter:
             prompt="consent",  # always issue a refresh_token
             state=state,
         )
-        # google-auth-oauthlib auto-generates a PKCE `code_verifier` and
-        # appends the corresponding `code_challenge` to the URL. The
-        # verifier lives on `flow.code_verifier` in memory ONLY — we have to
-        # persist it ourselves so the callback (almost always a separate
-        # worker/process on Render) can complete the token exchange.
+        # Even with PKCE disabled, capture whatever `code_verifier` ended up
+        # on the flow (None when PKCE truly is off). Stored alongside `state`
+        # so the callback can restore it if the library still generated one.
         code_verifier = getattr(flow, "code_verifier", None)
         await db[SETTINGS_COLLECTION].update_one(
             {"_key": SETTINGS_KEY},
@@ -702,10 +710,12 @@ def build_backup_router(db) -> APIRouter:
             settings["client_id"], settings["client_secret"], redirect_uri,
             lock_scopes=False,  # accept extra Google-auto-added scopes
         )
-        # Restore the PKCE code_verifier we stored in /oauth/start.
+        # Mirror the /oauth/start side: disable PKCE auto-generation, but if
+        # /oauth/start happened to use one and stored it, restore it here so
+        # `fetch_token` can include it in the exchange.
+        flow.autogenerate_code_verifier = False
         stored_verifier = settings.get("oauth_code_verifier")
-        if stored_verifier:
-            flow.code_verifier = stored_verifier
+        flow.code_verifier = stored_verifier  # None when PKCE was disabled
         try:
             await asyncio.to_thread(flow.fetch_token, code=code)
         except Exception as e:
