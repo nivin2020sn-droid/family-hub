@@ -683,16 +683,79 @@ async def list_wall_photos():
 
 @api_router.post("/wall/photos", response_model=WallPhoto)
 async def create_wall_photo(payload: WallPhotoCreate):
-    obj = WallPhoto(**payload.model_dump())
-    await db.wall_photos.insert_one(obj.model_dump())
-    return obj
+    # If Google Drive Storage is connected, push the image bytes to Drive
+    # instead of persisting the base64 blob inside MongoDB. The photo doc
+    # then stores the proxy URL (/api/storage/files/{id}/raw) under `image`
+    # plus a `storage_file_id` so deletion can clean Drive up too.
+    storage_file_id = None
+    image_value = payload.image
+    if image_value and image_value.startswith("data:"):
+        try:
+            backup_doc = await db.backup_settings.find_one(
+                {"_key": "global"}, {"_id": 0}
+            ) or {}
+            if backup_doc.get("drive_connected"):
+                from storage_module import store_data_url, storage_proxy_url
+                from tenant import current_family_id, current_member_id
+                fid = current_family_id.get()
+                if fid:
+                    stored = await store_data_url(
+                        db,
+                        family_id=fid,
+                        uploaded_by=current_member_id.get(),
+                        category="photos",
+                        data_url=image_value,
+                        default_name=f"photo-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
+                    )
+                    storage_file_id = stored["id"]
+                    image_value = storage_proxy_url(
+                        storage_file_id,
+                        base_url=os.environ.get("REACT_APP_BACKEND_URL") or None,
+                    )
+        except HTTPException:
+            # Re-raise validation errors (e.g. file too large) so the user
+            # sees a real message instead of a silent base64 fallback.
+            raise
+        except Exception as exc:
+            # Any other Drive hiccup (rate limit, transient outage) falls
+            # back to the legacy base64-in-Mongo path so users never lose
+            # their photo. Logged for admin investigation.
+            logger.exception("wall_photos: Drive offload failed, falling back to base64: %s", exc)
+
+    doc = {
+        **payload.model_dump(),
+        "id": str(uuid.uuid4()),
+        "image": image_value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if storage_file_id:
+        doc["storage_file_id"] = storage_file_id
+    await db.wall_photos.insert_one(dict(doc))
+    # Strip internal field before returning so it doesn't leak into the
+    # legacy Pydantic shape (WallPhoto doesn't know about storage_file_id).
+    return WallPhoto(
+        id=doc["id"],
+        image=doc["image"],
+        title=doc.get("title") or "",
+        caption=doc.get("caption") or "",
+        created_at=doc["created_at"],
+    )
 
 
 @api_router.delete("/wall/photos/{photo_id}")
 async def delete_wall_photo(photo_id: str):
-    res = await db.wall_photos.delete_one({"id": photo_id})
-    if res.deleted_count == 0:
+    # Look up first so we can clean Drive metadata before the row is gone.
+    existing = await db.wall_photos.find_one({"id": photo_id}, {"_id": 0})
+    if not existing:
         raise HTTPException(404, "Not found")
+    sid = existing.get("storage_file_id")
+    await db.wall_photos.delete_one({"id": photo_id})
+    if sid:
+        try:
+            from storage_module import delete_by_id
+            await delete_by_id(db, sid)
+        except Exception as exc:
+            logger.warning("wall_photos: storage cleanup failed for %s: %s", sid, exc)
     return {"ok": True}
 
 

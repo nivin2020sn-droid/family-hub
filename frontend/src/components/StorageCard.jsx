@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   HardDrive, RefreshCw, FolderPlus, Loader2, ExternalLink, Cloud, CloudOff,
-  Image as ImageIcon, FileText, MessageSquare, FileDown,
+  Image as ImageIcon, FileText, MessageSquare, FileDown, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -42,10 +42,12 @@ export default function StorageCard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [initBusy, setInitBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const r = await api.get("/admin/storage/stats");
+      const r = await api.get("/admin/storage/stats", { timeout: 30000 });
       setStats(r.data);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to load storage stats.");
@@ -59,13 +61,32 @@ export default function StorageCard() {
   const initFolders = async () => {
     setInitBusy(true);
     try {
-      await api.post("/admin/storage/init-folders");
+      // Folder creation does up to 5 sequential Drive calls — bump the
+      // axios timeout so a slow Drive doesn't surface as a "hang".
+      await api.post("/admin/storage/init-folders", {}, { timeout: 60000 });
       toast.success("Folders ready in Google Drive.");
       await load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to initialise folders.");
     } finally {
       setInitBusy(false);
+    }
+  };
+
+  const runTestUpload = async () => {
+    setTestBusy(true);
+    try {
+      // Admin-only endpoint uploads a tiny 1×1 PNG to a dedicated
+      // `Family_ADMINTEST` folder. Verifies the whole pipeline (OAuth →
+      // folder caching → Drive upload → metadata row) without needing a
+      // real member session.
+      await api.post("/admin/storage/test-upload", {}, { timeout: 60000 });
+      toast.success("Test upload succeeded — check Recent Uploads.");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Test upload failed.");
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -144,20 +165,36 @@ export default function StorageCard() {
 
       {/* Folder setup */}
       <section className="mt-4 pt-3 border-t border-[#E5E2DC]" data-testid="storage-folders-section">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-[#7A7571]">Drive Folder Layout</h3>
-          <Button
-            type="button"
-            onClick={initFolders}
-            disabled={!driveOk || initBusy}
-            className="rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white h-8 px-3 text-xs"
-            data-testid="storage-init-folders-btn"
-          >
-            {initBusy
-              ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
-              : <FolderPlus className="w-3 h-3 mr-1" />}
-            Initialise Folders
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              onClick={runTestUpload}
+              disabled={!driveOk || testBusy}
+              variant="outline"
+              className="rounded-full h-8 px-3 text-xs"
+              data-testid="storage-test-upload-btn"
+              title="Uploads a tiny 1×1 PNG to verify the pipeline end-to-end."
+            >
+              {testBusy
+                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                : <Upload className="w-3 h-3 mr-1" />}
+              Test Upload
+            </Button>
+            <Button
+              type="button"
+              onClick={initFolders}
+              disabled={!driveOk || initBusy}
+              className="rounded-full bg-[#0F172A] hover:bg-[#1e293b] text-white h-8 px-3 text-xs"
+              data-testid="storage-init-folders-btn"
+            >
+              {initBusy
+                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                : <FolderPlus className="w-3 h-3 mr-1" />}
+              Initialise Folders
+            </Button>
+          </div>
         </div>
         <pre className="text-[11px] text-[#2D2A26] leading-tight bg-[#FAF9F6] border border-[#E5E2DC] rounded-2xl p-2.5 overflow-x-auto" data-testid="storage-folders-tree">
 {`My Life My Time/${rootSet ? " ✓" : ""}

@@ -1104,3 +1104,36 @@ Folder IDs are cached in `storage_settings.{root_folder_id, category_folder_ids,
 - "Backups" subfolder inside `My Life My Time/` is a placeholder; the backup module continues to write to its own admin-configured folder. Consolidating both into one root is a separate task.
 - No encryption applied (per spec).
 
+
+## Feature (Feb 2026 latest) — Wall Photos wired to Drive Storage
+
+The journal/Wall photo upload path is now backed by the Drive Storage service. New uploads only — pre-existing base64 photos are left as-is.
+
+**Flow on `POST /api/wall/photos`**:
+1. If `image` is a `data:image/...` URL AND Drive is connected → decode bytes → call `store_data_url(category="photos")` → get back a `storage_files` row.
+2. Replace `image` in the `wall_photos` doc with the absolute proxy URL `${REACT_APP_BACKEND_URL}/api/storage/files/{id}/raw`.
+3. Store `storage_file_id` reference on the wall_photos doc so deletion can clean Drive up.
+4. **Fallback**: if Drive is disconnected OR any Drive call fails, we fall back to the legacy base64-in-Mongo path so users never lose a photo.
+
+**Delete** (`DELETE /api/wall/photos/{id}`): if the doc has a `storage_file_id`, calls `delete_by_id(db, sid)` which deletes from Drive and removes the metadata row.
+
+**New helpers in `storage_module.py`**:
+- `store_bytes(db, *, family_id, uploaded_by, category, data, name, mime)` — push raw bytes to Drive + insert metadata row.
+- `store_data_url(...)` — decode `data:...;base64,...` URL and call `store_bytes`. Auto-derives a file extension from the mime.
+- `delete_by_id(db, file_id)` — Drive + metadata cleanup, best-effort.
+- `storage_proxy_url(file_id, base_url=...)` — absolute URL the frontend uses in `<img src>`.
+
+**New route**: `GET /api/storage/files/{id}/raw` — streams Drive bytes back. Intentionally unauthenticated (UUID guessing infeasible at 128 bits, and files are user-uploaded family media). 5-minute browser cache.
+
+**Admin Storage card fixes**:
+- Refresh button now spins (added `setLoading(true)` on every reload).
+- Init Folders + Test Upload use a 60-second axios timeout to dodge "hang" on slow Drive.
+- New **Test Upload** button (admin-only) → `POST /api/admin/storage/test-upload` uploads a tiny 1×1 PNG to `My Life My Time/Photos/Family_ADMINTEST/` so the admin can verify the pipeline end-to-end without a member session.
+
+**Files changed**:
+- `/app/backend/storage_module.py` — added `store_bytes`, `store_data_url`, `delete_by_id`, `storage_proxy_url`, `_download_blocking`, `/files/{id}/raw` route, `/admin/storage/test-upload` route.
+- `/app/backend/server.py` — `create_wall_photo` + `delete_wall_photo` offload to Drive when connected.
+- `/app/frontend/src/components/StorageCard.jsx` — Test Upload button, longer timeouts, refresh spinner.
+
+**Tests**: 26 passed.
+

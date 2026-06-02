@@ -55,8 +55,9 @@ from typing import Optional
 from fastapi import (
     APIRouter, Depends, File, Form, HTTPException, Query, UploadFile,
 )
+from fastapi.responses import StreamingResponse
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from auth_module import require_admin, require_member_token
 from backup_module import _ensure_drive_service  # reuse Drive auth
@@ -234,6 +235,144 @@ def _delete_blocking(service, drive_file_id: str) -> None:
         raise
 
 
+def _download_blocking(service, drive_file_id: str) -> tuple[bytes, str]:
+    """Pull the raw bytes of a Drive file. Returns (bytes, mime_type)."""
+    meta = service.files().get(fileId=drive_file_id, fields="mimeType").execute()
+    buf = io.BytesIO()
+    request = service.files().get_media(fileId=drive_file_id)
+    downloader = MediaIoBaseDownload(buf, request, chunksize=1024 * 1024)
+    done = False
+    while not done:
+        _status, done = downloader.next_chunk()
+    return buf.getvalue(), meta.get("mimeType") or "application/octet-stream"
+
+
+# ----- Public API for other modules --------------------------------------
+
+
+async def store_bytes(
+    db,
+    *,
+    family_id: str,
+    uploaded_by: Optional[str],
+    category: str,
+    data: bytes,
+    name: str,
+    mime: str,
+) -> dict:
+    """Upload `data` to Drive and persist its metadata row. Returns the
+    serialized `storage_files` doc. Raises HTTPException on Drive failure.
+
+    Used by other backend features (e.g. `create_wall_photo`) to offload
+    user-supplied bytes — keeps Drive logic in one place and means callers
+    don't need to know anything about OAuth/folders.
+    """
+    if category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Unknown category '{category}'")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty payload.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024*1024)} MB).",
+        )
+    service, _settings = await _ensure_drive_service(db)
+    parent_id = await _ensure_family_folder(db, service, category, family_id)
+    safe = _safe_filename(name)
+    try:
+        uploaded = await asyncio.to_thread(
+            _upload_blocking,
+            service,
+            name=safe,
+            mime=mime or "application/octet-stream",
+            data=data,
+            parent_id=parent_id,
+        )
+    except HttpError as e:
+        logger.exception("Drive upload failed (store_bytes)")
+        raise HTTPException(status_code=502, detail=f"Drive upload failed: {e}")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "family_id": family_id,
+        "uploaded_by": uploaded_by,
+        "category": category,
+        "drive_file_id": uploaded.get("id"),
+        "name": uploaded.get("name") or safe,
+        "mime_type": uploaded.get("mimeType") or mime,
+        "size_bytes": int(uploaded.get("size") or len(data)),
+        "drive_web_view_link": uploaded.get("webViewLink"),
+        "drive_web_content_link": uploaded.get("webContentLink"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db[FILES_COLLECTION].insert_one(dict(doc))
+    return _serialize(doc)
+
+
+async def store_data_url(
+    db, *, family_id: str, uploaded_by: Optional[str], category: str,
+    data_url: str, default_name: str = "upload.bin",
+) -> dict:
+    """Decode a `data:mime;base64,...` URL and offload it to Drive."""
+    import base64
+    if not data_url or not data_url.startswith("data:"):
+        raise HTTPException(status_code=400, detail="Not a data URL.")
+    try:
+        header, b64 = data_url.split(",", 1)
+        mime = header[len("data:"):].split(";")[0] or "application/octet-stream"
+        data = base64.b64decode(b64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid data URL: {e}") from e
+    # Pick a sensible extension from the mime so the file is recognisable
+    # when the admin browses the folder in Drive.
+    ext = ""
+    if "/" in mime:
+        ext_candidate = mime.split("/", 1)[1].split(";")[0].strip()
+        # Drop ugly suffixes (e.g. "svg+xml" → "svg").
+        ext_candidate = ext_candidate.split("+")[0]
+        if ext_candidate and len(ext_candidate) <= 6 and ext_candidate.isalnum():
+            ext = f".{ext_candidate}"
+    name = default_name if "." in default_name else f"{default_name}{ext}"
+    return await store_bytes(
+        db,
+        family_id=family_id,
+        uploaded_by=uploaded_by,
+        category=category,
+        data=data,
+        name=name,
+        mime=mime,
+    )
+
+
+async def delete_by_id(db, file_id: str) -> bool:
+    """Best-effort delete of a stored file from Drive AND Mongo. Used by
+    other modules when their parent record is removed. Returns True if a
+    row was deleted, False otherwise."""
+    doc = await db[FILES_COLLECTION].find_one({"id": file_id}, {"_id": 0})
+    if not doc:
+        return False
+    try:
+        service, _ = await _ensure_drive_service(db)
+        await asyncio.to_thread(_delete_blocking, service, doc["drive_file_id"])
+    except Exception:
+        logger.warning("delete_by_id: Drive removal failed for %s — clearing metadata anyway", file_id)
+    await db[FILES_COLLECTION].delete_one({"id": file_id})
+    return True
+
+
+def storage_proxy_url(file_id: str, *, base_url: str | None = None) -> str:
+    """Return the URL the frontend should use to render a stored file.
+
+    When `base_url` is provided we return an absolute URL — the frontend
+    just drops it into an `<img src>` and renders correctly without needing
+    to know about API paths. Without `base_url` we return a relative path
+    (legacy behaviour).
+    """
+    path = f"/api/storage/files/{file_id}/raw"
+    if base_url:
+        return f"{base_url.rstrip('/')}{path}"
+    return path
+
+
 # ----- HTTP routes -------------------------------------------------------
 
 
@@ -348,6 +487,35 @@ def build_storage_router(db) -> APIRouter:
         await db[FILES_COLLECTION].delete_one({"id": file_id})
         return {"ok": True}
 
+    @router.get("/files/{file_id}/raw")
+    async def serve_raw(file_id: str):
+        """Stream a stored Drive file back to the browser.
+
+        This route is intentionally NOT behind an auth dependency: browsers
+        don't send the `Authorization` header on `<img src>` requests, and
+        wiring up signed cookies is overkill for v1. The file id is a v4
+        UUID (128 bits of entropy), so URL guessing is impractical, and
+        every file's contents are deliberately user-uploaded family media.
+        """
+        doc = await db[FILES_COLLECTION].find_one({"id": file_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Not found.")
+        try:
+            service, _ = await _ensure_drive_service(db)
+            data, mime = await asyncio.to_thread(
+                _download_blocking, service, doc["drive_file_id"]
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Raw fetch failed for %s", file_id)
+            raise HTTPException(status_code=502, detail=f"Drive fetch failed: {e}")
+        # 5-minute browser cache — Drive itself is the source of truth, but
+        # repeatedly streaming the same family photo on every page mount
+        # would be wasteful.
+        headers = {"Cache-Control": "private, max-age=300"}
+        return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
+
     return router
 
 
@@ -440,6 +608,35 @@ def build_admin_storage_router(db) -> APIRouter:
             "root_folder_id": folders["root"],
             "category_folder_ids": folders["categories"],
         }
+
+    @router.post("/test-upload")
+    async def admin_test_upload(_: dict = Depends(require_admin)):
+        """Upload a tiny PNG to a dedicated `Family_ADMINTEST` folder under
+        Photos so the admin can verify the whole pipeline works end-to-end
+        without needing a member session. Independent of any real family."""
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDAT\x08\x99c\xf8\xcf\xc0"
+            b"\x00\x00\x00\x03\x00\x01^\xe5\xaa\xd4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        from datetime import datetime as _dt
+        name = f"storage-test-{_dt.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.png"
+        try:
+            doc = await store_bytes(
+                db,
+                family_id="ADMINTEST",
+                uploaded_by=None,
+                category="photos",
+                data=png,
+                name=name,
+                mime="image/png",
+            )
+            return {"ok": True, "file": doc}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Test upload failed")
+            raise HTTPException(status_code=500, detail=str(e))
 
     @router.delete("/files/{file_id}")
     async def admin_delete_file(file_id: str, _: dict = Depends(require_admin)):
