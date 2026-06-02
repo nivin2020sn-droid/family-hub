@@ -1,25 +1,36 @@
 // Resilient image element used for any photo whose `src` might fail
 // (e.g. Drive-backed URLs while the backend warms up, expired CDN tokens).
 //
-// Default behaviour:
-//   1. Render an `<img>` with the requested src.
-//   2. If loading errors, swap the entire element for a soft placeholder
-//      that uses the same className/aspect so the surrounding layout
-//      doesn't shift. The placeholder is light-grey (not black) so the
-//      user can see "this image failed" rather than a void.
+// Two features beyond a vanilla `<img>`:
 //
-// Why a component instead of a CSS background? Browsers don't fire any
-// JS event for a `background-image` 404, so we'd lose the ability to
-// retry / show a label / log.
+//   1. `placeholderSrc` (optional): a small/thumbnail version of the
+//      same image. Shown immediately while `src` (the full version) is
+//      still downloading. Both get a smooth fade-in so the viewer never
+//      sees a blank/black frame.
+//
+//   2. `onError` fallback: if the image fails to load, the entire
+//      element is swapped for a soft grey "Image unavailable" panel
+//      that uses the same className/aspect so layout doesn't shift.
 
 import { ImageOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
-export default function SmartPhoto({ src, alt, className, label, ...rest }) {
+export default function SmartPhoto({
+  src,
+  placeholderSrc,
+  alt,
+  className,
+  label,
+  ...rest
+}) {
   const [failed, setFailed] = useState(false);
+  const [fullLoaded, setFullLoaded] = useState(false);
 
   // Reset on src change so a successful re-upload clears the error state.
-  useEffect(() => { setFailed(false); }, [src]);
+  useEffect(() => {
+    setFailed(false);
+    setFullLoaded(false);
+  }, [src]);
 
   if (failed || !src) {
     return (
@@ -35,6 +46,29 @@ export default function SmartPhoto({ src, alt, className, label, ...rest }) {
             {label || "Image unavailable"}
           </span>
         </div>
+      </div>
+    );
+  }
+
+  // Progressive-loading variant — only when a placeholder is supplied and
+  // different from the full src.
+  if (placeholderSrc && placeholderSrc !== src) {
+    return (
+      <div className={`${className || ""} relative overflow-hidden`}>
+        <img
+          src={placeholderSrc}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover blur-sm scale-105"
+          aria-hidden="true"
+        />
+        <img
+          src={src}
+          alt={alt || ""}
+          className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${fullLoaded ? "opacity-100" : "opacity-0"}`}
+          onLoad={() => setFullLoaded(true)}
+          onError={() => setFailed(true)}
+          {...rest}
+        />
       </div>
     );
   }

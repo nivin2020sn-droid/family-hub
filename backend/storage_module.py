@@ -45,6 +45,7 @@ Migration:
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import io
@@ -250,6 +251,54 @@ def _download_blocking(service, drive_file_id: str) -> tuple[bytes, str]:
     return buf.getvalue(), meta.get("mimeType") or "application/octet-stream"
 
 
+# ----- Thumbnail generation -----------------------------------------------
+
+# Max dimension of the inline thumbnail in pixels. 400px hits the sweet
+# spot between "small enough to render instantly from Mongo" and "big
+# enough to look sharp on 2x/3x retina screens up to ~200px display size".
+THUMB_MAX_DIM = 400
+# JPEG quality for the thumbnail — 70 keeps file size around 15–25 KB
+# without visible blockiness for typical user-uploaded photos.
+THUMB_JPEG_QUALITY = 70
+# Mime types we attempt to thumbnail. Anything else stores no thumbnail
+# and the UI falls back to the full image (or a generic icon for non-images).
+_THUMBNAILABLE_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/bmp"}
+
+
+def _make_thumbnail(data: bytes, mime: str) -> tuple[str, str] | tuple[None, None]:
+    """Compress `data` into a tiny inline thumbnail. Returns
+    `(data_url, mime)` or `(None, None)` if `data` isn't an image (or PIL
+    can't decode it). The thumbnail is always JPEG except for transparent
+    PNGs where we keep PNG so transparency survives.
+    """
+    if (mime or "").lower() not in _THUMBNAILABLE_MIMES:
+        return None, None
+    try:
+        from PIL import Image, ImageOps  # local import → never breaks if Pillow missing
+        with Image.open(io.BytesIO(data)) as im:
+            # `exif_transpose` honours the EXIF orientation flag so portrait
+            # phone photos don't end up sideways in the album.
+            im = ImageOps.exif_transpose(im)
+            im.thumbnail((THUMB_MAX_DIM, THUMB_MAX_DIM), Image.LANCZOS)
+            buf = io.BytesIO()
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                # Preserve transparency → PNG.
+                if im.mode != "RGBA":
+                    im = im.convert("RGBA")
+                im.save(buf, format="PNG", optimize=True)
+                out_mime = "image/png"
+            else:
+                # Drop alpha + colour-profile metadata for the smallest JPEG.
+                if im.mode != "RGB":
+                    im = im.convert("RGB")
+                im.save(buf, format="JPEG", quality=THUMB_JPEG_QUALITY, optimize=True, progressive=True)
+                out_mime = "image/jpeg"
+            return f"data:{out_mime};base64,{base64.b64encode(buf.getvalue()).decode('ascii')}", out_mime
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Thumbnail generation failed: %s", exc)
+        return None, None
+
+
 # ----- Public API for other modules --------------------------------------
 
 
@@ -307,6 +356,12 @@ async def store_bytes(
         "drive_web_content_link": uploaded.get("webContentLink"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    # Inline thumbnail — kept in Mongo so /view?size=thumb renders without
+    # hitting Drive. ~15-25 KB per image, negligible vs the original.
+    thumb_data, thumb_mime = await asyncio.to_thread(_make_thumbnail, data, mime)
+    if thumb_data:
+        doc["thumbnail_data_url"] = thumb_data
+        doc["thumbnail_mime"] = thumb_mime
     await db[FILES_COLLECTION].insert_one(dict(doc))
     return _serialize(doc)
 
@@ -362,7 +417,7 @@ async def delete_by_id(db, file_id: str) -> bool:
     return True
 
 
-def storage_proxy_url(file_id: str, *, base_url: str | None = None) -> str:
+def storage_proxy_url(file_id: str, *, base_url: str | None = None, size: str | None = None) -> str:
     """Return the URL the frontend should use to render a stored file.
 
     The URL is HMAC-signed with `JWT_SECRET` so only files the backend
@@ -371,12 +426,19 @@ def storage_proxy_url(file_id: str, *, base_url: str | None = None) -> str:
     deleting the file from Drive is the only revocation mechanism, which
     matches the user's mental model (delete photo → it's gone).
 
+    `size="thumb"` returns the inline thumbnail (instant, ~20 KB from
+    Mongo) — used wherever the UI is rendering many photos at once
+    (lists, album grids). Default returns the original full-size file
+    streamed from Drive — used for the full-screen viewer.
+
     When `base_url` is provided we return an absolute URL — required when
-    the frontend and backend live on different domains (e.g. mylife-mytime.com
-    + e-api.onrender.com). Without it we return a relative path.
+    the frontend and backend live on different domains.
     """
     sig = _sign_file_id(file_id)
-    path = f"/api/storage/files/{file_id}/view?sig={sig}"
+    qs = f"?sig={sig}"
+    if size:
+        qs += f"&size={size}"
+    path = f"/api/storage/files/{file_id}/view{qs}"
     if base_url:
         return f"{base_url.rstrip('/')}{path}"
     return path
@@ -529,10 +591,15 @@ def build_storage_router(db) -> APIRouter:
         await db[FILES_COLLECTION].delete_one({"id": file_id})
         return {"ok": True}
 
-    async def _stream_file(file_id: str, *, sig: Optional[str] = None):
+    async def _stream_file(file_id: str, *, sig: Optional[str] = None, size: Optional[str] = None):
         """Internal: validate signature (when required) and stream the
-        Drive bytes back to the browser. Shared by /raw (legacy, no sig)
-        and /view (signed)."""
+        right asset back to the browser. Shared by /raw (legacy, no sig)
+        and /view (signed).
+
+        `size="thumb"` serves the inline thumbnail stored in Mongo — no
+        Drive round-trip, sub-50 ms TTFB. Anything else streams the full
+        original from Drive.
+        """
         doc = await db[FILES_COLLECTION].find_one({"id": file_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Not found.")
@@ -542,6 +609,33 @@ def build_storage_router(db) -> APIRouter:
             # side-channels on the signature.
             if not hmac.compare_digest(sig, expected):
                 raise HTTPException(status_code=403, detail="Bad signature.")
+
+        # Strong, content-hash-style caching headers. The signature is part
+        # of the URL and changes only when JWT_SECRET rotates, so for any
+        # given URL the bytes are effectively immutable → 1-day cache +
+        # `immutable` directive tells the browser it never needs to
+        # revalidate, killing the request entirely on the next view.
+        headers = {
+            "Cache-Control": "public, max-age=86400, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "ETag": f'"{_sign_file_id(file_id)}-{size or "full"}"',
+        }
+
+        if size == "thumb" and doc.get("thumbnail_data_url"):
+            # Inline thumbnail path — no Drive call. Decode the base64
+            # data URL into raw bytes once so the response carries the
+            # right Content-Type instead of `data:` text.
+            data_url = doc["thumbnail_data_url"]
+            try:
+                header_part, b64 = data_url.split(",", 1)
+                thumb_mime = doc.get("thumbnail_mime") or "image/jpeg"
+                raw = base64.b64decode(b64)
+            except Exception:
+                logger.warning("Corrupted thumbnail for %s — falling back to full", file_id)
+            else:
+                return StreamingResponse(io.BytesIO(raw), media_type=thumb_mime, headers=headers)
+
+        # Full-size path (or thumb missing) — pull from Drive.
         try:
             service, _ = await _ensure_drive_service(db)
             data, mime = await asyncio.to_thread(
@@ -552,23 +646,22 @@ def build_storage_router(db) -> APIRouter:
         except Exception as e:
             logger.exception("Raw fetch failed for %s", file_id)
             raise HTTPException(status_code=502, detail=f"Drive fetch failed: {e}")
-        headers = {
-            "Cache-Control": "private, max-age=300",
-            # `<img>` from another origin works without CORS, but enabling
-            # it here lets the SPA also do `fetch()` of the image (e.g.
-            # for a future "Save to disk" feature) without a preflight
-            # failure.
-            "Access-Control-Allow-Origin": "*",
-        }
         return StreamingResponse(io.BytesIO(data), media_type=mime, headers=headers)
 
     @router.get("/files/{file_id}/view")
-    async def serve_view(file_id: str, sig: str = Query(...)):
-        """HMAC-signed image proxy — preferred over /raw. The browser
-        loads `<img src=".../view?sig=...">` directly, the backend
-        validates the signature, fetches from Drive, and streams the
-        bytes back with the correct Content-Type."""
-        return await _stream_file(file_id, sig=sig)
+    async def serve_view(
+        file_id: str,
+        sig: str = Query(...),
+        size: Optional[str] = Query(None, regex="^(thumb|full)$"),
+    ):
+        """HMAC-signed image proxy — preferred over /raw.
+
+        Query params:
+          - `sig` (required): HMAC signature.
+          - `size` (optional): `thumb` for the inline thumbnail (instant),
+            anything else (or omitted) for the original.
+        """
+        return await _stream_file(file_id, sig=sig, size=size)
 
     @router.get("/files/{file_id}/raw")
     async def serve_raw(file_id: str):
@@ -729,5 +822,6 @@ def _serialize(doc: dict) -> dict:
         "drive_file_id": doc.get("drive_file_id"),
         "drive_web_view_link": doc.get("drive_web_view_link"),
         "drive_web_content_link": doc.get("drive_web_content_link"),
+        "has_thumbnail": bool(doc.get("thumbnail_data_url")),
         "created_at": doc.get("created_at"),
     }

@@ -180,7 +180,8 @@ class WallSettingsUpdate(BaseModel):
 
 class WallPhoto(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    image: str  # base64 data URL
+    image: str  # full-size URL (or legacy base64 data URL)
+    thumbnail: Optional[str] = None  # tiny preview URL — instant render in lists
     title: Optional[str] = ""
     caption: Optional[str] = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -681,19 +682,26 @@ async def list_wall_photos(request: Request):
     # Rewrite any photos that point at the legacy unsigned /raw proxy (or
     # a relative path) into freshly-signed absolute /view URLs. Doing it
     # on read keeps the migration zero-downtime and means we never have
-    # to backfill the DB.
+    # to backfill the DB. Also enrich every Drive-backed photo with a
+    # `thumbnail` URL so the album can lazy-load tiny previews instead
+    # of the originals.
     from storage_module import storage_proxy_url, _absolute_base_url
     base = _absolute_base_url(request)
     for it in items:
         sid = it.get("storage_file_id")
         img = it.get("image") or ""
-        needs_rewrite = sid and (
-            img.startswith("/api/storage/")
-            or "/api/storage/files/" in img and "/raw" in img
-            or "/api/storage/files/" in img and "sig=" not in img
-        )
-        if needs_rewrite:
-            it["image"] = storage_proxy_url(sid, base_url=base)
+        if sid:
+            needs_rewrite = (
+                img.startswith("/api/storage/")
+                or ("/api/storage/files/" in img and "/raw" in img)
+                or ("/api/storage/files/" in img and "sig=" not in img)
+            )
+            if needs_rewrite:
+                it["image"] = storage_proxy_url(sid, base_url=base)
+            # Always emit the thumbnail URL — the backend decides at serve
+            # time whether to fall back to the full image when no thumb
+            # was generated (e.g. older uploads pre-dating this feature).
+            it["thumbnail"] = storage_proxy_url(sid, base_url=base, size="thumb")
     return items
 
 
@@ -747,11 +755,20 @@ async def create_wall_photo(payload: WallPhotoCreate, request: Request):
     if storage_file_id:
         doc["storage_file_id"] = storage_file_id
     await db.wall_photos.insert_one(dict(doc))
+    # Build the thumbnail URL on the fly so the client gets an
+    # instantly-renderable preview as soon as the upload finishes.
+    thumbnail_value = None
+    if storage_file_id:
+        from storage_module import storage_proxy_url, _absolute_base_url
+        thumbnail_value = storage_proxy_url(
+            storage_file_id, base_url=_absolute_base_url(request), size="thumb",
+        )
     # Strip internal field before returning so it doesn't leak into the
     # legacy Pydantic shape (WallPhoto doesn't know about storage_file_id).
     return WallPhoto(
         id=doc["id"],
         image=doc["image"],
+        thumbnail=thumbnail_value,
         title=doc.get("title") or "",
         caption=doc.get("caption") or "",
         created_at=doc["created_at"],

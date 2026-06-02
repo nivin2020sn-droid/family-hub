@@ -1680,8 +1680,9 @@ const PhotoViewerDialog = ({ open, onOpenChange, photos, index, onIndexChange, o
         <div className="relative flex-1 flex items-center justify-center">
           <SmartPhoto
             src={current.image}
+            placeholderSrc={current.thumbnail}
             alt=""
-            className="max-w-full max-h-full object-contain"
+            className="max-w-full max-h-full w-full h-full"
           />
           {/* Overlay text */}
           {(current.title || current.caption) && (
@@ -2182,7 +2183,7 @@ const WallBoard = () => {
                 data-testid="photo-card-cover"
               >
                 <SmartPhoto
-                  src={photos[photoIndex % photos.length].image}
+                  src={photos[photoIndex % photos.length].thumbnail || photos[photoIndex % photos.length].image}
                   alt=""
                   className="w-full h-48 sm:h-56 object-cover"
                   loading="lazy"
