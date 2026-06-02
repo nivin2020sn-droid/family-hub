@@ -694,40 +694,76 @@ def build_backup_router(db) -> APIRouter:
         unauthenticated browser navigation). We verify the random `state`
         instead — only a request initiated from our own /oauth/start gets
         through.
+
+        Token exchange is done with a direct HTTP POST to Google's token
+        endpoint (instead of `google_auth_oauthlib.Flow.fetch_token`) so we
+        can surface Google's literal error response on failure. The library
+        wraps responses in opaque exception strings like "Bad Request" that
+        hide the real `error_description` field.
         """
+        import requests
         settings = await _load_settings_raw(db)
         if not settings.get("oauth_state") or settings["oauth_state"] != state:
             raise HTTPException(status_code=400, detail="Invalid OAuth state.")
         if not settings.get("client_id") or not settings.get("client_secret"):
             raise HTTPException(status_code=400, detail="Client credentials missing.")
-        # Use the EXACT redirect URI sent in /oauth/start. Re-deriving it
-        # here can pick up subtly different proxy headers (especially on
-        # Render where the worker that handles the callback may not match
-        # the one that handled /start), which makes Google reject the
-        # exchange with redirect_uri_mismatch or invalid_grant.
+        # Idempotency: if we already finished this exchange (browser pre-fetched
+        # the redirect or the user hit Back/Forward), don't re-redeem the code.
+        if settings.get("oauth_consumed_code") == code and settings.get("drive_connected"):
+            return _post_callback_redirect(request)
         redirect_uri = settings.get("oauth_redirect_uri") or _redirect_uri(request)
-        flow = _build_flow(
-            settings["client_id"], settings["client_secret"], redirect_uri,
-            lock_scopes=False,  # accept extra Google-auto-added scopes
-        )
-        # Mirror the /oauth/start side: disable PKCE auto-generation, but if
-        # /oauth/start happened to use one and stored it, restore it here so
-        # `fetch_token` can include it in the exchange.
-        flow.autogenerate_code_verifier = False
-        stored_verifier = settings.get("oauth_code_verifier")
-        flow.code_verifier = stored_verifier  # None when PKCE was disabled
+
+        # Manual exchange — gives us the raw Google error_description.
         try:
-            await asyncio.to_thread(flow.fetch_token, code=code)
+            resp = await asyncio.to_thread(
+                lambda: requests.post(
+                    "https://oauth2.googleapis.com/token",
+                    data={
+                        "code": code,
+                        "client_id": settings["client_id"],
+                        "client_secret": settings["client_secret"],
+                        "redirect_uri": redirect_uri,
+                        "grant_type": "authorization_code",
+                    },
+                    timeout=15,
+                )
+            )
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {e}")
-        creds = flow.credentials
-        # Sanity-check: Drive scope must be among the granted scopes.
-        granted = set(creds.scopes or [])
+            raise HTTPException(status_code=400, detail=f"OAuth network error: {e}")
+        if resp.status_code != 200:
+            # Surface Google's `error` + `error_description` verbatim.
+            try:
+                err = resp.json()
+                msg = f"{err.get('error', 'oauth_error')}: {err.get('error_description') or resp.text}"
+            except Exception:
+                msg = resp.text or f"HTTP {resp.status_code}"
+            logger.error("Token exchange failed: %s", msg)
+            raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {msg}")
+        payload = resp.json()
+        access_token = payload.get("access_token")
+        refresh_token = payload.get("refresh_token")
+        expires_in = payload.get("expires_in") or 0
+        scope_str = payload.get("scope") or ""
+        granted = set(scope_str.split())
+
+        if not access_token:
+            raise HTTPException(status_code=400, detail="No access token in response.")
         if DRIVE_SCOPES[0] not in granted:
             raise HTTPException(
                 status_code=400,
                 detail=f"Drive scope not granted. Got: {sorted(granted)}",
             )
+        # Build Credentials manually so the rest of the module keeps working.
+        from datetime import timedelta
+        expiry_iso = (datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))).isoformat()
+        creds = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=settings["client_id"],
+            client_secret=settings["client_secret"],
+            scopes=list(granted),
+        )
         # Pull the account email so we can show it in the UI.
         email = None
         try:
@@ -745,27 +781,18 @@ def build_backup_router(db) -> APIRouter:
                 "drive_account_email": email,
                 "access_token": creds.token,
                 "refresh_token": creds.refresh_token,
-                "token_expiry": creds.expiry.isoformat() if creds.expiry else None,
-                "scopes": list(creds.scopes or DRIVE_SCOPES),
+                "token_expiry": expiry_iso,
+                "scopes": list(granted),
                 "oauth_state": None,
                 "oauth_code_verifier": None,
                 "oauth_redirect_uri": None,
+                "oauth_consumed_code": code,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
         # Pick up the auto_enabled flag now that we have tokens.
         await _reschedule(db)
-        # Bounce the admin's browser back to /admin so the UI updates.
-        proto = (
-            request.headers.get("x-forwarded-proto")
-            or request.url.scheme or "https"
-        )
-        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-        if host:
-            front = f"{proto}://{host}"
-        else:
-            front = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
-        return RedirectResponse(url=f"{front}/admin?drive_connected=1", status_code=302)
+        return _post_callback_redirect(request)
 
     @router.post("/oauth/disconnect")
     async def oauth_disconnect(_: dict = Depends(require_admin)):
@@ -845,6 +872,21 @@ def _redirect_uri(request: Request | None = None) -> str:
             detail="Cannot determine backend public URL for OAuth redirect.",
         )
     return f"{base}/api/admin/backup/oauth/callback"
+
+
+def _post_callback_redirect(request: Request) -> RedirectResponse:
+    """Send the admin's browser back to `/admin?drive_connected=1` on the
+    same public host that just hit /oauth/callback."""
+    proto = (
+        request.headers.get("x-forwarded-proto")
+        or request.url.scheme or "https"
+    )
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host:
+        front = f"{proto}://{host}"
+    else:
+        front = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+    return RedirectResponse(url=f"{front}/admin?drive_connected=1", status_code=302)
 
 
 def _serialize_run(r: dict) -> dict:
