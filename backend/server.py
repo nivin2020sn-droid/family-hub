@@ -72,6 +72,12 @@ api_router.include_router(build_admin_router(raw_db))
 from backup_module import build_backup_router, start_scheduler as start_backup_scheduler
 api_router.include_router(build_backup_router(raw_db))
 
+# Drive-backed file storage (Photos / Documents / Chat Attachments / Exports).
+# Reuses the same Drive OAuth tokens as the backup module.
+from storage_module import build_storage_router, build_admin_storage_router
+api_router.include_router(build_storage_router(raw_db))
+api_router.include_router(build_admin_storage_router(raw_db))
+
 
 # ============= Models =============
 

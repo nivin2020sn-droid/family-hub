@@ -1063,3 +1063,44 @@ Admin-only card under `/admin` with three sections:
 **Tests**: 9/9 backup tests + 13/13 privacy tests = 22/22 passing.
 
 **Production note**: when deployed on Render, the backup module reads from whatever `MONGO_URL` + `DB_NAME` point to — so it will back up the Atlas `familyhub` database automatically with no code changes.
+
+## Feature (Feb 2026 latest) — Drive-backed Storage Service
+
+Generic file/photo/document/attachment storage that reuses the same Google Drive OAuth tokens connected via System Backup. New uploads only — pre-existing base64 photos / brand logos are untouched.
+
+**Folder layout (created lazily on first upload)**:
+```
+My Life My Time/
+├── Backups/                  (placeholder — backup_module keeps its own folder)
+├── Photos/Family_<short_id>/
+├── Documents/Family_<short_id>/
+├── Chat Attachments/Family_<short_id>/
+└── Exports/Family_<short_id>/
+```
+Folder IDs are cached in `storage_settings.{root_folder_id, category_folder_ids, family_folder_ids}` so each upload pays one DB read instead of a Drive list call.
+
+**Backend** (`/app/backend/storage_module.py`):
+- `POST /api/storage/upload` — multipart upload (`category=photos|documents|chat_attachments|exports`), member-token authenticated, 50 MB cap.
+- `GET /api/storage/files?category=...` — list current family's files.
+- `DELETE /api/storage/files/{id}` — member can delete their own file; calls Drive delete + removes Mongo metadata.
+- `GET /api/admin/storage/stats` — admin dashboard: total files, total size, per-category breakdown, top families, recent uploads, folder-id cache.
+- `POST /api/admin/storage/init-folders` — pre-create the directory tree in Drive (one tap from Admin UI).
+- `DELETE /api/admin/storage/files/{id}` — admin override delete.
+
+**Mongo collections**:
+- `storage_settings` (`_key=global`): folder-id cache.
+- `storage_files`: per-file metadata (`id, family_id, uploaded_by, category, drive_file_id, name, mime_type, size_bytes, drive_web_view_link, drive_web_content_link, created_at`). **No file bytes** are stored in Mongo.
+
+**Frontend** (`/app/frontend/src/components/StorageCard.jsx`): mounted under `/admin` after the System Backup card. Read-only stats, Initialise-Folders button, recent-uploads table with Drive open links.
+
+**Files**:
+- New: `/app/backend/storage_module.py`, `/app/backend/tests/test_storage_module.py`, `/app/frontend/src/components/StorageCard.jsx`.
+- Modified: `/app/backend/server.py` (mounted routers), `/app/frontend/src/pages/Admin.jsx` (mounted card).
+
+**Tests**: 4 storage smoke tests + 9 backup + 13 privacy = **26 passed**.
+
+**Scope notes for future iterations**:
+- Existing image upload paths in WallBoard / hero / brand logo were NOT migrated. They keep using base64-in-Mongo.
+- "Backups" subfolder inside `My Life My Time/` is a placeholder; the backup module continues to write to its own admin-configured folder. Consolidating both into one root is a separate task.
+- No encryption applied (per spec).
+

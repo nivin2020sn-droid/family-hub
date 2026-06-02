@@ -25,6 +25,7 @@ import {
 } from "@/lib/auth";
 import { invalidateFeatureFlags } from "@/lib/featureFlags";
 import SystemBackupCard from "@/components/SystemBackupCard";
+import StorageCard from "@/components/StorageCard";
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -322,6 +323,9 @@ const Admin = () => {
 
         {/* System Backup — Mongo dump → Google Drive uploader. */}
         <SystemBackupCard />
+
+        {/* Storage — read-only dashboard for Drive-backed user uploads. */}
+        <StorageCard />
 
         <div className="rounded-3xl bg-white border border-[#E5E2DC] p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2 mb-2">
