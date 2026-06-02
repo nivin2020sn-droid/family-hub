@@ -1194,3 +1194,34 @@ The journal/Wall photo upload path is now backed by the Drive Storage service. N
 - First-paint of viewer: instant thumb visible at click; full original fades in after Drive fetch.
 - Re-renders within 24 h: 0 network requests (browser cache).
 
+
+## Feature (Feb 2026 latest) — Restore Backup pipeline
+
+Full restore-from-Google-Drive capability added to the System Backup card. The backup pipeline itself was NOT touched (per spec).
+
+**Backend** (`/app/backend/backup_module.py`):
+- New collection: `restore_runs` (audit log).
+- New constant `RESTORE_PROTECTED_COLLECTIONS = {backup_settings, backup_runs, restore_runs, storage_settings}` — these are never overwritten during a restore so Drive auth tokens / history don't get clobbered when restoring from an older snapshot.
+- `preview_backup(db, run_id)` — downloads the archive, parses manifest + JSONL into memory, returns per-collection doc counts WITHOUT touching the live DB.
+- `run_restore(db, *, run_id, actor_email, skip_safety_backup=False)`:
+  1. Looks up the backup run, verifies `drive_file_id`.
+  2. Takes a fresh **`pre-restore-backup`** snapshot via `run_backup(..., trigger="pre-restore")` — this is the rollback path.
+  3. Downloads the chosen archive from Drive.
+  4. Parses `manifest.json` + every `*.jsonl` into memory — aborts on any parse error BEFORE writing.
+  5. For each non-protected collection: `delete_many({})` then chunked `insert_many` (500 docs/batch).
+  6. Records success/failure in `restore_runs`.
+
+**Routes** (under `/api/admin/backup/`):
+- `POST /restore/preview/{run_id}` — Safe preview. Returns manifest + collection counts. Read-only.
+- `POST /restore/{run_id}` — Full restore. Requires `body.confirm === "RESTORE"`, else 400.
+- `GET /restore-history` — last 100 restore attempts with status, actor, errors.
+
+**Frontend** (`/app/frontend/src/components/RestoreBackupSection.jsx`): mounted inside `SystemBackupCard` below "Backup History". Shows a list of successful backups with **Preview** (safe) + **Restore** (red, destructive) buttons. Restore opens a hard-confirm dialog with a text input requiring the literal string `RESTORE`. Restore History sub-section lists past attempts with success/failure badges.
+
+**Tests** (`/app/backend/tests/test_restore_module.py`):
+1. `test_restore_pipeline_end_to_end` — seeds → backs up → wipes → restores → verifies docs.
+2. `test_protected_collections_are_not_overwritten` — verifies `backup_settings` survives a restore.
+3. `test_restore_rejects_corrupt_manifest` — corrupt archive aborts before any DB write.
+
+**All tests**: **32 passed** (9 backup + 7 storage + 3 restore + 13 privacy).
+

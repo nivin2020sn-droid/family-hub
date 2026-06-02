@@ -45,7 +45,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build as build_drive
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 from auth_module import require_admin
 
@@ -56,6 +56,19 @@ logger = logging.getLogger(__name__)
 SETTINGS_KEY = "global"
 SETTINGS_COLLECTION = "backup_settings"
 RUNS_COLLECTION = "backup_runs"
+RESTORE_RUNS_COLLECTION = "restore_runs"
+
+# Collections that are NEVER overwritten during a restore — they hold the
+# Drive auth / backup history / storage folder cache, and clobbering them
+# from an older backup could lock the admin out of Drive entirely. We do
+# keep them inside the backup file (they're still useful for forensic
+# inspection), we just skip them when writing back.
+RESTORE_PROTECTED_COLLECTIONS = {
+    "backup_settings",
+    "backup_runs",
+    "restore_runs",
+    "storage_settings",
+}
 
 # Bumped on every meaningful change to the OAuth flow so the /debug endpoint
 # can confirm which version Render is actually running.
@@ -464,6 +477,262 @@ async def run_backup(db, *, trigger: str = "manual") -> dict:
             except OSError:
                 pass
     return run_doc
+
+
+# ----- Restore pipeline --------------------------------------------------
+
+
+def _download_backup_blocking(service, drive_file_id: str, dest_path: str) -> int:
+    """Pull a backup archive from Drive to local disk. Returns size in
+    bytes. Synchronous → call with `asyncio.to_thread`."""
+    request = service.files().get_media(fileId=drive_file_id)
+    with open(dest_path, "wb") as fh:
+        downloader = MediaIoBaseDownload(fh, request, chunksize=2 * 1024 * 1024)
+        done = False
+        while not done:
+            _status, done = downloader.next_chunk()
+        return fh.tell()
+
+
+def _read_backup_blocking(archive_path: str) -> tuple[dict, dict[str, list[dict]]]:
+    """Open a `.tar.gz` backup, parse `manifest.json` + every `*.jsonl`
+    into a `(manifest, {collection_name: [docs]})` tuple. Synchronous.
+
+    All documents are pre-parsed into memory so the actual DB writes
+    happen against verified data — if anything in the archive is
+    malformed we abort before touching the live database.
+    """
+    if not os.path.exists(archive_path):
+        raise FileNotFoundError(f"Archive missing: {archive_path}")
+
+    collections: dict[str, list[dict]] = {}
+    manifest: dict | None = None
+
+    with tarfile.open(archive_path, mode="r:gz") as tar:
+        for m in tar.getmembers():
+            if not m.isfile():
+                continue
+            fh = tar.extractfile(m)
+            if fh is None:
+                continue
+            try:
+                raw = fh.read()
+            finally:
+                fh.close()
+            if m.name == "manifest.json":
+                try:
+                    manifest = json.loads(raw.decode("utf-8"))
+                except Exception as exc:
+                    raise ValueError(f"manifest.json is not valid JSON: {exc}") from exc
+            elif m.name.endswith(".jsonl"):
+                coll_name = m.name[:-len(".jsonl")]
+                docs: list[dict] = []
+                text = raw.decode("utf-8", errors="replace")
+                for ln, line in enumerate(text.splitlines(), start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        docs.append(json.loads(line))
+                    except Exception as exc:
+                        raise ValueError(
+                            f"{m.name}:{ln} is not valid JSON: {exc}"
+                        ) from exc
+                collections[coll_name] = docs
+
+    if manifest is None:
+        raise ValueError("Backup archive missing manifest.json — refusing to restore.")
+    if not isinstance(manifest.get("collections"), list):
+        raise ValueError("Manifest has no `collections` list.")
+    if not manifest.get("version"):
+        raise ValueError("Manifest is missing a version marker.")
+    return manifest, collections
+
+
+async def _ensure_local_archive(db, drive_file_id: str) -> tuple[str, int]:
+    """Download the backup archive into a temp file. Returns
+    (local_path, size_bytes). Caller is responsible for removing the
+    file after use."""
+    service, _settings = await _ensure_drive_service(db)
+    dest = os.path.join(
+        tempfile.gettempdir(),
+        f"{TMP_PREFIX}restore-{uuid.uuid4().hex[:6]}.tar.gz",
+    )
+    size = await asyncio.to_thread(_download_backup_blocking, service, drive_file_id, dest)
+    return dest, size
+
+
+async def preview_backup(db, run_id: str) -> dict:
+    """Read a backup without touching the live DB. Returns the manifest
+    plus a per-collection doc count. Used to power the "Safe Restore
+    Preview" UI option.
+    """
+    run = await db[RUNS_COLLECTION].find_one({"id": run_id}, {"_id": 0})
+    if not run:
+        raise HTTPException(status_code=404, detail="Backup run not found.")
+    if not run.get("drive_file_id"):
+        raise HTTPException(status_code=400, detail="This run has no Drive file (it failed).")
+
+    archive_path, size = await _ensure_local_archive(db, run["drive_file_id"])
+    try:
+        manifest, collections = await asyncio.to_thread(_read_backup_blocking, archive_path)
+    finally:
+        try:
+            os.remove(archive_path)
+        except OSError:
+            pass
+
+    counts = {name: len(docs) for name, docs in sorted(collections.items())}
+    return {
+        "run_id": run_id,
+        "archive_size_bytes": size,
+        "manifest": manifest,
+        "collection_counts": counts,
+        "total_documents": sum(counts.values()),
+        "protected_collections": sorted(RESTORE_PROTECTED_COLLECTIONS),
+        "would_overwrite": sorted(set(counts.keys()) - RESTORE_PROTECTED_COLLECTIONS),
+        "would_skip": sorted(set(counts.keys()) & RESTORE_PROTECTED_COLLECTIONS),
+    }
+
+
+async def run_restore(
+    db,
+    *,
+    run_id: str,
+    actor_email: str | None,
+    skip_safety_backup: bool = False,
+) -> dict:
+    """Replace the live DB contents with those of a previous backup.
+
+    Steps (in order):
+      1. Lookup the chosen backup run + verify it has a Drive file id.
+      2. Take a `pre-restore-backup` snapshot of the CURRENT state so
+         the admin can roll back manually if anything goes wrong.
+      3. Download the chosen archive from Drive.
+      4. Open the tar, parse manifest + every JSONL into memory. Abort
+         immediately on any parse error — we'd rather fail before
+         touching the DB than corrupt it.
+      5. For each non-protected collection in the archive: drop +
+         bulk-insert.
+      6. Record success/failure in `restore_runs`.
+
+    `RESTORE_PROTECTED_COLLECTIONS` are intentionally NOT overwritten
+    (Drive auth tokens, backup/restore history, storage folder cache).
+    """
+    started_at = datetime.now(timezone.utc)
+    restore_id = str(uuid.uuid4())
+    record = {
+        "id": restore_id,
+        "source_run_id": run_id,
+        "actor_email": actor_email,
+        "started_at": started_at.isoformat(),
+        "finished_at": None,
+        "status": "running",
+        "source_drive_file_id": None,
+        "source_drive_file_name": None,
+        "pre_restore_run_id": None,
+        "collections_restored": 0,
+        "documents_restored": 0,
+        "skipped_collections": [],
+        "error": None,
+    }
+    await db[RESTORE_RUNS_COLLECTION].insert_one(dict(record))
+
+    archive_path: str | None = None
+    try:
+        # 1. Lookup the chosen backup.
+        run = await db[RUNS_COLLECTION].find_one({"id": run_id}, {"_id": 0})
+        if not run:
+            raise HTTPException(status_code=404, detail="Backup run not found.")
+        if not run.get("drive_file_id"):
+            raise HTTPException(status_code=400, detail="This run has no Drive file (it failed).")
+        record["source_drive_file_id"] = run["drive_file_id"]
+        record["source_drive_file_name"] = run.get("drive_file_name")
+
+        # 2. Take a safety backup before we touch anything.
+        if not skip_safety_backup:
+            pre = await run_backup(db, trigger="pre-restore")
+            record["pre_restore_run_id"] = pre.get("id")
+            if pre.get("status") != "success":
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Pre-restore safety backup failed: {pre.get('error')}. Aborting.",
+                )
+
+        # 3. Download archive.
+        archive_path, _size = await _ensure_local_archive(db, run["drive_file_id"])
+
+        # 4. Parse + validate the whole archive in memory.
+        manifest, collections = await asyncio.to_thread(_read_backup_blocking, archive_path)
+
+        # 5. Apply: drop + insert per collection. We process in two
+        # phases so a malformed archive can't leave the DB half-restored:
+        #   - PHASE A (above): everything was parsed successfully.
+        #   - PHASE B (now): write to Mongo.
+        restored_collections = 0
+        restored_docs = 0
+        skipped: list[str] = []
+        for coll_name in sorted(collections.keys()):
+            if coll_name in RESTORE_PROTECTED_COLLECTIONS:
+                skipped.append(coll_name)
+                continue
+            docs = collections[coll_name]
+            for d in docs:
+                d.pop("_id", None)  # let Mongo regenerate ids
+            # Drop existing data first. We use deleteMany({}) instead of
+            # drop() so any indexes the app created stay intact.
+            await db[coll_name].delete_many({})
+            if docs:
+                # Insert in chunks of 500 to stay well under the 16 MB
+                # BSON batch limit.
+                for i in range(0, len(docs), 500):
+                    await db[coll_name].insert_many(docs[i:i + 500], ordered=False)
+            restored_collections += 1
+            restored_docs += len(docs)
+
+        record["status"] = "success"
+        record["collections_restored"] = restored_collections
+        record["documents_restored"] = restored_docs
+        record["skipped_collections"] = skipped
+        record["manifest_version"] = manifest.get("version")
+        record["manifest_database"] = manifest.get("database")
+    except HTTPException as he:
+        record["status"] = "failed"
+        record["error"] = he.detail if isinstance(he.detail, str) else str(he.detail)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Restore run failed")
+        record["status"] = "failed"
+        record["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        record["finished_at"] = datetime.now(timezone.utc).isoformat()
+        await db[RESTORE_RUNS_COLLECTION].update_one(
+            {"id": restore_id}, {"$set": record}
+        )
+        if archive_path:
+            try:
+                os.remove(archive_path)
+            except OSError:
+                pass
+    return record
+
+
+def _serialize_restore(r: dict) -> dict:
+    return {
+        "id": r.get("id"),
+        "source_run_id": r.get("source_run_id"),
+        "source_drive_file_name": r.get("source_drive_file_name"),
+        "actor_email": r.get("actor_email"),
+        "started_at": r.get("started_at"),
+        "finished_at": r.get("finished_at"),
+        "status": r.get("status"),
+        "pre_restore_run_id": r.get("pre_restore_run_id"),
+        "collections_restored": int(r.get("collections_restored") or 0),
+        "documents_restored": int(r.get("documents_restored") or 0),
+        "skipped_collections": r.get("skipped_collections") or [],
+        "error": r.get("error"),
+    }
+
+
 
 
 # ----- Scheduler wiring --------------------------------------------------
@@ -889,6 +1158,56 @@ def build_backup_router(db) -> APIRouter:
         ).sort("started_at", -1).limit(100)
         items = [r async for r in cursor]
         return [_serialize_run(r) for r in items]
+
+    @router.post("/restore/preview/{run_id}")
+    async def restore_preview(run_id: str, _: dict = Depends(require_admin)):
+        """Safe-preview: download the chosen backup, parse it, and return
+        a per-collection document count plus the manifest. The live DB
+        is NEVER touched. Lets the admin sanity-check what they're about
+        to restore before they type RESTORE."""
+        return await preview_backup(db, run_id)
+
+    @router.post("/restore/{run_id}")
+    async def restore(
+        run_id: str,
+        body: dict,
+        actor: dict = Depends(require_admin),
+    ):
+        """Full restore — drops every non-protected collection and
+        re-inserts from the chosen backup. Requires `confirm: "RESTORE"`
+        in the body so a casual click cannot trigger a destructive op.
+
+        A `pre-restore-backup` is taken automatically before any data is
+        touched, so even if the restore misbehaves the admin can recover
+        by running the restore on the freshly-created pre-restore archive.
+        """
+        if (body or {}).get("confirm") != "RESTORE":
+            raise HTTPException(
+                status_code=400,
+                detail='You must type RESTORE in the confirm field to authorise this destructive operation.',
+            )
+        # `actor` is the require_admin payload; pick whatever identity
+        # field is most useful for the audit log.
+        actor_email = (
+            actor.get("email")
+            or actor.get("sub")
+            or actor.get("admin_email")
+            or None
+        )
+        record = await run_restore(
+            db,
+            run_id=run_id,
+            actor_email=actor_email,
+        )
+        return _serialize_restore(record)
+
+    @router.get("/restore-history")
+    async def restore_history(_: dict = Depends(require_admin)):
+        cursor = db[RESTORE_RUNS_COLLECTION].find(
+            {}, {"_id": 0}
+        ).sort("started_at", -1).limit(100)
+        items = [r async for r in cursor]
+        return [_serialize_restore(r) for r in items]
 
     return router
 

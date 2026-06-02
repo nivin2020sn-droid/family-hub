@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
+import RestoreBackupSection from "@/components/RestoreBackupSection";
 
 // ---------- helpers ----------
 const fmtBytes = (n) => {
@@ -422,6 +423,9 @@ export default function SystemBackupCard() {
           </div>
         )}
       </section>
+
+      {/* ---------- Restore Backup ---------- */}
+      <RestoreBackupSection backups={history} onRefreshHistory={loadHistory} />
     </div>
   );
 }
