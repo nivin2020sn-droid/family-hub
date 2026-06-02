@@ -653,15 +653,25 @@ def build_backup_router(db) -> APIRouter:
             settings["client_id"], settings["client_secret"], redirect_uri
         )
         state = uuid.uuid4().hex
-        await db[SETTINGS_COLLECTION].update_one(
-            {"_key": SETTINGS_KEY},
-            {"$set": {"oauth_state": state}},
-        )
         auth_url, _state = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
             prompt="consent",  # always issue a refresh_token
             state=state,
+        )
+        # google-auth-oauthlib auto-generates a PKCE `code_verifier` and
+        # appends the corresponding `code_challenge` to the URL. The
+        # verifier lives on `flow.code_verifier` in memory ONLY — we have to
+        # persist it ourselves so the callback (almost always a separate
+        # worker/process on Render) can complete the token exchange.
+        code_verifier = getattr(flow, "code_verifier", None)
+        await db[SETTINGS_COLLECTION].update_one(
+            {"_key": SETTINGS_KEY},
+            {"$set": {
+                "oauth_state": state,
+                "oauth_code_verifier": code_verifier,
+                "oauth_redirect_uri": redirect_uri,
+            }},
         )
         return {"authorization_url": auth_url, "redirect_uri": redirect_uri}
 
@@ -682,11 +692,20 @@ def build_backup_router(db) -> APIRouter:
             raise HTTPException(status_code=400, detail="Invalid OAuth state.")
         if not settings.get("client_id") or not settings.get("client_secret"):
             raise HTTPException(status_code=400, detail="Client credentials missing.")
-        redirect_uri = _redirect_uri(request)
+        # Use the EXACT redirect URI sent in /oauth/start. Re-deriving it
+        # here can pick up subtly different proxy headers (especially on
+        # Render where the worker that handles the callback may not match
+        # the one that handled /start), which makes Google reject the
+        # exchange with redirect_uri_mismatch or invalid_grant.
+        redirect_uri = settings.get("oauth_redirect_uri") or _redirect_uri(request)
         flow = _build_flow(
             settings["client_id"], settings["client_secret"], redirect_uri,
             lock_scopes=False,  # accept extra Google-auto-added scopes
         )
+        # Restore the PKCE code_verifier we stored in /oauth/start.
+        stored_verifier = settings.get("oauth_code_verifier")
+        if stored_verifier:
+            flow.code_verifier = stored_verifier
         try:
             await asyncio.to_thread(flow.fetch_token, code=code)
         except Exception as e:
@@ -719,6 +738,8 @@ def build_backup_router(db) -> APIRouter:
                 "token_expiry": creds.expiry.isoformat() if creds.expiry else None,
                 "scopes": list(creds.scopes or DRIVE_SCOPES),
                 "oauth_state": None,
+                "oauth_code_verifier": None,
+                "oauth_redirect_uri": None,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
