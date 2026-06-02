@@ -1041,3 +1041,25 @@ Every newly created shareable item (Note, Goal, Countdown, Family Event, Shoppin
 
 **Verification**: 13/13 backend privacy tests pass; manual E2E (login → pick member → switch goal between "Only me" / "Whole family") shows the success toast every time, no false error.
 
+
+
+## Feature (Feb 2026 latest) — System Backup (MongoDB → Google Drive)
+
+Admin-only card under `/admin` with three sections:
+1. **Backup Settings** — Google Client ID, Client Secret, Folder ID, Backup Time (UTC), Auto Backup toggle. Empty by default; admin enters values from the UI. Client Secret is never returned in clear — only a masked preview (`GOCS…cret`).
+2. **Backup Now** — one-tap full dump (every collection → JSONL → `.tar.gz`) → upload to Drive → retention prune.
+3. **Backup History** — table: date, trigger, size, status, Drive link, error.
+
+**Drive integration**: scope `drive.file` only (sees only files this app created). Redirect URI derived from request host (no env var). Connect/Test/Disconnect endpoints all behind `require_admin`.
+
+**Scheduler**: APScheduler AsyncIO cron, single job `mlmt-daily-backup` (UTC). Reschedules on settings save; only installs when both `auto_enabled=true` AND `drive_connected=true`.
+
+**Retention**: keeps latest 30 archives in the folder, older `mlmt-backup-*` files trashed automatically.
+
+**Files**:
+- New: `/app/backend/backup_module.py`, `/app/backend/tests/test_backup_module.py`, `/app/frontend/src/components/SystemBackupCard.jsx`.
+- Modified: `/app/backend/server.py`, `/app/backend/requirements.txt` (+google-api-python-client, +google-auth-oauthlib, +apscheduler), `/app/frontend/src/pages/Admin.jsx`.
+
+**Tests**: 9/9 backup tests + 13/13 privacy tests = 22/22 passing.
+
+**Production note**: when deployed on Render, the backup module reads from whatever `MONGO_URL` + `DB_NAME` point to — so it will back up the Atlas `familyhub` database automatically with no code changes.

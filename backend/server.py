@@ -68,6 +68,10 @@ api_router.include_router(build_auth_router(raw_db))
 api_router.include_router(build_family_router(raw_db))
 api_router.include_router(build_admin_router(raw_db))
 
+# System Backup (admin-driven Mongo → Google Drive backups).
+from backup_module import build_backup_router, start_scheduler as start_backup_scheduler
+api_router.include_router(build_backup_router(raw_db))
+
 
 # ============= Models =============
 
@@ -3788,6 +3792,13 @@ async def on_startup():
             await asyncio.sleep(6 * 60 * 60)
 
     asyncio.create_task(_deletion_purge_loop())
+
+    # Start the daily backup scheduler. It self-configures from
+    # `backup_settings` and stays idle until the admin enables it.
+    try:
+        start_backup_scheduler(raw_db)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Backup scheduler failed to start: %s", exc)
 
 
 async def migrate_legacy_to_nasser(rdb):

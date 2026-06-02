@@ -24,6 +24,7 @@ import {
   logout as apiLogout,
 } from "@/lib/auth";
 import { invalidateFeatureFlags } from "@/lib/featureFlags";
+import SystemBackupCard from "@/components/SystemBackupCard";
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -318,6 +319,9 @@ const Admin = () => {
         {/* Global feature flags — admin can flip optional sections on/off
             for every user from this card. Persisted in MongoDB. */}
         <FeatureFlagsCard />
+
+        {/* System Backup — Mongo dump → Google Drive uploader. */}
+        <SystemBackupCard />
 
         <div className="rounded-3xl bg-white border border-[#E5E2DC] p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2 mb-2">
