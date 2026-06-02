@@ -110,10 +110,12 @@ def test_oauth_start_returns_consent_url(headers):
     r = requests.get(f"{API}/admin/backup/oauth/start", headers=headers, timeout=10)
     assert r.status_code == 200
     body = r.json()
-    assert body["authorization_url"].startswith("https://accounts.google.com/o/oauth2/auth")
+    assert body["authorization_url"].startswith("https://accounts.google.com/o/oauth2/")
     assert "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file" in body["authorization_url"]
     assert "access_type=offline" in body["authorization_url"]
     assert "prompt=consent" in body["authorization_url"]
+    # PKCE must NOT appear — we're a confidential web client.
+    assert "code_challenge" not in body["authorization_url"]
     assert re.search(r"redirect_uri=[^&]+%2Fapi%2Fadmin%2Fbackup%2Foauth%2Fcallback", body["authorization_url"])
 
 

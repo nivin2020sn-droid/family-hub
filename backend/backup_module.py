@@ -57,6 +57,10 @@ SETTINGS_KEY = "global"
 SETTINGS_COLLECTION = "backup_settings"
 RUNS_COLLECTION = "backup_runs"
 
+# Bumped on every meaningful change to the OAuth flow so the /debug endpoint
+# can confirm which version Render is actually running.
+BUILD_VERSION = "backup-2026.06.02-3"
+
 # Narrow scope: app can only see files it created in the user's Drive.
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
@@ -638,6 +642,32 @@ def build_backup_router(db) -> APIRouter:
             logger.exception("Drive test failed")
             raise HTTPException(status_code=400, detail=str(e))
 
+    @router.get("/debug")
+    async def debug(request: Request, _: dict = Depends(require_admin)):
+        """Diagnostic info — confirms which version is actually deployed and
+        what `redirect_uri` the backend will send to Google. Use this from
+        the browser when troubleshooting OAuth errors:
+            GET /api/admin/backup/debug
+        """
+        settings = await _load_settings_raw(db)
+        return {
+            "build": BUILD_VERSION,
+            "host": request.headers.get("host"),
+            "redirect_uri": _redirect_uri(request),
+            "pkce_enabled": False,
+            "auth_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_endpoint": "https://oauth2.googleapis.com/token",
+            "scope": DRIVE_SCOPES[0],
+            "stored": {
+                "client_id": settings.get("client_id") or "",
+                "has_client_secret": bool(settings.get("client_secret")),
+                "drive_connected": bool(settings.get("drive_connected")),
+                "drive_account_email": settings.get("drive_account_email"),
+                "oauth_state_set": bool(settings.get("oauth_state")),
+                "oauth_redirect_uri_stored": settings.get("oauth_redirect_uri"),
+            },
+        }
+
     @router.get("/oauth/start")
     async def oauth_start(request: Request, _: dict = Depends(require_admin)):
         """Return the Google consent URL. We require the admin to save
@@ -649,39 +679,49 @@ def build_backup_router(db) -> APIRouter:
                 detail="Save Google Client ID and Client Secret first.",
             )
         redirect_uri = _redirect_uri(request)
-        flow = _build_flow(
-            settings["client_id"], settings["client_secret"], redirect_uri
-        )
-        # Disable PKCE explicitly. Google's "Web application" client type
-        # is a CONFIDENTIAL client (we hold the client_secret), so PKCE is
-        # not required. Disabling it dodges a class of edge cases on
-        # multi-worker hosts (Render) where /oauth/start and /oauth/callback
-        # may not share in-process state — the auto-generated `code_verifier`
-        # would otherwise live on a different worker than the one handling
-        # the callback. Newer versions of google-auth-oauthlib turned PKCE
-        # on by default, so we override here defensively.
-        flow.autogenerate_code_verifier = False
-        flow.code_verifier = None
         state = uuid.uuid4().hex
-        auth_url, _state = flow.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",  # always issue a refresh_token
-            state=state,
+
+        # Build the authorization URL ENTIRELY by hand — no
+        # `google_auth_oauthlib.Flow` involved. This guarantees we never
+        # leak a `code_challenge` parameter that we don't intend to support
+        # (different versions of the library default differently). We are a
+        # confidential web client (we hold the secret), so PKCE is optional
+        # under RFC 6749 §4.1 — we simply don't request it.
+        from urllib.parse import urlencode
+        params = {
+            "response_type": "code",
+            "client_id": settings["client_id"],
+            "redirect_uri": redirect_uri,
+            "scope": " ".join(DRIVE_SCOPES),
+            "state": state,
+            "access_type": "offline",
+            "include_granted_scopes": "true",
+            "prompt": "consent",
+        }
+        auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+        # Diagnostic log so the deploy version is unambiguous in Render logs.
+        logger.info(
+            "[backup oauth] build=%s host=%s redirect_uri=%s pkce=False auth_url=%s",
+            BUILD_VERSION,
+            request.headers.get("host"),
+            redirect_uri,
+            auth_url,
         )
-        # Even with PKCE disabled, capture whatever `code_verifier` ended up
-        # on the flow (None when PKCE truly is off). Stored alongside `state`
-        # so the callback can restore it if the library still generated one.
-        code_verifier = getattr(flow, "code_verifier", None)
         await db[SETTINGS_COLLECTION].update_one(
             {"_key": SETTINGS_KEY},
             {"$set": {
                 "oauth_state": state,
-                "oauth_code_verifier": code_verifier,
+                "oauth_code_verifier": None,
                 "oauth_redirect_uri": redirect_uri,
             }},
         )
-        return {"authorization_url": auth_url, "redirect_uri": redirect_uri}
+        return {
+            "authorization_url": auth_url,
+            "redirect_uri": redirect_uri,
+            "build": BUILD_VERSION,
+            "pkce": False,
+        }
 
     @router.get("/oauth/callback")
     async def oauth_callback(
@@ -714,6 +754,13 @@ def build_backup_router(db) -> APIRouter:
         redirect_uri = settings.get("oauth_redirect_uri") or _redirect_uri(request)
 
         # Manual exchange — gives us the raw Google error_description.
+        logger.info(
+            "[backup oauth] callback build=%s host=%s redirect_uri=%s code_len=%s",
+            BUILD_VERSION,
+            request.headers.get("host"),
+            redirect_uri,
+            len(code) if code else 0,
+        )
         try:
             resp = await asyncio.to_thread(
                 lambda: requests.post(
